@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 20% 96%; /* #F0F0F0 - classic SAP gray */
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 217 67% 50%; /* #2A6BD5 */
+    --primary-foreground: 210 40% 98%;
+    --secondary: 196 85% 68%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 196 85% 90%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 217 67% 50%;
+    --radius: 0.25rem; /* Shorter radius for SAP look */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-body;
+  }
+}
+
+@layer utilities {
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  /* Hide scrollbar for IE, Edge and Firefox */
+  .no-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+}
+
+/* Authentic SAP GUI Input Styles */
+input, textarea, select {
+  @apply transition-colors duration-100;
+}
+
+input:focus, textarea:focus, select:focus {
+  background-color: #fff9c4 !important; /* SAP Light Yellow */
+  outline: 2px solid #2A6BD5 !important;
+  outline-offset: -1px;
+}
+
+/* Selection Screen Row Styling */
+.sap-selection-row {
+  @apply flex items-center py-0.5 px-4;
+}
+
+.sap-label {
+  @apply w-48 text-[13px] text-gray-700 shrink-0;
+}
+
+.sap-input-wrapper {
+  @apply flex-1 flex items-center gap-2;
+}
+
+/* Centered SAP Header Bar */
+.sap-header-title {
+  @apply w-full bg-[#dae8f5] px-4 py-1.5 border-b border-gray-300 text-center text-[13px] font-bold text-gray-800 uppercase italic tracking-widest;
+}
+
+/* Professional Selection Area */
+.sap-selection-area {
+  @apply bg-[#e7ebf1] border-b border-[#b5c7de] p-10 space-y-10;
+}
+
+/* ALV Grid Styles */
+.sap-alv-grid {
+  @apply min-w-full border-collapse;
+}
+
+.sap-alv-header {
+  @apply bg-[#e7ebf1] sticky top-0 z-10 shadow-sm border-b border-[#b5c7de];
+}
+
+/* Ctrl+Y Block Selection Highlight */
+.sap-block-mode {
+  cursor: crosshair !important;
+}
+
+.sap-block-mode * {
+  user-select: text !important;
+}
+
+.select-text ::selection {
+  background-color: #2A6BD5;
+  color: white;
+}

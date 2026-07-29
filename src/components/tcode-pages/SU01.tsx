@@ -1,0 +1,151 @@
+
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { useDatabase, useCollection, useMemoDatabase, setDocumentNonBlocking } from "@/database";
+import { collection, query, where, getDocs, doc, serverTimestamp } from "@/database/mongo";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Loader2, UserPlus, ShieldCheck, Lock, Globe } from "lucide-react";
+
+const initialUser = {
+  username: "",
+  password: "",
+  name: "",
+  assignedPlantIds: [] as string[],
+  role: "user",
+};
+
+const TCODE_GROUPS: Record<string, { label: string; codes: string[] }> = {
+  "DB01": { label: "Main Dashboard", codes: ["DB01"] },
+  "FM01": { label: "Firm Management", codes: ["FM01", "FM02", "FM03"] },
+  "OP01": { label: "Plant Management", codes: ["OP01", "OP02", "OP03"] },
+  "XD01": { label: "Customer Master", codes: ["XD01", "XD02", "XD03"] },
+  "XK01": { label: "Vendor Master", codes: ["XK01", "XK02", "XK03"] },
+  "MM01": { label: "Material Master", codes: ["MM01", "MM02", "MM03"] },
+  "VOF01": { label: "Billing Types", codes: ["VOF01", "VOF02", "VOF03"] },
+  "VK11": { label: "Pricing Records", codes: ["VK11", "VK12", "VK13"] },
+  "VF01": { label: "Billing & Invoicing", codes: ["VF01", "VF02", "VF03", "VF11"] },
+  "IRN01": { label: "E-Invoicing", codes: ["IRN01", "IRN02", "IRN03"] },
+  "MIGO": { label: "Goods Movement", codes: ["MIGO"] },
+  "FB03": { label: "Account Analysis", codes: ["FB03", "F110"] },
+  "ZINV": { label: "Invoice Report", codes: ["ZINV"] },
+  "SU01": { label: "Security & Tools", codes: ["SU01", "SU02", "SU03", "ZCODE"] },
+};
+
+export default function SU01() {
+  const db = useDatabase();
+  const [formData, setFormData] = useState(initialUser);
+  const [permissions, setPermissions] = useState<string[]>(["DB01"]); 
+  const [loading, setLoading] = useState(false);
+
+  const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
+  const { data: plants, isLoading: isPlantsLoading } = useCollection(plantsQuery);
+
+  const primaryTcodes = Object.keys(TCODE_GROUPS).sort();
+
+  const togglePermission = (primaryCode: string) => {
+    const groupCodes = TCODE_GROUPS[primaryCode].codes;
+    setPermissions(prev => {
+      if (prev.includes(primaryCode)) {
+        return prev.filter(c => !groupCodes.includes(c));
+      }
+      return Array.from(new Set([...prev, ...groupCodes]));
+    });
+  };
+
+  const togglePlant = (plantId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      assignedPlantIds: prev.assignedPlantIds.includes(plantId)
+        ? prev.assignedPlantIds.filter(id => id !== plantId)
+        : [...prev.assignedPlantIds, plantId]
+    }));
+  };
+
+  const handleExecute = useCallback(async () => {
+    if (!formData.username || !formData.password || formData.assignedPlantIds.length === 0) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Mandatory fields missing", isError: true } }));
+      return;
+    }
+    setLoading(true);
+    try {
+      const q = query(collection(db, "users"), where("username", "==", formData.username));
+      const snap = await getDocs(q);
+      if (!snap.empty) throw new Error("Duplicate User");
+
+      const newUserRef = doc(collection(db, "users"));
+      setDocumentNonBlocking(newUserRef, {
+        ...formData,
+        id: newUserRef.id,
+        tcodePermissions: permissions,
+        createdAt: serverTimestamp(),
+      });
+
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `User ${formData.username} created`, isError: false } }));
+      setFormData(initialUser);
+      setPermissions(["DB01"]);
+    } catch (e: any) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Error: ${e.message}`, isError: true } }));
+    } finally {
+      setLoading(false);
+    }
+  }, [formData, permissions, db]);
+
+  useEffect(() => {
+    window.addEventListener('sap-execute', handleExecute);
+    return () => window.removeEventListener('sap-execute', handleExecute);
+  }, [handleExecute]);
+
+  return (
+    <div className="w-full flex flex-col bg-white min-h-full">
+      <div className="bg-[#dae8f5] px-4 py-1 border-b border-gray-300">
+        <h2 className="text-[13px] font-bold text-gray-800 uppercase italic tracking-wider">User Maintenance: Create</h2>
+      </div>
+
+      <div className="p-4 space-y-6 flex-1 overflow-auto">
+        <div className="grid grid-cols-2 gap-6">
+          <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
+            <div className="bg-[#dae8f5] px-3 py-0.5 border-b text-[12px] font-semibold flex items-center gap-2"><UserPlus size={14} /> Identity</div>
+            <div className="p-3 space-y-2">
+              <div className="sap-selection-row"><label className="sap-label">Username</label><Input value={formData.username} onChange={e => setFormData({...formData, username: e.target.value.toLowerCase()})} /></div>
+              <div className="sap-selection-row"><label className="sap-label">Password</label><Input type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} /></div>
+              <div className="sap-selection-row"><label className="sap-label">Full Name</label><Input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /></div>
+            </div>
+          </div>
+
+          <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9] min-h-[180px]">
+            <div className="bg-[#dae8f5] px-3 py-0.5 border-b text-[12px] font-semibold flex items-center gap-2"><Globe size={14} /> Plant Access</div>
+            <div className="p-3 grid grid-cols-2 gap-2 overflow-y-auto max-h-[200px]">
+              {plants?.map(p => (
+                <div key={p.id} className="flex items-center space-x-2 p-1 hover:bg-blue-50 rounded">
+                  <Checkbox id={`p-${p.plantId}`} checked={formData.assignedPlantIds.includes(p.plantId)} onCheckedChange={() => togglePlant(p.plantId)} />
+                  <label htmlFor={`p-${p.plantId}`} className="text-[11px] font-bold cursor-pointer">{p.plantId} - {p.name}</label>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-white">
+          <div className="bg-[#dae8f5] px-3 py-1 border-b font-semibold text-[12px] flex items-center gap-2"><ShieldCheck size={14} /> Functional Permissions</div>
+          <div className="p-4 grid grid-cols-3 gap-4">
+            {primaryTcodes.map(code => (
+              <div key={code} className="flex items-start space-x-2 p-2 hover:bg-blue-50 rounded border border-gray-100">
+                <Checkbox id={`perm-${code}`} checked={permissions.includes(code)} onCheckedChange={() => togglePermission(code)} />
+                <label htmlFor={`perm-${code}`} className="flex flex-col cursor-pointer">
+                  <span className="text-[12px] font-black text-blue-900 font-mono">{code}</span>
+                  <span className="text-[9px] font-bold text-gray-500 uppercase">{TCODE_GROUPS[code].label}</span>
+                </label>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
