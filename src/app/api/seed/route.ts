@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/mongodb';
+import { getFallbackDb } from '@/lib/fallbackDb';
 
 const ALL_TCODES = [
   'DB01', 'XD01', 'XD02', 'XD03', 'ZCODE',
@@ -20,8 +21,14 @@ const ALL_TCODES = [
 
 export async function GET() {
   try {
-    const db = await getDb();
-    const usersCollection = db.collection('users');
+    let db;
+    try {
+      db = await getDb();
+    } catch (err) {
+      console.error('Seed route: MongoDB unavailable, using fallback DB', err);
+      db = getFallbackDb();
+    }
+    const usersCollection = (await db).collection('users');
 
     const existingUser = await usersCollection.findOne({ username: 'ajaysomra' });
 
@@ -52,7 +59,7 @@ export async function GET() {
     return NextResponse.json({
       message: 'Admin user created successfully',
       user: {
-        id: result.insertedId.toString(),
+        id: result.insertedId?.toString ? result.insertedId.toString() : result.insertedId,
         username: 'ajaysomra',
         name: 'Admin',
         role: 'admin',

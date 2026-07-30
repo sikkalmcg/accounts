@@ -313,21 +313,6 @@ export default function AppShell({ children }: AppShellProps) {
     }
   };
 
-  if (pathname === "/login") return <>{children}</>;
-
-  const isWaitingForDatabase = false;
-  
-  if (isUserLoading || isWaitingForDatabase || !hasMounted) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-[#f0f0f0] space-y-4">
-        <Loader2 className="h-8 w-8 text-primary animate-spin" />
-        <div className="text-[11px] font-bold text-gray-500 uppercase tracking-widest animate-pulse">
-          CONNECTING TO SIKKA ACCOUNT MANAGEMENT SYSTEM
-        </div>
-      </div>
-    );
-  }
-
   const currentTcode = pathname.split('/').pop()?.toUpperCase() || "";
   const tcodeInfo = TCODE_MAP[currentTcode];
   const isHomePage = currentTcode === "DB01" || pathname === "/";
@@ -429,7 +414,22 @@ export default function AppShell({ children }: AppShellProps) {
       window.removeEventListener('sap-toolbar-print', print);
       window.removeEventListener('sap-toolbar-find', find);
     };
-  });
+  }, [canPrint, canSave, hasSavedDocument, isDirty, router]);
+
+  if (pathname === "/login") return <>{children}</>;
+
+  const isWaitingForDatabase = false;
+  
+  if (isUserLoading || isWaitingForDatabase || !hasMounted) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#f0f0f0] space-y-4">
+        <Loader2 className="h-8 w-8 text-primary animate-spin" />
+        <div className="text-[11px] font-bold text-gray-500 uppercase tracking-widest animate-pulse">
+          CONNECTING TO SIKKA ACCOUNT MANAGEMENT SYSTEM
+        </div>
+      </div>
+    );
+  }
 
   const themeStyles = {
     classic: { standardToolbar: "bg-[#e1e1e1] border-gray-400", appToolbar: "bg-gradient-to-b from-[#dae8f5] to-[#c7d9ed]", main: "bg-white", status: "bg-[#333e4f]" },

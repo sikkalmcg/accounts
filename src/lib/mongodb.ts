@@ -10,9 +10,21 @@ declare global {
 
 export async function getDb(): Promise<Db> {
   if (!uri) throw new Error('MONGODB_URI is not configured. Add it to .env.local before starting the app.');
-  const clientPromise = global.mongoClientPromise ?? new MongoClient(uri).connect();
-  if (process.env.NODE_ENV !== 'production') global.mongoClientPromise = clientPromise;
-  return (await clientPromise).db(databaseName);
+  // Do not keep a rejected promise in the module cache. Atlas can briefly fail
+  // DNS/network selection; caching that failure made every later login fail
+  // until the entire Next server was restarted.
+  if (!global.mongoClientPromise) {
+    global.mongoClientPromise = new MongoClient(uri, {
+      serverSelectionTimeoutMS: 10_000,
+      connectTimeoutMS: 10_000,
+      retryReads: true,
+      retryWrites: true,
+    }).connect().catch((error) => {
+      global.mongoClientPromise = undefined;
+      throw error;
+    });
+  }
+  return (await global.mongoClientPromise).db(databaseName);
 }
 
 
