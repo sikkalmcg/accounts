@@ -16,6 +16,7 @@ export default function XD02() {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
   const [formData, setFormData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [canEdit, setCanEdit] = useState(false);
 
   // Fetch Customers for Selection
   const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
@@ -66,16 +67,29 @@ export default function XD02() {
       return;
     }
 
+    if (!canEdit) {
+      window.dispatchEvent(new CustomEvent('sap-status', { 
+        detail: { text: "Error: You do not have permission to edit customer master data", isError: true } 
+      }));
+      return;
+    }
+
     setLoading(true);
     try {
-      // Duplicate Restriction Validation for Code
-      const q = query(collection(db, "customers"), where("customerId", "==", formData.customerId));
+      const normalizedCode = String(formData.customerId || "").trim().toUpperCase();
+      if (!normalizedCode) {
+        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Customer Code is mandatory", isError: true } }));
+        setLoading(false);
+        return;
+      }
+
+      const q = query(collection(db, "customers"), where("customerId", "==", normalizedCode));
       const snap = await getDocs(q);
       const isDuplicate = snap.docs.some(doc => doc.id !== selectedCustomerId);
       
       if (isDuplicate) {
         window.dispatchEvent(new CustomEvent('sap-status', { 
-          detail: { text: `Error: Customer Code ${formData.customerId} already exists`, isError: true } 
+          detail: { text: "Customer Code already exists. Please enter a unique code.", isError: true } 
         }));
         setLoading(false);
         return;
@@ -83,7 +97,7 @@ export default function XD02() {
 
       const customerRef = doc(db, "customers", selectedCustomerId);
       const { id, ...dataToUpdate } = formData;
-      updateDocumentNonBlocking(customerRef, dataToUpdate);
+      updateDocumentNonBlocking(customerRef, { ...dataToUpdate, customerId: normalizedCode });
       window.dispatchEvent(new CustomEvent('sap-status', { 
         detail: { text: `Customer ${formData.customerId} updated successfully`, isError: false } 
       }));
@@ -112,6 +126,15 @@ export default function XD02() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const stored = localStorage.getItem("sikka_user");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      const isSysAdmin = parsed.username === "ajaysomra" || parsed.role === 'admin';
+      setCanEdit(isSysAdmin || (parsed.tcodePermissions || []).includes("XD02"));
+    }
+  }, []);
 
   useEffect(() => {
     const onExecute = () => handleExecute();
@@ -203,7 +226,8 @@ export default function XD02() {
                   <div className="sap-input-wrapper max-w-[200px]">
                     <Input
                       value={formData.customerId}
-                      onChange={(e) => setFormData({...formData, customerId: e.target.value.replace(/[^0-9]/g, "").slice(0, 8)})}
+                      disabled={!canEdit}
+                      onChange={(e) => setFormData({...formData, customerId: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "")})}
                     />
                   </div>
                 </div>

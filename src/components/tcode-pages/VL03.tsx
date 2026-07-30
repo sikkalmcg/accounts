@@ -28,7 +28,8 @@ export default function VL03() {
     const filtered = records.filter(r => 
       r.plantId?.toLowerCase().includes(search.toLowerCase()) || 
       r.customerId?.toLowerCase().includes(search.toLowerCase()) ||
-      r.materialCode?.toLowerCase().includes(search.toLowerCase())
+      r.materialCode?.toLowerCase().includes(search.toLowerCase()) ||
+      r.inventoryType?.toLowerCase().includes(search.toLowerCase())
     );
 
     if (!sortConfig) return filtered;
@@ -83,6 +84,9 @@ export default function VL03() {
               <TableHead onClick={() => handleSort('customerId')} className="text-[11px] font-bold text-gray-700 border-r w-32 cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Customer <SortIcon column="customerId" /></div>
               </TableHead>
+              <TableHead onClick={() => handleSort('inventoryType')} className="text-[11px] font-bold text-gray-700 border-r w-28 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">Inventory Type <SortIcon column="inventoryType" /></div>
+              </TableHead>
               <TableHead onClick={() => handleSort('materialCode')} className="text-[11px] font-bold text-gray-700 border-r w-32 cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Material <SortIcon column="materialCode" /></div>
               </TableHead>
@@ -98,6 +102,7 @@ export default function VL03() {
                 <TableCell className="p-0 text-center text-[10px] border-r text-gray-400">{i + 1}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r font-mono">{r.plantId}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r font-mono">{r.customerId}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r font-mono">{r.inventoryType || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r font-mono">{r.materialCode}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-blue-700 font-bold">{r.basicPriceCode} ({r.basicPriceDesc})</TableCell>
                 <TableCell className="p-0 px-2 text-[10px]">{r.specialDiscountCode}</TableCell>

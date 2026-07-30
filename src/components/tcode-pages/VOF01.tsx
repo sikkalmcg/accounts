@@ -12,6 +12,7 @@ const initialData = {
   plantId: "",
   documentType: "",
   documentCategory: "",
+  inventoryType: "",
 };
 
 export default function VOF01() {
@@ -23,9 +24,9 @@ export default function VOF01() {
   const { data: plants, isLoading: isPlantsLoading } = useCollection(plantsQuery);
 
   const handleExecute = useCallback(async () => {
-    if (!formData.plantId) {
+    if (!formData.plantId || !formData.inventoryType) {
       window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "Error: Plant ID is mandatory", isError: true } 
+        detail: { text: "Error: Plant ID and Inventory Type are mandatory", isError: true } 
       }));
       return;
     }
@@ -121,6 +122,19 @@ export default function VOF01() {
                   </SelectContent>
                 </Select>
                 {isPlantsLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
+              </div>
+            </div>
+
+            <div className="sap-selection-row">
+              <label className="sap-label">Inventory Type</label>
+              <div className="sap-input-wrapper max-w-[200px]">
+                <Select value={formData.inventoryType} onValueChange={(val) => setFormData({...formData, inventoryType: val})}>
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Service Invoice">Service Invoice</SelectItem>
+                    <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 

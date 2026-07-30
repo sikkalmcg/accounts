@@ -58,6 +58,7 @@ export default function VF02() {
   const [docType, setDocType] = useState("");
   const [docCategory, setDocCategory] = useState("");
   const [billType, setBillType] = useState("BILL UNDER F.C.M.");
+  const [inventoryType, setInventoryType] = useState("");
   const [billTo, setBillTo] = useState(""); // Consignee
   const [shipTo, setShipTo] = useState(""); // Ship to Party
   const [isShipToApplicable, setIsShipToApplicable] = useState(false);
@@ -175,6 +176,7 @@ export default function VF02() {
         setDocType(data.docType || "");
         setDocCategory(data.docCategory || "");
         setBillType(data.billType || "BILL UNDER F.C.M.");
+        setInventoryType(data.inventoryType || "");
         setBillTo(data.billTo || "");
         setNote(data.note || "");
         
@@ -297,6 +299,7 @@ export default function VF02() {
       docType, 
       docCategory, 
       billType,
+      inventoryType,
       billTo, 
       shipTo: (isShipToApplicable ? shipTo : billTo) || billTo,
       items, 
@@ -460,6 +463,16 @@ export default function VF02() {
                       <SelectContent>
                         <SelectItem value="BILL UNDER F.C.M.">BILL UNDER F.C.M.</SelectItem>
                         <SelectItem value="BILL UNDER R.C.M.">BILL UNDER R.C.M.</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="sap-selection-row">
+                    <label className="sap-label">Inventory Type</label>
+                    <Select value={inventoryType} onValueChange={setInventoryType} disabled={isIrnGenerated}>
+                      <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Service Invoice">Service Invoice</SelectItem>
+                        <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

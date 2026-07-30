@@ -28,7 +28,8 @@ export default function VOF03() {
     const filtered = records.filter(r => 
       r.plantId?.toLowerCase().includes(search.toLowerCase()) || 
       r.documentType?.toLowerCase().includes(search.toLowerCase()) ||
-      r.documentCategory?.toLowerCase().includes(search.toLowerCase())
+      r.documentCategory?.toLowerCase().includes(search.toLowerCase()) ||
+      r.inventoryType?.toLowerCase().includes(search.toLowerCase())
     );
 
     if (!sortConfig) return filtered;
@@ -83,6 +84,9 @@ export default function VOF03() {
               <TableHead onClick={() => handleSort('documentType')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Document Type <SortIcon column="documentType" /></div>
               </TableHead>
+              <TableHead onClick={() => handleSort('inventoryType')} className="text-[11px] font-bold border-r w-36 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">Inventory Type <SortIcon column="inventoryType" /></div>
+              </TableHead>
               <TableHead onClick={() => handleSort('documentCategory')} className="text-[11px] font-bold cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Charge Type <SortIcon column="documentCategory" /></div>
               </TableHead>
@@ -98,6 +102,7 @@ export default function VOF03() {
                 <TableCell className="p-0 text-center text-[10px] border-r text-gray-400">{i + 1}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r font-mono font-bold text-blue-700">{r.plantId}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r">{r.documentType || "-"}</TableCell>
+                <TableCell className="p-0 px-2 text-[11px] border-r">{r.inventoryType || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px]">{r.documentCategory || "-"}</TableCell>
               </TableRow>
             ))}

@@ -68,6 +68,7 @@ export default function MIGO() {
   // --- Invoice/Stock Receipt State ---
   const [receiptHeader, setReceiptHeader] = useState({
     firmId: "",
+    inventoryType: "",
     invoiceNo: "",
     date: new Date().toISOString().split('T')[0],
     invoiceType: "Tax Invoice",
@@ -129,7 +130,7 @@ export default function MIGO() {
       paymentAdviceNo: "", proofData: "", paymentDate: new Date().toISOString().split('T')[0]
     });
     setReceiptHeader({
-      firmId: "", invoiceNo: "", date: new Date().toISOString().split('T')[0], invoiceType: "Tax Invoice",
+      firmId: "", inventoryType: "", invoiceNo: "", date: new Date().toISOString().split('T')[0], invoiceType: "Tax Invoice",
       vendorId: "", vendorGstin: "", address: "", state: "", stateCode: "", pin: "", gstRate: "18", proofData: ""
     });
     setItems([{ id: '1', desc: '', matCode: '', hsn: '', qty: '', rate: '', amount: 0 }]);
@@ -450,6 +451,7 @@ export default function MIGO() {
                     <SelectContent>{firms?.map(f => <SelectItem key={f.id} value={f.firmId}>{f.firmId} - {f.name}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
+                <div className="sap-selection-row"><label className="sap-label">Inventory Type</label><Select value={receiptHeader.inventoryType} onValueChange={v => setReceiptHeader({...receiptHeader, inventoryType: v})}><SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="" /></SelectTrigger><SelectContent><SelectItem value="Service Invoice">Service Invoice</SelectItem><SelectItem value="Supply Invoice">Supply Invoice</SelectItem></SelectContent></Select></div>
                 <div className="sap-selection-row"><label className="sap-label">Invoice Number</label><Input value={receiptHeader.invoiceNo} onChange={e => setReceiptHeader({...receiptHeader, invoiceNo: e.target.value})} /></div>
                 <div className="sap-selection-row"><label className="sap-label">Date</label><Input type="date" value={receiptHeader.date} onChange={e => setReceiptHeader({...receiptHeader, date: e.target.value})} /></div>
                 <div className="sap-selection-row">

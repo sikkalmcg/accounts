@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useDatabase, addDocumentNonBlocking, useCollection, useMemoDatabase } from "@/database";
-import { collection, serverTimestamp, query, orderBy, limit, getDocs } from "@/database/mongo";
+import { collection, serverTimestamp, query, orderBy, limit, getDocs, where } from "@/database/mongo";
 import { Save, Loader2 } from "lucide-react";
 import { parseGSTIN } from "@/lib/gst-utils";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import {
 
 const initialData = {
   plantId: "",
+  customerId: "",
   name: "",
   mobile: "",
   email: "",
@@ -58,38 +59,33 @@ export default function XD01() {
   };
 
   const handleExecute = useCallback(async () => {
-    if (!formData.name || !formData.mobile || !formData.plantId) {
+    if (!formData.name || !formData.mobile || !formData.plantId || !formData.customerId) {
       window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "Validation Error: Customer Name, Mobile, and Plant ID are required", isError: true } 
+        detail: { text: "Validation Error: Customer Name, Mobile, Plant ID, and Customer Code are required", isError: true } 
+      }));
+      return;
+    }
+
+    const normalizedCode = formData.customerId.trim().toUpperCase();
+    const duplicateQuery = query(collection(db, "customers"), where("customerId", "==", normalizedCode));
+    const duplicateSnap = await getDocs(duplicateQuery);
+    if (!duplicateSnap.empty) {
+      window.dispatchEvent(new CustomEvent('sap-status', { 
+        detail: { text: "Customer Code already exists. Please enter a unique code.", isError: true } 
       }));
       return;
     }
 
     setLoading(true);
     try {
-      const customersRef = collection(db, "customers");
-      const q = query(customersRef, orderBy("customerId", "desc"), limit(1));
-      const snap = await getDocs(q);
-      
-      let nextId = 30000000;
-      if (!snap.empty) {
-        const lastIdStr = snap.docs[0].data().customerId;
-        const lastId = parseInt(lastIdStr);
-        if (!isNaN(lastId) && lastId >= 30000000) {
-          nextId = lastId + 1;
-        }
-      }
-      
-      const customerId = nextId.toString();
-
       addDocumentNonBlocking(collection(db, "customers"), {
         ...formData,
-        customerId,
+        customerId: normalizedCode,
         createdAt: serverTimestamp(),
       });
       
       window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: `Customer ${customerId} created successfully`, isError: false } 
+        detail: { text: `Customer ${normalizedCode} created successfully`, isError: false } 
       }));
       setFormData(initialData);
     } catch (error) {
@@ -153,6 +149,16 @@ export default function XD01() {
                   </SelectContent>
                 </Select>
                 {isPlantsLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
+              </div>
+            </div>
+
+            <div className="sap-selection-row">
+              <label className="sap-label">Customer Code</label>
+              <div className="sap-input-wrapper max-w-[200px]">
+                <Input
+                  value={formData.customerId}
+                  onChange={(e) => setFormData({...formData, customerId: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "")})}
+                />
               </div>
             </div>
 
@@ -279,5 +285,4 @@ export default function XD01() {
     </div>
   );
 }
-
 

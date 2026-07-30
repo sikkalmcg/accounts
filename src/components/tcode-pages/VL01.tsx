@@ -22,6 +22,7 @@ const rows = [
 const initialData = {
   plantId: "",
   customerId: "",
+  inventoryType: "",
   materialCode: "",
   basicPriceCode: "",
   basicPriceDesc: "",
@@ -57,7 +58,7 @@ export default function VL01() {
   const { data: materials } = useCollection(materialsQuery);
 
   const handleExecute = useCallback(async () => {
-    if (!formData.plantId || !formData.customerId || !formData.materialCode) {
+    if (!formData.plantId || !formData.customerId || !formData.inventoryType || !formData.materialCode) {
       window.dispatchEvent(new CustomEvent('sap-status', { 
         detail: { text: "Validation Error: Plant, Customer and MATERIAL are required", isError: true } 
       }));
@@ -151,6 +152,21 @@ export default function VL01() {
                   </SelectTrigger>
                   <SelectContent>
                     {customers?.map(c => <SelectItem key={c.id} value={c.customerId}>{c.customerId} - {c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="sap-selection-row">
+              <label className="sap-label">Inventory Type</label>
+              <div className="sap-input-wrapper max-w-md">
+                <Select value={formData.inventoryType} onValueChange={(val) => setFormData({...formData, inventoryType: val})}>
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
+                    <SelectValue placeholder="" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Service Invoice">Service Invoice</SelectItem>
+                    <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

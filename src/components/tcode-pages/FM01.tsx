@@ -20,6 +20,7 @@ import {
 
 const initialData = {
   plantId: "",
+  consignorCode: "",
   logoData: "",
   name: "",
   address: "",
@@ -84,36 +85,21 @@ export default function FM01() {
   };
 
   const handleExecute = useCallback(async () => {
-    if (!formData.plantId || !formData.name || !formData.gstin) {
+    if (!formData.plantId || !formData.consignorCode || !formData.name || !formData.gstin) {
       window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "Validation Error: Plant, Name, and GSTIN are required", isError: true } 
+        detail: { text: "Validation Error: Plant, Consignor Code, Name, and GSTIN are required", isError: true } 
       }));
       return;
     }
 
+    const normalizedCode = formData.consignorCode.trim().toUpperCase();
     setLoading(true);
     try {
-      const firmsRef = collection(db, "firms");
-      const q = query(firmsRef, orderBy("firmId", "desc"), limit(1));
-      const snap = await getDocs(q);
-      
-      let nextId = 10000000;
-      if (!snap.empty) {
-        const lastIdStr = snap.docs[0].data().firmId;
-        const lastId = parseInt(lastIdStr);
-        if (!isNaN(lastId) && lastId >= 10000000) {
-          nextId = lastId + 1;
-        }
-      }
-      
-      const firmId = nextId.toString();
-
-      // Duplicate check for Firm ID
-      const dupQuery = query(collection(db, "firms"), where("firmId", "==", firmId));
+      const dupQuery = query(collection(db, "firms"), where("firmId", "==", normalizedCode));
       const dupSnap = await getDocs(dupQuery);
       if (!dupSnap.empty) {
         window.dispatchEvent(new CustomEvent('sap-status', { 
-          detail: { text: `Error: Firm ID ${firmId} already exists`, isError: true } 
+          detail: { text: "Consignor Code already exists. Please enter a unique code.", isError: true } 
         }));
         setLoading(false);
         return;
@@ -123,12 +109,13 @@ export default function FM01() {
 
       addDocumentNonBlocking(collection(db, "firms"), {
         ...formData,
-        firmId,
+        firmId: normalizedCode,
+        consignorCode: normalizedCode,
         plantDocId: validPlant?.id || "",
         createdAt: serverTimestamp(),
       });
       window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: `Firm ${firmId} created successfully`, isError: false } 
+        detail: { text: `Firm ${normalizedCode} created successfully`, isError: false } 
       }));
       setFormData(initialData);
     } catch (error) {
@@ -224,6 +211,16 @@ export default function FM01() {
                   )}
                 </div>
                 <input type="file" ref={fileInputRef} onChange={handleLogoUpload} accept="image/*" className="hidden" />
+              </div>
+            </div>
+
+            <div className="sap-selection-row">
+              <label className="sap-label">Consignor Code</label>
+              <div className="sap-input-wrapper max-w-[200px]">
+                <Input
+                  value={formData.consignorCode}
+                  onChange={(e) => setFormData({...formData, consignorCode: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "")})}
+                />
               </div>
             </div>
 

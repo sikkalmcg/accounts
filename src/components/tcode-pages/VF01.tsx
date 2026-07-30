@@ -55,6 +55,7 @@ export default function VF01() {
   const [docType, setDocType] = useState("TAX INVOICE");
   const [docCategory, setDocCategory] = useState("");
   const [billType, setBillType] = useState("BILL UNDER F.C.M.");
+  const [inventoryType, setInventoryType] = useState("");
   const [billTo, setBillTo] = useState(""); // Consignee
   const [shipTo, setShipTo] = useState(""); // Ship to Party
   const [isShipToApplicable, setIsShipToApplicable] = useState(false);
@@ -201,6 +202,7 @@ export default function VF01() {
       }
       setDocCategory(inv.docCategory);
       setBillType(inv.billType || "BILL UNDER F.C.M.");
+      setInventoryType(inv.inventoryType || "");
       setCustomHeaders(inv.customHeaders || []);
       setNote(inv.note || "");
       setItems(inv.items.map((i: any) => ({ ...i, id: Math.random().toString() })));
@@ -327,8 +329,8 @@ export default function VF01() {
   };
 
   const handleExecute = useCallback(async () => {
-    if (!plantId || !invoiceNo || !billTo) {
-      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Mandatory fields missing", isError: true } }));
+    if (!plantId || !invoiceNo || !billTo || !inventoryType) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Plant, Invoice Number, Consignee and Inventory Type are mandatory", isError: true } }));
       return;
     }
 
@@ -395,6 +397,7 @@ export default function VF01() {
         docType, 
         docCategory, 
         billType,
+        inventoryType,
         billTo, 
         shipTo: (isShipToApplicable ? shipTo : billTo) || billTo,
         originalInvoiceRef: isCreditNote ? referenceNo : null,
@@ -408,6 +411,7 @@ export default function VF01() {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `${docLabels.no} ${invoiceNo} posted successfully`, isError: false } }));
       
       setInvoiceNo("");
+      setInventoryType("");
       setReferenceNo("");
       setReferenceDocId(null);
       setNote("");
@@ -546,6 +550,16 @@ export default function VF01() {
                   <SelectContent>
                     <SelectItem value="BILL UNDER F.C.M.">BILL UNDER F.C.M.</SelectItem>
                     <SelectItem value="BILL UNDER R.C.M.">BILL UNDER R.C.M.</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="sap-selection-row">
+                <label className="sap-label">Inventory Type</label>
+                <Select value={inventoryType} onValueChange={setInventoryType}>
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Service Invoice">Service Invoice</SelectItem>
+                    <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

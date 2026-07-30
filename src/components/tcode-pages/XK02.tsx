@@ -21,7 +21,10 @@ export default function XK02() {
 
   const handleSelect = (id: string) => {
     const vendor = vendors?.find(v => v.id === id);
-    setFormData(vendor);
+    setFormData({
+      ...vendor,
+      vendorCode: vendor?.vendorCode || vendor?.vendorId || "",
+    });
     setSelectedId(id);
   };
 
@@ -33,10 +36,16 @@ export default function XK02() {
       return;
     }
 
+    const normalizedCode = String(formData.vendorCode || "").trim().toUpperCase();
+    if (!normalizedCode) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Vendor Code is mandatory", isError: true } }));
+      return;
+    }
+
     setLoading(true);
     try {
       const { id, ...dataToUpdate } = formData;
-      updateDocumentNonBlocking(doc(db, "vendors", selectedId), dataToUpdate);
+      updateDocumentNonBlocking(doc(db, "vendors", selectedId), { ...dataToUpdate, vendorId: normalizedCode, vendorCode: normalizedCode });
       window.dispatchEvent(new CustomEvent('sap-status', { 
         detail: { text: `Vendor ${formData.vendorId} updated successfully`, isError: false } 
       }));
@@ -110,6 +119,12 @@ export default function XK02() {
                 </Button>
               </div>
               <div className="p-2 space-y-1">
+                <div className="sap-selection-row">
+                  <label className="sap-label">Vendor Code</label>
+                  <div className="sap-input-wrapper max-md">
+                    <Input value={formData.vendorCode} onChange={(e) => setFormData({...formData, vendorCode: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "")})} />
+                  </div>
+                </div>
                 <div className="sap-selection-row">
                   <label className="sap-label">Vendor Name</label>
                   <div className="sap-input-wrapper max-md">

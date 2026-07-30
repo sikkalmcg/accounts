@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 
 const initialData = {
+  vendorCode: "",
   vendorName: "",
   contact: "",
   address: "",
@@ -36,36 +37,21 @@ export default function XK01() {
   const { data: plants, isLoading: isPlantsLoading } = useCollection(plantsQuery);
 
   const handleExecute = useCallback(async () => {
-    if (!formData.vendorName || !formData.contact || !formData.plantId) {
+    if (!formData.vendorCode || !formData.vendorName || !formData.contact || !formData.plantId) {
       window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "Validation Error: Vendor Name, Contact, and Plant ID are required", isError: true } 
+        detail: { text: "Validation Error: Vendor Code, Vendor Name, Contact, and Plant ID are required", isError: true } 
       }));
       return;
     }
 
+    const normalizedCode = formData.vendorCode.trim().toUpperCase();
     setLoading(true);
     try {
-      const vendorsRef = collection(db, "vendors");
-      const q = query(vendorsRef, orderBy("vendorId", "desc"), limit(1));
-      const snap = await getDocs(q);
-      
-      let nextId = 40000000;
-      if (!snap.empty) {
-        const lastIdStr = snap.docs[0].data().vendorId;
-        const lastId = parseInt(lastIdStr);
-        if (!isNaN(lastId) && lastId >= 40000000) {
-          nextId = lastId + 1;
-        }
-      }
-      
-      const vendorId = nextId.toString();
-
-      // Duplicate Restriction Validation for Vendor ID
-      const dupQuery = query(collection(db, "vendors"), where("vendorId", "==", vendorId));
+      const dupQuery = query(collection(db, "vendors"), where("vendorCode", "==", normalizedCode));
       const dupSnap = await getDocs(dupQuery);
       if (!dupSnap.empty) {
         window.dispatchEvent(new CustomEvent('sap-status', { 
-          detail: { text: `Error: Vendor ID ${vendorId} already exists`, isError: true } 
+          detail: { text: "Vendor Code already exists. Please enter a unique code.", isError: true } 
         }));
         setLoading(false);
         return;
@@ -73,12 +59,13 @@ export default function XK01() {
 
       addDocumentNonBlocking(collection(db, "vendors"), {
         ...formData,
-        vendorId,
+        vendorId: normalizedCode,
+        vendorCode: normalizedCode,
         createdAt: serverTimestamp(),
       });
       
       window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: `Vendor ${vendorId} created successfully`, isError: false } 
+        detail: { text: `Vendor ${normalizedCode} created successfully`, isError: false } 
       }));
       setFormData(initialData);
     } catch (error) {
@@ -137,6 +124,16 @@ export default function XK01() {
                   </SelectContent>
                 </Select>
                 {isPlantsLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
+              </div>
+            </div>
+
+            <div className="sap-selection-row">
+              <label className="sap-label">Vendor Code</label>
+              <div className="sap-input-wrapper max-w-[200px]">
+                <Input
+                  value={formData.vendorCode}
+                  onChange={(e) => setFormData({...formData, vendorCode: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "")})}
+                />
               </div>
             </div>
 

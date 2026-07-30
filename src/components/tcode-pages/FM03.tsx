@@ -39,7 +39,8 @@ export default function FM03() {
     if (!firms) return [];
     const filtered = firms.filter(f => 
       f.name?.toLowerCase().includes(search.toLowerCase()) || 
-      f.gstin?.toUpperCase().includes(search.toUpperCase())
+      f.gstin?.toUpperCase().includes(search.toUpperCase()) ||
+      (f.consignorCode || f.firmId || "").toLowerCase().includes(search.toLowerCase())
     );
 
     if (!sortConfig) return filtered;
@@ -115,6 +116,9 @@ export default function FM03() {
               <TableHead onClick={() => handleSort('gstin')} className="text-[11px] border-r w-32 cursor-pointer hover:bg-gray-200 transition-colors">
                 <div className="flex items-center">GSTIN <SortIcon column="gstin" /></div>
               </TableHead>
+              <TableHead onClick={() => handleSort('consignorCode')} className="text-[11px] border-r w-32 cursor-pointer hover:bg-gray-200 transition-colors">
+                <div className="flex items-center">Consignor Code <SortIcon column="consignorCode" /></div>
+              </TableHead>
               <TableHead onClick={() => handleSort('name')} className="text-[11px] border-r cursor-pointer hover:bg-gray-200 transition-colors">
                 <div className="flex items-center">Consignor Name <SortIcon column="name" /></div>
               </TableHead>
@@ -143,6 +147,7 @@ export default function FM03() {
                   ) : <Building2 className="h-4 w-4 text-gray-300" />}
                 </TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r font-mono">{f.gstin}</TableCell>
+                <TableCell className="p-0 px-2 text-[11px] border-r font-mono font-bold text-blue-700">{f.consignorCode || f.firmId || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r font-bold">{f.name}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r text-gray-600">{f.plantId || "N/A"}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r font-mono">{f.pan}</TableCell>

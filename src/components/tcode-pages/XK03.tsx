@@ -28,6 +28,7 @@ export default function XK03() {
     const filtered = vendors.filter(v => 
       v.vendorName?.toLowerCase().includes(search.toLowerCase()) || 
       v.vendorId?.toLowerCase().includes(search.toLowerCase()) ||
+      v.vendorCode?.toLowerCase().includes(search.toLowerCase()) ||
       v.gstin?.toLowerCase().includes(search.toLowerCase())
     );
 
@@ -66,8 +67,8 @@ export default function XK03() {
           <TableHeader className="sap-alv-header">
             <TableRow className="h-8 border-b-[#b5c7de]">
               <TableHead className="text-[11px] font-bold border-r w-12 text-center">#</TableHead>
-              <TableHead onClick={() => handleSort('vendorId')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center">Vendor ID <SortIcon column="vendorId" /></div>
+              <TableHead onClick={() => handleSort('vendorCode')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">Vendor Code <SortIcon column="vendorCode" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('vendorName')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Vendor Name <SortIcon column="vendorName" /></div>
@@ -88,7 +89,7 @@ export default function XK03() {
             ) : sortedData.map((v, i) => (
               <TableRow key={v.id} className="h-8 hover:bg-blue-50/20 transition-colors border-b border-gray-100 group">
                 <TableCell className="p-0 text-center text-[11px] border-r text-gray-400 group-hover:text-blue-600">{i + 1}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r font-mono font-bold text-blue-700">{v.vendorId}</TableCell>
+                <TableCell className="p-0 px-2 text-[11px] border-r font-mono font-bold text-blue-700">{v.vendorCode || v.vendorId || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r font-medium">{v.vendorName}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r">{v.contact}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] font-mono">{v.gstin}</TableCell>

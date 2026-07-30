@@ -50,6 +50,7 @@ export default function VK12() {
       setFormData({
         ...record,
         approvalFile: record.approvalFile || "",
+        inventoryType: record.inventoryType || "",
         approvalFileName: record.approvalFileName || "",
         validFrom: record.validFrom || "",
         validTo: record.validTo || "9999-12-31",
@@ -154,6 +155,7 @@ export default function VK12() {
               <div className="p-2 space-y-1">
                 <div className="sap-selection-row"><label className="sap-label">Plant / Category</label><div className="flex gap-2 w-full"><Input value={formData.plantId} readOnly className="bg-gray-100 font-mono w-24" /><Input value={formData.documentCategory || "GENERAL"} readOnly className="bg-gray-100" /></div></div>
                 <div className="sap-selection-row"><label className="sap-label">Customer / Material</label><div className="flex gap-2 w-full"><Input value={formData.customerCode} readOnly className="bg-gray-100 w-32" /><Input value={formData.materialCode} readOnly className="bg-gray-100" /></div></div>
+                <div className="sap-selection-row"><label className="sap-label">Inventory Type</label><Input value={formData.inventoryType || "-"} readOnly className="bg-gray-100 max-w-[220px]" /></div>
                 <div className="sap-selection-row"><label className="sap-label">Basic Rate</label>
                   <div className="sap-input-wrapper max-w-[200px] gap-2">
                     <Input type="number" value={formData.price} onChange={(e) => setFormData({...formData, price: e.target.value})} className="font-bold text-blue-700" />

@@ -49,6 +49,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -56,6 +66,12 @@ interface AppShellProps {
 
 type ThemeType = 'classic' | 'gold' | 'dark' | 'belize' | 'green';
 type StatusLevel = 'success' | 'error' | 'warning' | 'info';
+type PendingAction = 'back' | 'exit' | 'cancel' | null;
+
+const isDisplayModeForPath = (path: string) => {
+  const code = path.split('/').pop()?.toUpperCase() || '';
+  return code.endsWith('03') || Boolean(TCODE_MAP[code]?.isDisplayOnly);
+};
 
 export default function AppShell({ children }: AppShellProps) {
   const router = useRouter();
@@ -70,6 +86,15 @@ export default function AppShell({ children }: AppShellProps) {
   const [hasMounted, setHasMounted] = useState(false);
   const [isBlockMode, setIsBlockMode] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  const [hasSavedDocument, setHasSavedDocument] = useState(false);
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findText, setFindText] = useState("");
+  const [findCount, setFindCount] = useState(0);
+  const [selectedRecord, setSelectedRecord] = useState(-1);
+  const [recordCount, setRecordCount] = useState(0);
+  const [saveInFlight, setSaveInFlight] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = userData?.role === 'admin' || userData?.username === "ajaysomra";
@@ -107,6 +132,45 @@ export default function AppShell({ children }: AppShellProps) {
 
   useEffect(() => {
     setHasMounted(true);
+  }, []);
+
+  // The shell observes edits made by every t-code. This lets legacy and new
+  // transactions receive SAP-style leave/cancel protection without each page
+  // having to reimplement it.
+  useEffect(() => {
+    setIsDirty(false);
+    setSelectedRecord(-1);
+    setRecordCount(0);
+    setHasSavedDocument(isDisplayModeForPath(pathname));
+  }, [pathname]);
+
+  useEffect(() => {
+    const markDirty = (event: Event) => {
+      const element = event.target as HTMLElement | null;
+      if (element?.closest('main') && element.matches('input, textarea, select, button[role="checkbox"]')) {
+        setIsDirty(true);
+      }
+    };
+    const selectGridRecord = (event: MouseEvent) => {
+      const row = (event.target as HTMLElement | null)?.closest('main tbody tr') as HTMLElement | null;
+      if (!row) return;
+      const rows = Array.from(document.querySelectorAll('main tbody tr')) as HTMLElement[];
+      const index = rows.indexOf(row);
+      if (index >= 0) {
+        rows.forEach(item => item.classList.remove('ring-2', 'ring-inset', 'ring-blue-500', 'bg-blue-100'));
+        row.classList.add('ring-2', 'ring-inset', 'ring-blue-500', 'bg-blue-100');
+        setSelectedRecord(index);
+        setRecordCount(rows.length);
+      }
+    };
+    window.addEventListener('input', markDirty, true);
+    window.addEventListener('change', markDirty, true);
+    window.addEventListener('click', selectGridRecord, true);
+    return () => {
+      window.removeEventListener('input', markDirty, true);
+      window.removeEventListener('change', markDirty, true);
+      window.removeEventListener('click', selectGridRecord, true);
+    };
   }, []);
 
   const handleTcodeSubmit = useCallback((inputOverride?: string) => {
@@ -158,24 +222,24 @@ export default function AppShell({ children }: AppShellProps) {
     const handleGlobalShortcuts = (e: KeyboardEvent) => {
       if (e.key === 'F8') {
         e.preventDefault();
-        window.dispatchEvent(new CustomEvent('sap-execute'));
+        window.dispatchEvent(new CustomEvent('sap-toolbar-save'));
       } else if (e.key === 'F3') {
         e.preventDefault();
-        router.push("/tcode/DB01");
+        window.dispatchEvent(new CustomEvent('sap-toolbar-back'));
       } else if (e.key === 'F12') {
         e.preventDefault();
-        window.dispatchEvent(new CustomEvent('sap-cancel'));
+        window.dispatchEvent(new CustomEvent('sap-toolbar-cancel'));
       }
       
       if (e.ctrlKey) {
         switch (e.key.toLowerCase()) {
           case 's':
             e.preventDefault();
-            window.dispatchEvent(new CustomEvent('sap-execute'));
+            window.dispatchEvent(new CustomEvent('sap-toolbar-save'));
             break;
           case 'p':
             e.preventDefault();
-            window.print();
+            window.dispatchEvent(new CustomEvent('sap-toolbar-print'));
             break;
           case 'y':
             e.preventDefault();
@@ -184,13 +248,21 @@ export default function AppShell({ children }: AppShellProps) {
             break;
           case 'f':
             e.preventDefault();
-            inputRef.current?.focus();
+            window.dispatchEvent(new CustomEvent('sap-toolbar-find'));
             break;
         }
       }
 
       if (e.key === 'Escape') {
-        window.dispatchEvent(new CustomEvent('sap-cancel'));
+        window.dispatchEvent(new CustomEvent('sap-toolbar-cancel'));
+      }
+      if (e.altKey && e.key === 'ArrowLeft') {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('sap-toolbar-back'));
+      }
+      if (e.altKey && e.key === 'ArrowRight') {
+        e.preventDefault();
+        navigateRecord('next');
       }
     };
 
@@ -205,6 +277,11 @@ export default function AppShell({ children }: AppShellProps) {
           text: e.detail.text,
           level: e.detail.isError ? 'error' : (e.detail.level || 'success')
         });
+        if (saveInFlight && !e.detail.isError && e.detail.level !== 'error') {
+          setIsDirty(false);
+          setHasSavedDocument(true);
+        }
+        if (saveInFlight) setSaveInFlight(false);
         if (e.detail.level !== 'error' && !e.detail.isError) {
           setTimeout(() => setStatusMessage(null), 10000);
         }
@@ -212,7 +289,7 @@ export default function AppShell({ children }: AppShellProps) {
     };
     window.addEventListener('sap-status', handleStatus);
     return () => window.removeEventListener('sap-status', handleStatus);
-  }, []);
+  }, [saveInFlight]);
 
   const handleLogout = () => {
     localStorage.removeItem("sikka_user");
@@ -256,6 +333,103 @@ export default function AppShell({ children }: AppShellProps) {
   const isHomePage = currentTcode === "DB01" || pathname === "/";
   const isDisplayMode = currentTcode.endsWith("03") || tcodeInfo?.isDisplayOnly;
   const hasPageAccess = isAdmin || isHomePage || userData?.tcodePermissions?.includes(currentTcode);
+  const canSave = !isDisplayMode && userData?.permissions?.save !== false;
+  const canPrint = userData?.permissions?.print !== false;
+
+  const leaveTransaction = (action: Exclude<PendingAction, null>) => {
+    if (action === 'cancel' || isDirty) {
+      setPendingAction(action);
+      return;
+    }
+    if (action === 'back') router.back();
+    if (action === 'exit') router.push('/tcode/DB01');
+  };
+
+  const confirmPendingAction = () => {
+    const action = pendingAction;
+    setPendingAction(null);
+    if (action === 'cancel') {
+      window.dispatchEvent(new CustomEvent('sap-cancel'));
+      setIsDirty(false);
+      setStatusMessage({ text: 'Transaction cancelled; unsaved data cleared', level: 'info' });
+    } else if (action === 'back') {
+      router.back();
+    } else if (action === 'exit') {
+      router.push('/tcode/DB01');
+    }
+  };
+
+  const saveTransaction = () => {
+    if (!canSave) {
+      setStatusMessage({ text: 'You are not authorized to save this transaction', level: 'error' });
+      return;
+    }
+    setSaveInFlight(true);
+    window.dispatchEvent(new CustomEvent('sap-execute'));
+  };
+
+  const printTransaction = () => {
+    if (!canPrint) {
+      setStatusMessage({ text: 'You are not authorized to print this transaction', level: 'error' });
+      return;
+    }
+    if (!hasSavedDocument) {
+      setStatusMessage({ text: 'Save the document before printing', level: 'warning' });
+      return;
+    }
+    window.print();
+  };
+
+  const runFind = () => {
+    const term = findText.trim().toLowerCase();
+    const targets = Array.from(document.querySelectorAll('main td, main [role="gridcell"], main input, main textarea')) as HTMLElement[];
+    targets.forEach(target => target.classList.remove('bg-yellow-200', 'ring-1', 'ring-amber-400'));
+    if (!term) {
+      setFindCount(0);
+      return;
+    }
+    const matches = targets.filter(target => {
+      const value = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement ? target.value : target.textContent || '';
+      return value.toLowerCase().includes(term);
+    });
+    matches.forEach(target => target.classList.add('bg-yellow-200', 'ring-1', 'ring-amber-400'));
+    matches[0]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFindCount(matches.length);
+    window.dispatchEvent(new CustomEvent('sap-find', { detail: { term } }));
+  };
+
+  const navigateRecord = (direction: 'first' | 'previous' | 'next' | 'last') => {
+    const rows = Array.from(document.querySelectorAll('main tbody tr')) as HTMLElement[];
+    if (!rows.length) return;
+    const current = selectedRecord < 0 ? 0 : selectedRecord;
+    const target = direction === 'first' ? 0 : direction === 'last' ? rows.length - 1 : direction === 'previous' ? Math.max(0, current - 1) : Math.min(rows.length - 1, current + 1);
+    rows.forEach(row => row.classList.remove('ring-2', 'ring-inset', 'ring-blue-500', 'bg-blue-100'));
+    rows[target].classList.add('ring-2', 'ring-inset', 'ring-blue-500', 'bg-blue-100');
+    rows[target].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    setSelectedRecord(target);
+    setRecordCount(rows.length);
+    window.dispatchEvent(new CustomEvent('sap-record-navigation', { detail: { direction, index: target } }));
+  };
+
+  useEffect(() => {
+    const save = () => saveTransaction();
+    const back = () => leaveTransaction('back');
+    const cancel = () => leaveTransaction('cancel');
+    const print = () => printTransaction();
+    const find = () => setFindOpen(true);
+    window.addEventListener('sap-toolbar-save', save);
+    window.addEventListener('sap-toolbar-back', back);
+    window.addEventListener('sap-toolbar-cancel', cancel);
+    window.addEventListener('sap-toolbar-print', print);
+    window.addEventListener('sap-toolbar-find', find);
+    return () => {
+      window.removeEventListener('sap-toolbar-save', save);
+      window.removeEventListener('sap-toolbar-back', back);
+      window.removeEventListener('sap-toolbar-cancel', cancel);
+      window.removeEventListener('sap-toolbar-print', print);
+      window.removeEventListener('sap-toolbar-find', find);
+    };
+  });
 
   const themeStyles = {
     classic: { standardToolbar: "bg-[#e1e1e1] border-gray-400", appToolbar: "bg-gradient-to-b from-[#dae8f5] to-[#c7d9ed]", main: "bg-white", status: "bg-[#333e4f]" },
@@ -387,23 +561,23 @@ export default function AppShell({ children }: AppShellProps) {
               </>
             )}
 
-            <Tooltip><TooltipTrigger asChild><button onClick={() => window.dispatchEvent(new CustomEvent('sap-execute'))} className="p-1 hover:bg-black/10 rounded text-blue-700"><Save className="h-[18px] w-[18px]" /></button></TooltipTrigger><TooltipContent>Save (Ctrl+S)</TooltipContent></Tooltip>
-            <Tooltip><TooltipTrigger asChild><button onClick={() => router.push("/tcode/DB01")} className="p-1 hover:bg-black/10 rounded text-emerald-700"><ArrowLeft className="h-[18px] w-[18px]" /></button></TooltipTrigger><TooltipContent>Back (F3)</TooltipContent></Tooltip>
-            <Tooltip><TooltipTrigger asChild><button onClick={() => router.push("/tcode/DB01")} className="p-1 hover:bg-black/10 rounded text-amber-700"><LogOut className="h-[18px] w-[18px]" /></button></TooltipTrigger><TooltipContent>Exit (Shift+F3)</TooltipContent></Tooltip>
-            <Tooltip><TooltipTrigger asChild><button onClick={() => window.dispatchEvent(new CustomEvent('sap-cancel'))} className="p-1 hover:bg-black/10 rounded text-red-600"><XCircle className="h-[18px] w-[18px]" /></button></TooltipTrigger><TooltipContent>Cancel (F12)</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger asChild><button onClick={saveTransaction} disabled={!canSave} className="p-1 hover:bg-black/10 rounded text-blue-700 disabled:opacity-35"><Save className="h-[18px] w-[18px]" /></button></TooltipTrigger><TooltipContent>Save (Ctrl+S)</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger asChild><button onClick={() => leaveTransaction('back')} className="p-1 hover:bg-black/10 rounded text-emerald-700"><ArrowLeft className="h-[18px] w-[18px]" /></button></TooltipTrigger><TooltipContent>Back (Alt+Left)</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger asChild><button onClick={() => leaveTransaction('exit')} className="p-1 hover:bg-black/10 rounded text-amber-700"><LogOut className="h-[18px] w-[18px]" /></button></TooltipTrigger><TooltipContent>Exit to Dashboard</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger asChild><button onClick={() => leaveTransaction('cancel')} className="p-1 hover:bg-black/10 rounded text-red-600"><XCircle className="h-[18px] w-[18px]" /></button></TooltipTrigger><TooltipContent>Cancel (Esc)</TooltipContent></Tooltip>
             
             <div className="w-px h-6 bg-gray-400 mx-2" />
             
-            <Tooltip><TooltipTrigger asChild><button onClick={() => window.print()} className="p-1 hover:bg-black/10 rounded text-gray-700"><Printer className="h-[18px] w-[18px]" /></button></TooltipTrigger><TooltipContent>Print (Ctrl+P)</TooltipContent></Tooltip>
-            <Tooltip><TooltipTrigger asChild><button onClick={() => {}} className="p-1 hover:bg-black/10 rounded text-gray-700"><Search className="h-[18px] w-[18px]" /></button></TooltipTrigger><TooltipContent>Find (Ctrl+F)</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger asChild><button onClick={printTransaction} disabled={!canPrint} className="p-1 hover:bg-black/10 rounded text-gray-700 disabled:opacity-35"><Printer className="h-[18px] w-[18px]" /></button></TooltipTrigger><TooltipContent>Print saved document (Ctrl+P)</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger asChild><button onClick={() => setFindOpen(true)} className="p-1 hover:bg-black/10 rounded text-gray-700"><Search className="h-[18px] w-[18px]" /></button></TooltipTrigger><TooltipContent>Find (Ctrl+F)</TooltipContent></Tooltip>
             
             <div className="w-px h-6 bg-gray-400 mx-2" />
             
-            <div className="flex items-center gap-0.5 opacity-60">
-              <button className="p-1 hover:bg-black/10 rounded"><ChevronFirst className="h-4 w-4" /></button>
-              <button className="p-1 hover:bg-black/10 rounded"><ChevronLeft className="h-4 w-4" /></button>
-              <button className="p-1 hover:bg-black/10 rounded"><ChevronRight className="h-4 w-4" /></button>
-              <button className="p-1 hover:bg-black/10 rounded"><ChevronLast className="h-4 w-4" /></button>
+            <div className="flex items-center gap-0.5">
+              <Tooltip><TooltipTrigger asChild><button onClick={() => navigateRecord('first')} disabled={selectedRecord <= 0} className="p-1 hover:bg-black/10 rounded disabled:opacity-30"><ChevronFirst className="h-4 w-4" /></button></TooltipTrigger><TooltipContent>First Record</TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger asChild><button onClick={() => navigateRecord('previous')} disabled={selectedRecord <= 0} className="p-1 hover:bg-black/10 rounded disabled:opacity-30"><ChevronLeft className="h-4 w-4" /></button></TooltipTrigger><TooltipContent>Previous Record</TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger asChild><button onClick={() => navigateRecord('next')} disabled={selectedRecord < 0 || selectedRecord >= recordCount - 1} className="p-1 hover:bg-black/10 rounded disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button></TooltipTrigger><TooltipContent>Next Record (Alt+Right)</TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger asChild><button onClick={() => navigateRecord('last')} disabled={selectedRecord < 0 || selectedRecord >= recordCount - 1} className="p-1 hover:bg-black/10 rounded disabled:opacity-30"><ChevronLast className="h-4 w-4" /></button></TooltipTrigger><TooltipContent>Last Record</TooltipContent></Tooltip>
             </div>
 
             <div className="w-px h-6 bg-gray-400 mx-2" />
@@ -440,6 +614,38 @@ export default function AppShell({ children }: AppShellProps) {
           )}
         </main>
 
+        <AlertDialog open={pendingAction !== null} onOpenChange={(open) => !open && setPendingAction(null)}>
+          <AlertDialogContent className="max-w-md rounded-sm border-gray-400">
+            <AlertDialogHeader>
+              <AlertDialogTitle>{pendingAction === 'cancel' ? 'Cancel transaction?' : 'Unsaved changes'}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {pendingAction === 'cancel'
+                  ? 'Are you sure you want to cancel this transaction? All unsaved data will be cleared.'
+                  : 'You have unsaved changes. Do you want to leave this page?'}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>No</AlertDialogCancel>
+              <AlertDialogAction onClick={confirmPendingAction}>Yes</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={findOpen} onOpenChange={setFindOpen}>
+          <AlertDialogContent className="max-w-md rounded-sm border-gray-400">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Find in current screen</AlertDialogTitle>
+              <AlertDialogDescription>Searches all visible fields and grid values, including document number, customer, vendor, plant, material, employee, and transporter.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <input autoFocus value={findText} onChange={(e) => setFindText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && runFind()} placeholder="Enter search text" className="h-9 w-full border border-gray-400 px-2 text-sm outline-none focus:border-blue-600" />
+            {findText && <p className="text-xs text-gray-500">{findCount} matching field{findCount === 1 ? '' : 's'} highlighted</p>}
+            <AlertDialogFooter>
+              <AlertDialogCancel>Close</AlertDialogCancel>
+              <AlertDialogAction onClick={runFind}>Find</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         {/* SAP Status Bar */}
         <div className={cn(
           "h-7 w-full flex items-center px-4 text-white text-[11px] border-t border-black/20 transition-all duration-300 shadow-[0_-2px_10px_rgba(0,0,0,0.1)]",
@@ -474,5 +680,3 @@ export default function AppShell({ children }: AppShellProps) {
     </TooltipProvider>
   );
 }
-
-

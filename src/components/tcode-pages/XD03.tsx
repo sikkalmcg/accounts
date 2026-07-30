@@ -101,7 +101,7 @@ export default function XD03() {
             <TableRow className="h-8 hover:bg-transparent">
               <TableHead className="text-[11px] font-bold text-gray-700 border-r border-[#b5c7de] w-12 text-center">#</TableHead>
               <TableHead onClick={() => handleSort('customerId')} className="text-[11px] font-bold text-gray-700 border-r border-[#b5c7de] w-32 cursor-pointer hover:bg-gray-200 transition-colors">
-                <div className="flex items-center">Customer ID <SortIcon column="customerId" /></div>
+                <div className="flex items-center">Customer Code <SortIcon column="customerId" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('plantId')} className="text-[11px] font-bold text-gray-700 border-r border-[#b5c7de] w-24 cursor-pointer hover:bg-gray-200 transition-colors">
                 <div className="flex items-center">Plant ID <SortIcon column="plantId" /></div>

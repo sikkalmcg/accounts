@@ -77,6 +77,7 @@ export default function VF03() {
              i.billTo?.toLowerCase().includes(searchLower) ||
              consigneeName.toLowerCase().includes(searchLower) ||
              i.plantId?.toLowerCase().includes(searchLower) ||
+             i.inventoryType?.toLowerCase().includes(searchLower) ||
              i.status?.toLowerCase().includes(searchLower);
     });
     if (!sortConfig) return filtered;

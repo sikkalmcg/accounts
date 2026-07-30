@@ -32,6 +32,7 @@ export default function FM02() {
     if (firm) {
       setFormData({
         ...firm,
+        consignorCode: firm.consignorCode || firm.firmId || "",
         plantId: firm.plantId || "",
         logoData: firm.logoData || "",
         name: firm.name || "",
@@ -91,13 +92,14 @@ export default function FM02() {
       return;
     }
 
-    if (!formData.plantId || !formData.name || !formData.gstin) {
+    if (!formData.plantId || !formData.consignorCode || !formData.name || !formData.gstin) {
       window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "Validation Error: Plant, Name, and GSTIN are required", isError: true } 
+        detail: { text: "Validation Error: Plant, Consignor Code, Name, and GSTIN are required", isError: true } 
       }));
       return;
     }
 
+    const normalizedCode = String(formData.consignorCode || "").trim().toUpperCase();
     const validPlant = plants?.find(p => p.plantId === formData.plantId);
     
     setLoading(true);
@@ -105,6 +107,8 @@ export default function FM02() {
       const { id, ...dataToSave } = formData;
       updateDocumentNonBlocking(doc(db, "firms", selectedId), {
         ...dataToSave,
+        firmId: normalizedCode,
+        consignorCode: normalizedCode,
         plantDocId: validPlant?.id || "",
         updatedAt: new Date().toISOString()
       });
@@ -247,6 +251,13 @@ export default function FM02() {
                       )}
                     </div>
                     <input type="file" ref={fileInputRef} onChange={handleLogoUpload} accept="image/*" className="hidden" />
+                  </div>
+                </div>
+
+                <div className="sap-selection-row">
+                  <label className="sap-label">Consignor Code</label>
+                  <div className="sap-input-wrapper max-w-[200px]">
+                    <Input value={formData.consignorCode} onChange={(e) => setFormData({...formData, consignorCode: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "")})} />
                   </div>
                 </div>
 

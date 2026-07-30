@@ -18,6 +18,7 @@ const initialData = {
   materialCode: "",
   documentType: "",
   documentCategory: "",
+  inventoryType: "",
   price: "",
   gstRate: "",
   currency: "INR",
@@ -111,7 +112,7 @@ export default function VK11() {
   };
 
   const handleExecute = useCallback(async () => {
-    if (!formData.plantId || !formData.customerCode || !formData.materialCode || !formData.price || !formData.gstRate || !formData.validFrom) {
+    if (!formData.plantId || !formData.customerCode || !formData.materialCode || !formData.inventoryType || !formData.price || !formData.gstRate || !formData.validFrom) {
       window.dispatchEvent(new CustomEvent('sap-status', { 
         detail: { text: "Error: Required fields missing in Condition Data", isError: true } 
       }));
@@ -217,6 +218,18 @@ export default function VK11() {
             Price & Validity Data
           </div>
           <div className="p-2 space-y-1">
+            <div className="sap-selection-row">
+              <label className="sap-label">Inventory Type *</label>
+              <div className="sap-input-wrapper max-w-[200px]">
+                <Select value={formData.inventoryType} onValueChange={(val) => setFormData({...formData, inventoryType: val})} disabled={!formData.plantId}>
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Service Invoice">Service Invoice</SelectItem>
+                    <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             <div className="sap-selection-row">
               <label className="sap-label">Customer *</label>
               <div className="sap-input-wrapper max-w-[200px]">

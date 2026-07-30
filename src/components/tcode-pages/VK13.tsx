@@ -58,7 +58,8 @@ export default function VK13() {
       r.materialCode?.toLowerCase().includes(search.toLowerCase()) ||
       r.plantId?.toLowerCase().includes(search.toLowerCase()) ||
       r.documentType?.toLowerCase().includes(search.toLowerCase()) ||
-      r.documentCategory?.toLowerCase().includes(search.toLowerCase())
+      r.documentCategory?.toLowerCase().includes(search.toLowerCase()) ||
+      r.inventoryType?.toLowerCase().includes(search.toLowerCase())
     );
 
     if (!sortConfig) return filtered;
@@ -119,6 +120,7 @@ export default function VK13() {
               <TableHead onClick={() => handleSort('documentType')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">Doc. Type <SortIcon column="documentType" /></TableHead>
               <TableHead onClick={() => handleSort('documentCategory')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">Category <SortIcon column="documentCategory" /></TableHead>
               <TableHead onClick={() => handleSort('customerCode')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">Customer <SortIcon column="customerCode" /></TableHead>
+              <TableHead onClick={() => handleSort('inventoryType')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">Inventory Type <SortIcon column="inventoryType" /></TableHead>
               <TableHead onClick={() => handleSort('materialCode')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">Material <SortIcon column="materialCode" /></TableHead>
               <TableHead onClick={() => handleSort('price')} className="text-[11px] font-bold border-r w-28 text-right cursor-pointer hover:bg-gray-200">Basic Price <SortIcon column="price" /></TableHead>
               <TableHead className="text-[11px] font-bold border-r w-16 text-center">GST %</TableHead>
@@ -143,6 +145,7 @@ export default function VK13() {
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center uppercase">{r.documentType || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center uppercase">{r.documentCategory || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r font-mono text-center">{r.customerCode}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r font-mono text-center">{r.inventoryType || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r font-mono font-black text-blue-900">{r.materialCode}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-800">INR {Number(r.price).toLocaleString()}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center font-bold text-gray-500">{r.gstRate}%</TableCell>
