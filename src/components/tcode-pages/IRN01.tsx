@@ -3,12 +3,14 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking } from "@/database";
-import { collection, query, orderBy, doc } from "@/database/mongo";
+import { collection, query, orderBy, doc, DocumentReference } from "@/database/mongo";
 import { Search, Loader2, QrCode, ArrowLeft, CheckCircle2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Image from "next/image";
 import { toSAPDate } from "@/lib/date-utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { InvoicePreview } from "./VF03";
 
 export default function IRN01() {
   const db = useDatabase();
@@ -100,7 +102,8 @@ export default function IRN01() {
     const firm = firms?.find(f => f.plantId === selectedInvoice.plantId);
 
     const description = selectedInvoice.description || item1.desc || item1.activity || "N/A";
-    const quantityWithUom = item1.qty ? `${Number(item1.qty).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ${item1.uom || "PCS"}` : "0 PCS";
+    const totalQuantity = selectedInvoice.totals?.totalQty || 0;
+    const quantityWithUom = totalQuantity ? `${Number(totalQuantity).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ${item1.uom || "PCS"}` : "0 PCS";
     const invoiceDate = selectedInvoice.invoiceDate || selectedInvoice.createdAt || "";
 
     return (
@@ -132,6 +135,7 @@ export default function IRN01() {
 
               <div className="col-span-2"><label className="text-gray-500 block uppercase font-bold text-[9px]">Description</label><span className="font-bold truncate block">{description}</span></div>
               <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Total Quantity with UOM</label><span className="font-bold">{quantityWithUom}</span></div>
+              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">HSN/SAC Code</label><span className="font-bold">{item1.hsn || "N/A"}</span></div>
               <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Taxable Amount</label><span className="font-bold">₹ {totals.taxableAmount?.toLocaleString()}</span></div>
 
               <div><label className="text-gray-500 block uppercase font-bold text-[9px]">GST Rate (%)</label><span className="font-bold">{gstPct.toFixed(2)}</span></div>
@@ -156,7 +160,7 @@ export default function IRN01() {
             <div className="col-span-2 border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f0f4f8]">
               <div className="bg-[#dae8f5] px-3 py-1 border-b border-[#b5c7de] text-[12px] font-bold text-blue-900 flex items-center gap-2"><QrCode className="h-4 w-4" /> IRN Data Entry</div>
               <div className="p-4 space-y-4">
-                <div className="sap-selection-row"><label className="sap-label w-40">IRN Number</label><Input value={irnData.irnNumber} onChange={e => setIrnData({...irnData, irnNumber: e.target.value})} className="font-mono text-[11px] tracking-widest uppercase" /></div>
+                <div className="sap-selection-row"><label className="sap-label w-40">IRN Number</label><Input value={irnData.irnNumber} onChange={e => setIrnData({...irnData, irnNumber: e.target.value})} className="font-mono text-[11px] tracking-widest" /></div>
                 <div className="sap-selection-row"><label className="sap-label w-40">ACK Number</label><Input value={irnData.ackNo} onChange={e => setIrnData({...irnData, ackNo: e.target.value})} className="font-mono w-64" /></div>
                 <div className="sap-selection-row"><label className="sap-label w-40">ACK Date</label><Input type="date" value={irnData.ackDate} onChange={e => setIrnData({...irnData, ackDate: e.target.value})} className="w-48" /></div>
               </div>
@@ -216,7 +220,16 @@ export default function IRN01() {
                 <TableCell className="p-0 text-center text-gray-400 text-[10px] border-r group-hover:text-blue-600">{i + 1}</TableCell>
                 <TableCell className="p-0 border-r text-center px-1"><Button onClick={() => setSelectedInvoice(inv)} variant="ghost" size="sm" className="h-6 w-full text-[9px] font-black uppercase text-emerald-700 hover:bg-emerald-100 rounded-none border border-emerald-200">Generate IRN</Button></TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r text-center font-bold text-gray-600">{inv.plantId}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r font-black font-mono text-blue-900">{inv.invoiceNumber}</TableCell>
+                <TableCell className="p-0 px-2 text-[11px] border-r font-black font-mono text-blue-900">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <span className="cursor-pointer hover:underline">{inv.invoiceNumber}</span>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[820px] max-h-[90vh] overflow-y-auto p-0 border-gray-400 shadow-2xl rounded-none">
+                      <InvoicePreview invoice={inv} copyLabel="PREVIEW" firms={firms} customerMap={customerMap} />
+                    </PopoverContent>
+                  </Popover>
+                </TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r font-mono">{inv.invoiceDate}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r text-center">{inv.billYear}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r truncate font-semibold uppercase">{customerMap[inv.shipTo]?.name || customerMap[inv.billTo]?.name || inv.billTo}</TableCell>
@@ -230,5 +243,3 @@ export default function IRN01() {
     </div>
   );
 }
-
-

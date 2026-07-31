@@ -13,7 +13,7 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 
 // Utility to convert number to Indian words
-function numberToWords(num: number): string {
+const numberToWords = (num: number): string => {
   const a = ['', 'One ', 'Two ', 'Three ', 'Four ', 'Five ', 'Six ', 'Seven ', 'Eight ', 'Nine ', 'Ten ', 'Eleven ', 'Twelve ', 'Thirteen ', 'Fourteen ', 'Fifteen ', 'Sixteen ', 'Seventeen ', 'Eighteen ', 'Nineteen '];
   const b = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
   const n = ('000000000' + Math.floor(num)).substr(-9).match(/^(\d{2})(\d{2})(\d{2})(\d{1})(\d{2})$/);
@@ -26,7 +26,237 @@ function numberToWords(num: number): string {
   str += (Number(n[5]) != 0) ? ((str != '') ? 'And ' : '') + (a[Number(n[5])] || b[Number(n[5][0])] + ' ' + a[Number(n[5][1])]) : '';
   return `Rupees ${str.trim()} Only`;
 }
+export const InvoicePreview = ({ invoice, copyLabel, firms, customerMap }: { invoice: any; copyLabel: string, firms: any[] | null, customerMap: Record<string, any> }) => {
+  const firm = invoice.snapshotFirm || firms?.find(f => f.plantId === invoice.plantId) || {};
+  const billToCust = invoice.snapshotBillTo || customerMap[invoice.billTo] || {};
+  const shipToCust = invoice.snapshotShipTo || customerMap[invoice.shipTo] || billToCust || {};
+  
+  const totals = invoice.totals || {};
+  const taxable = totals.taxableAmount || 0;
+  const cgst = totals.cgst || 0;
+  const sgst = totals.sgst || 0;
+  const igst = totals.igst || 0;
+  const isInterstate = totals.isInterstate || false;
+  const avgGst = totals.avgGst || 0;
 
+  const rawTotal = taxable + cgst + sgst + igst;
+  const roundedTotal = Math.round(rawTotal);
+  const roundOff = (roundedTotal - rawTotal).toFixed(2);
+  
+  const isNonTax = invoice.docType?.toUpperCase() === "NON-TAX INVOICE";
+  const customHeaders = invoice.customHeaders || [];
+
+  const docTypeLabel = useMemo(() => {
+    const t = invoice.docType?.toUpperCase() || "";
+    if (t.includes("CREDIT NOTE")) return { no: "Credit Note Number", header: "CREDIT NOTE" };
+    if (t.includes("DEBIT NOTE")) return { no: "Debit Note Number", header: "DEBIT NOTE" };
+    if (t.includes("DELIVERY CHALLAN")) return { no: "Delivery Challan Number", header: "DELIVERY CHALLAN" };
+    return { no: "Invoice Number", header: isNonTax ? "NON-TAX INVOICE" : "TAX INVOICE" };
+  }, [invoice.docType, isNonTax]);
+
+  // Logic: Hide Ship To if identical to Bill To
+  const isShipToApplicable = invoice.shipTo && invoice.shipTo !== invoice.billTo;
+
+  return (
+    <div className="bg-white p-10 font-sans text-[11px] text-black border-2 border-black max-w-[800px] mx-auto overflow-hidden invoice-container relative min-h-[1100px] flex flex-col">
+      {invoice.status === "Cancelled" && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.1] z-0 select-none">
+          <h1 className="text-[200px] font-black text-red-600 rotate-[-45deg] whitespace-nowrap uppercase tracking-tighter watermark-text">CANCEL</h1>
+        </div>
+      )}
+      <div className="relative z-10 flex-1 flex flex-col">
+        <div className="flex justify-between items-start mb-4">
+          <div className="flex gap-4 items-start">
+            {firm?.logoData ? (
+              <div className="w-16 h-16 relative border border-gray-200"><Image src={firm.logoData} alt="Logo" fill className="object-contain" /></div>
+            ) : (
+              <div className="w-16 h-16 bg-gray-100 flex items-center justify-center font-bold text-gray-400">LOGO</div>
+            )}
+            <div className="leading-tight">
+              <h1 className="text-sm font-black uppercase mb-1">{firm?.name || "SIKKA INDUSTRIES AND LOGISTICS"}</h1>
+              <p className="max-w-xs">{firm?.address || "PLOT NO. C-17, INDUSTRIAL AREA, SSGT ROAD, GHAZIABAD 201009"}</p>
+              <p className="font-bold mt-1">GSTIN: {firm?.gstin || "09AYQPS6936B1ZV"} | PAN: {firm?.pan || "AYQPS6936B"}</p>
+              <p>State: {firm?.state?.toUpperCase() || "UTTAR PRADESH"} (Code: {firm?.stateCode || "09"})</p>
+              <p>Contact: {firm?.mobile || "9911008000"} | Email: {firm?.email || "sil@sikkaenterprises.com"}</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <h2 className="text-[10px] font-bold uppercase mb-4">{copyLabel}</h2>
+            <h3 className="text-[10px] font-bold text-center uppercase mb-1">e-Invoice</h3>
+            <div className="w-24 h-24 bg-gray-50 border border-black ml-auto flex flex-col items-center justify-center text-center">
+              {invoice.qrData ? (
+                <div className="relative w-full h-full"><Image src={invoice.qrData} alt="QR" fill className="object-contain" /></div>
+              ) : (
+                <span className="text-[8px] text-gray-400 text-center px-1 uppercase font-bold opacity-40">QR Code</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {!isNonTax && invoice.irnNumber && ( // Only show IRN details if not non-tax and IRN exists
+          <div className="border-y-2 border-black mb-3 p-2 space-y-1.5 bg-gray-50">
+            <p className="break-all leading-tight text-left"><span className="text-[15px] text-gray-500 font-bold block">IRN: {invoice.irnNumber || "N/A"}</span></p>
+            <div className="grid grid-cols-2 gap-x-4 text-[11px]">
+              <p className="text-left"><span className="text-[9px] text-gray-500 font-bold uppercase">Ack No:</span> <span className="font-mono font-bold ml-1">{invoice.ackNo || "N/A"}</span></p> 
+              <p className="text-left"><span className="text-[9px] text-gray-500 font-bold uppercase">Ack Date:</span> <span className="font-bold ml-1">{invoice.ackDate || "N/A"}</span></p>
+            </div>
+          </div>
+        )}
+
+        <div className="border-y-2 border-black py-1.5 flex justify-between px-2 font-bold text-[12px] bg-gray-50 mb-3">
+          <span className="text-center flex-1 uppercase">{docTypeLabel.header}</span>
+        </div>
+
+        <div className="mb-3 px-2">
+          <div className="flex justify-between items-center mb-2">
+            <div className="flex-1">
+              <p className="text-[13px] font-black"><span className="text-[9px] text-gray-500 font-bold uppercase">{docTypeLabel.no}:</span> {invoice.invoiceNumber}</p>
+            </div>
+            <div className="flex-1 text-center">
+              <p className="text-[11px] font-bold"><span className="text-[9px] text-gray-500 font-bold uppercase">Date:</span> {invoice.invoiceDate}</p>
+            </div>
+            <div className="flex-1 text-right">
+              <p className="text-[11px] font-bold uppercase"><span className="text-[9px] text-gray-500 font-bold uppercase">Working Period:</span> {invoice.billMonth}</p>
+            </div>
+          </div>
+          {!isNonTax && (
+            <div className="grid grid-cols-2 gap-x-0 text-[10px] border-t border-gray-100 pt-2 mt-2"> 
+              <p className="text-left"><span className="text-[8px] text-gray-500 font-bold uppercase">Plant:</span> <span className="font-mono font-bold ml-1">{invoice.plantId}</span></p>
+              <p className="text-left"><span className="text-[8px] text-gray-500 font-bold uppercase">Charge Type:</span> <span className="font-bold ml-1 uppercase">{invoice.docCategory}</span></p>
+            </div>
+          )}
+        </div>
+
+        <div className={cn("grid gap-0 border-y-2 border-black mb-3", isShipToApplicable ? "grid-cols-2" : "grid-cols-1")}>
+          <div className={cn("p-3 pb-6", isShipToApplicable && "border-r border-black")}>
+            <h3 className="font-bold mb-2 text-[10px] uppercase underline">Bill to Party</h3>
+            <p className="font-black text-[12px] mb-1">{billToCust?.name?.toUpperCase()}</p>
+            <p className={cn("whitespace-pre-wrap", isShipToApplicable ? "max-w-[280px]" : "max-w-full")}>{billToCust?.address}</p>
+            <p>State: {billToCust?.stateName?.toUpperCase() || "N/A"} (Code: {billToCust?.stateCode || ""})</p>
+            <p className="font-bold mt-1 uppercase">GSTIN: {billToCust?.gstin} {billToCust?.pan && `| PAN: ${billToCust.pan}`}</p>
+          </div>
+          {isShipToApplicable && (
+            <div className="p-3 pb-6 pl-4">
+              <h3 className="font-bold mb-2 text-[10px] uppercase underline">SHIP TO</h3>
+              <p className="font-black text-[12px] mb-1">{shipToCust?.name?.toUpperCase()}</p>
+              <p className="max-w-[280px] whitespace-pre-wrap">{shipToCust?.address}</p>
+              <p>State: {shipToCust?.stateName?.toUpperCase() || "N/A"} (Code: {shipToCust?.stateCode || ""})</p>
+              <p className="font-bold mt-1 uppercase">GSTIN: {shipToCust?.gstin} {shipToCust?.pan && `| PAN: ${shipToCust.pan}`}</p>
+            </div>
+          )}
+        </div>
+
+        <table className="w-full border-x border-black">
+          <thead>
+            <tr className="bg-white text-[10px] font-bold border-b-2 border-black">
+              <th className="border-r border-black w-8 text-center py-2">#</th>
+              <th className="border-r border-black text-left py-2">Item Description</th>
+              {customHeaders.map((header: string, i: number) => (
+                <th key={i} className="border-r border-black text-center py-2">{header}</th>
+              ))}
+              <th className="border-r border-black w-20 text-center py-2">HSN/SAC</th>
+              <th className="border-r border-black w-16 text-center py-2">Qty</th>
+              <th className="border-r border-black w-16 text-center py-2">Unit</th>
+              <th className="border-r border-black w-14 text-center py-2">Rate</th>
+              <th className="w-28 text-right py-2">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {invoice.items?.map((item: any, idx: number) => (
+              <tr key={idx} className="border-b border-gray-200 h-10">
+                <td className="border-r border-black text-center">{idx + 1}</td>
+                <td className="border-r border-black font-bold uppercase">{item.desc}</td>
+                {customHeaders.map((_: any, i: number) => (
+                  <td key={i} className="border-r border-black text-center">{item.customValues?.[i] || "-"}</td>
+                ))}
+                <td className="border-r border-black text-center font-mono">{item.hsn}</td>
+                <td className="border-r border-black text-center font-bold">{item.qty}</td>
+                <td className="border-r border-black text-center">{item.uom}</td>
+                <td className="border-r border-black text-center font-bold">{parseFloat(item.rate).toFixed(2)}</td>
+                <td className="text-right font-bold">{parseFloat(item.amount).toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <div className="flex border-x border-b border-black">
+          <div className="flex-1 border-r border-black p-2"></div>
+          <div className="w-[300px]">
+            {!isNonTax ? (
+              <>
+                <div className="flex justify-between px-2 py-1.5 font-bold border-b border-gray-200 bg-gray-50/30">
+                  <span>Taxable Amount</span>
+                  <span>{taxable.toFixed(2)}</span>
+                </div>
+                {isInterstate ? (
+                  <div className="flex justify-between px-2 py-1.5 border-b border-gray-200 italic text-gray-700">
+                    <span>IGST @ {avgGst}%</span>
+                    <span>{igst.toFixed(2)}</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex justify-between px-2 py-1.5 border-b border-gray-200">
+                      <span className="font-medium">CGST @ {avgGst / 2}%</span>
+                      <span>{cgst.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between px-2 py-1.5 border-b border-gray-200">
+                      <span className="font-medium">SGST @ {avgGst / 2}%</span>
+                      <span>{sgst.toFixed(2)}</span>
+                    </div>
+                  </>
+                )}
+                <div className="flex justify-between px-2 py-1.5 border-b border-gray-200 text-gray-500">
+                  <span>Round Off</span>
+                  <span>{roundOff}</span>
+                </div>
+              </>
+            ) : (
+              <div className="px-2 py-4 text-center border-b border-gray-200 text-gray-400 italic">
+                No taxes applicable for Non-Tax Invoice
+              </div>
+            )}
+            <div className="flex justify-between px-2 py-2.5 font-black text-[13px] bg-gray-100 border-t-2 border-black uppercase">
+              <span>{isNonTax ? "Net Total Amount" : "Net Payable Amount"}</span>
+              <span>₹ {roundedTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="border-x border-b-2 border-black p-3 bg-white font-bold italic">
+          Amount in Words: {numberToWords(roundedTotal)}
+        </div>
+
+        {invoice.billType && (
+          <div className="border-x border-b-2 border-black p-2 px-3 bg-gray-50/50 text-[10px] font-black text-blue-900 uppercase italic tracking-wider">
+            {invoice.billType}
+          </div>
+        )}
+
+        {invoice.note && (
+          <div className="border-x border-b-2 border-black p-3 bg-white font-bold italic">
+            Note: <span className="font-normal not-italic uppercase">{invoice.note}</span>
+          </div>
+        )}
+
+        <div className="mt-auto flex justify-between items-end pb-2 pt-6">
+          <div className="flex-1">
+            {firm?.bankName && firm?.accountNumber && (
+              <div className="border-2 border-black p-3 relative h-28 w-64">
+                <h4 className="text-[10px] font-bold uppercase underline">Bank Details:</h4>
+                <p className="mt-1 font-bold">Bank: <span className="font-normal uppercase">{firm.bankName}</span></p>
+                <p className="font-bold">A/c No: <span className="font-normal uppercase">{firm.accountNumber}</span></p>
+                <p className="font-bold">IFSC: <span className="font-normal uppercase">{firm.ifscCode}</span></p>
+              </div>
+            )}
+          </div>
+          <div className="text-right pr-4">
+            <p className="font-bold text-[10px] uppercase border-t border-black pt-1 inline-block min-w-[150px] text-center">Authorized Signature</p>
+          </div>
+        </div>
+      </div>
+    </div> 
+  );
+};
 export default function VF03() {
   const db = useDatabase();
   const [search, setSearch] = useState("");
@@ -136,238 +366,6 @@ export default function VF03() {
     }
   };
 
-  const InvoicePreview = ({ invoice, copyLabel }: { invoice: any; copyLabel: string }) => {
-    const firm = invoice.snapshotFirm || firms?.find(f => f.plantId === invoice.plantId);
-    const billToCust = invoice.snapshotBillTo || customerMap[invoice.billTo];
-    const shipToCust = invoice.snapshotShipTo || customerMap[invoice.shipTo] || billToCust;
-    
-    const totals = invoice.totals || {};
-    const taxable = totals.taxableAmount || 0;
-    const cgst = totals.cgst || 0;
-    const sgst = totals.sgst || 0;
-    const igst = totals.igst || 0;
-    const isInterstate = totals.isInterstate || false;
-    const avgGst = totals.avgGst || 0;
-
-    const rawTotal = taxable + cgst + sgst + igst;
-    const roundedTotal = Math.round(rawTotal);
-    const roundOff = (roundedTotal - rawTotal).toFixed(2);
-    
-    const isNonTax = invoice.docType?.toUpperCase() === "NON-TAX INVOICE";
-    const customHeaders = invoice.customHeaders || [];
-
-    const docTypeLabel = useMemo(() => {
-      const t = invoice.docType?.toUpperCase() || "";
-      if (t.includes("CREDIT NOTE")) return { no: "Credit Note Number", header: "CREDIT NOTE" };
-      if (t.includes("DEBIT NOTE")) return { no: "Debit Note Number", header: "DEBIT NOTE" };
-      if (t.includes("DELIVERY CHALLAN")) return { no: "Delivery Challan Number", header: "DELIVERY CHALLAN" };
-      return { no: "Invoice Number", header: isNonTax ? "NON-TAX INVOICE" : "TAX INVOICE" };
-    }, [invoice.docType, isNonTax]);
-
-    // Logic: Hide Ship To if identical to Bill To
-    const isShipToApplicable = invoice.shipTo && invoice.shipTo !== invoice.billTo;
-
-    return (
-      <div className="bg-white p-10 font-sans text-[11px] text-black border-2 border-black max-w-[800px] mx-auto overflow-hidden invoice-container relative min-h-[1100px] flex flex-col">
-        {invoice.status === "Cancelled" && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.1] z-0 select-none">
-            <h1 className="text-[200px] font-black text-red-600 rotate-[-45deg] whitespace-nowrap uppercase tracking-tighter watermark-text">CANCEL</h1>
-          </div>
-        )}
-        <div className="relative z-10 flex-1 flex flex-col">
-          <div className="flex justify-between items-start mb-4">
-            <div className="flex gap-4 items-start">
-              {firm?.logoData ? (
-                <div className="w-16 h-16 relative border border-gray-200"><Image src={firm.logoData} alt="Logo" fill className="object-contain" /></div>
-              ) : (
-                <div className="w-16 h-16 bg-gray-100 flex items-center justify-center font-bold text-gray-400">LOGO</div>
-              )}
-              <div className="leading-tight">
-                <h1 className="text-sm font-black uppercase mb-1">{firm?.name || "SIKKA INDUSTRIES AND LOGISTICS"}</h1>
-                <p className="max-w-xs">{firm?.address || "PLOT NO. C-17, INDUSTRIAL AREA, SSGT ROAD, GHAZIABAD 201009"}</p>
-                <p className="font-bold mt-1">GSTIN: {firm?.gstin || "09AYQPS6936B1ZV"} | PAN: {firm?.pan || "AYQPS6936B"}</p>
-                <p>State: {firm?.state?.toUpperCase() || "UTTAR PRADESH"} (Code: {firm?.stateCode || "09"})</p>
-                <p>Contact: {firm?.mobile || "9911008000"} | Email: {firm?.email || "sil@sikkaenterprises.com"}</p>
-              </div>
-            </div>
-            <div className="text-right">
-              <h2 className="text-[10px] font-bold uppercase mb-4">{copyLabel}</h2>
-              <div className="w-24 h-24 bg-gray-50 border border-black ml-auto flex flex-col items-center justify-center text-center">
-                {invoice.qrData ? (
-                  <div className="relative w-full h-full"><Image src={invoice.qrData} alt="QR" fill className="object-contain" /></div>
-                ) : (
-                  <span className="text-[8px] text-gray-400 text-center px-1 uppercase font-bold opacity-40">QR Code</span>
-                )}
-                {invoice.irnNumber && <p className="text-[7px] font-mono font-bold bg-black text-white w-full p-0.5 mt-auto">{invoice.irnNumber}</p>}
-              </div>
-            </div>
-          </div>
-
-          <div className="border-y-2 border-black py-1.5 flex justify-between px-2 font-bold text-[12px] bg-gray-50 mb-3">
-            <span className="text-center flex-1">{docTypeLabel.header}</span>
-            <span className="text-right uppercase">{invoice.status === "Cancelled" ? "CANCELLED DOCUMENT" : (invoice.docCategory || "SERVICE CHARGE")}</span>
-          </div>
-
-          <div className="mb-3 px-2">
-            <div className="flex justify-between items-center mb-2">
-              <div className="flex-1">
-                <p className="text-[13px] font-black"><span className="text-[9px] text-gray-500 font-bold uppercase">{docTypeLabel.no}:</span> {invoice.invoiceNumber}</p>
-              </div>
-              <div className="flex-1 text-center">
-                <p className="text-[11px] font-bold"><span className="text-[9px] text-gray-500 font-bold uppercase">Date:</span> {invoice.invoiceDate}</p>
-              </div>
-              <div className="flex-1 text-right">
-                <p className="text-[11px] font-bold uppercase"><span className="text-[9px] text-gray-500 font-bold uppercase">Working Month:</span> {invoice.billMonth}</p>
-              </div>
-            </div>
-            {!isNonTax && (
-              <div className="space-y-1">
-                <div className="border-t border-gray-100 pt-1">
-                  <p className="break-all leading-none"><span className="text-[8px] text-gray-500 font-bold uppercase block mb-0.5">IRN:</span> <span className="font-mono text-[9px] font-black text-blue-900">{invoice.irnNumber || "N/A"}</span></p>
-                </div>
-                <div className="grid grid-cols-2 gap-x-4 text-[10px] border-t border-gray-100 pt-1">
-                  <p><span className="text-[8px] text-gray-500 font-bold uppercase">ACK No:</span> <span className="font-mono font-bold ml-1">{invoice.ackNo || "N/A"}</span></p>
-                  <p><span className="text-[8px] text-gray-500 font-bold uppercase">ACK Date:</span> <span className="font-bold ml-1">{invoice.ackDate || "N/A"}</span></p>
-                </div>
-                <div className="grid grid-cols-2 gap-x-4 text-[10px] border-t border-gray-100 pt-1">
-                  <p><span className="text-[8px] text-gray-500 font-bold uppercase">Plant:</span> <span className="font-mono font-bold ml-1">{invoice.plantId}</span></p>
-                  <p><span className="text-[8px] text-gray-500 font-bold uppercase">Charge Type:</span> <span className="font-bold ml-1 uppercase">{invoice.docCategory}</span></p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className={cn("grid gap-0 border-y-2 border-black mb-3", isShipToApplicable ? "grid-cols-2" : "grid-cols-1")}>
-            <div className={cn("p-3 pb-6", isShipToApplicable && "border-r border-black")}>
-              <h3 className="font-bold mb-2 text-[10px] uppercase underline">Bill to Party</h3>
-              <p className="font-black text-[12px] mb-1">{billToCust?.name?.toUpperCase()}</p>
-              <p className={cn("whitespace-pre-wrap", isShipToApplicable ? "max-w-[280px]" : "max-w-full")}>{billToCust?.address}</p>
-              <p>State: {billToCust?.stateName?.toUpperCase() || "N/A"} (Code: {billToCust?.stateCode || ""})</p>
-              <p className="font-bold mt-1 uppercase">GSTIN: {billToCust?.gstin} {billToCust?.pan && `| PAN: ${billToCust.pan}`}</p>
-            </div>
-            {isShipToApplicable && (
-              <div className="p-3 pb-6 pl-4">
-                <h3 className="font-bold mb-2 text-[10px] uppercase underline">SHIP TO</h3>
-                <p className="font-black text-[12px] mb-1">{shipToCust?.name?.toUpperCase()}</p>
-                <p className="max-w-[280px] whitespace-pre-wrap">{shipToCust?.address}</p>
-                <p>State: {shipToCust?.stateName?.toUpperCase() || "N/A"} (Code: {shipToCust?.stateCode || ""})</p>
-                <p className="font-bold mt-1 uppercase">GSTIN: {shipToCust?.gstin} {shipToCust?.pan && `| PAN: ${shipToCust.pan}`}</p>
-              </div>
-            )}
-          </div>
-
-          <table className="w-full border-x border-black">
-            <thead>
-              <tr className="bg-white text-[10px] font-bold border-b-2 border-black">
-                <th className="border-r border-black w-8 text-center py-2">#</th>
-                <th className="border-r border-black text-left py-2">Item Description</th>
-                {customHeaders.map((header: string, i: number) => (
-                  <th key={i} className="border-r border-black text-center py-2">{header}</th>
-                ))}
-                <th className="border-r border-black w-20 text-center py-2">HSN/SAC</th>
-                <th className="border-r border-black w-16 text-center py-2">Qty</th>
-                <th className="border-r border-black w-16 text-center py-2">Unit</th>
-                <th className="border-r border-black w-14 text-center py-2">Rate</th>
-                <th className="w-28 text-right py-2">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {invoice.items?.map((item: any, idx: number) => (
-                <tr key={idx} className="border-b border-gray-200 h-10">
-                  <td className="border-r border-black text-center">{idx + 1}</td>
-                  <td className="border-r border-black font-bold uppercase">{item.desc}</td>
-                  {customHeaders.map((_: any, i: number) => (
-                    <td key={i} className="border-r border-black text-center">{item.customValues?.[i] || "-"}</td>
-                  ))}
-                  <td className="border-r border-black text-center font-mono">{item.hsn}</td>
-                  <td className="border-r border-black text-center font-bold">{item.qty}</td>
-                  <td className="border-r border-black text-center">{item.uom}</td>
-                  <td className="border-r border-black text-center font-bold">{parseFloat(item.rate).toFixed(2)}</td>
-                  <td className="text-right font-bold">{parseFloat(item.amount).toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div className="flex border-x border-b border-black">
-            <div className="flex-1 border-r border-black p-2"></div>
-            <div className="w-[300px]">
-              {!isNonTax ? (
-                <>
-                  <div className="flex justify-between px-2 py-1.5 font-bold border-b border-gray-200 bg-gray-50/30">
-                    <span>Taxable Amount</span>
-                    <span>{taxable.toFixed(2)}</span>
-                  </div>
-                  {isInterstate ? (
-                    <div className="flex justify-between px-2 py-1.5 border-b border-gray-200 italic text-gray-700">
-                      <span>IGST @ {avgGst}%</span>
-                      <span>{igst.toFixed(2)}</span>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex justify-between px-2 py-1.5 border-b border-gray-200">
-                        <span className="font-medium">CGST @ {avgGst / 2}%</span>
-                        <span>{cgst.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between px-2 py-1.5 border-b border-gray-200">
-                        <span className="font-medium">SGST @ {avgGst / 2}%</span>
-                        <span>{sgst.toFixed(2)}</span>
-                      </div>
-                    </>
-                  )}
-                  <div className="flex justify-between px-2 py-1.5 border-b border-gray-200 text-gray-500">
-                    <span>Round Off</span>
-                    <span>{roundOff}</span>
-                  </div>
-                </>
-              ) : (
-                <div className="px-2 py-4 text-center border-b border-gray-200 text-gray-400 italic">
-                  No taxes applicable for Non-Tax Invoice
-                </div>
-              )}
-              <div className="flex justify-between px-2 py-2.5 font-black text-[13px] bg-gray-100 border-t-2 border-black uppercase">
-                <span>{isNonTax ? "Net Total Amount" : "Net Payable Amount"}</span>
-                <span>₹ {roundedTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-x border-b-2 border-black p-3 bg-white font-bold italic">
-            Amount in Words: {numberToWords(roundedTotal)}
-          </div>
-
-          {invoice.billType && (
-            <div className="border-x border-b-2 border-black p-2 px-3 bg-gray-50/50 text-[10px] font-black text-blue-900 uppercase italic tracking-wider">
-              {invoice.billType}
-            </div>
-          )}
-
-          {invoice.note && (
-            <div className="border-x border-b-2 border-black p-3 bg-white font-bold italic">
-              Note: <span className="font-normal not-italic uppercase">{invoice.note}</span>
-            </div>
-          )}
-
-          <div className="mt-auto flex justify-between items-end pb-2 pt-6">
-            <div className="flex-1">
-              {firm?.bankName && firm?.accountNumber && (
-                <div className="border-2 border-black p-3 relative h-28 w-64">
-                  <h4 className="text-[10px] font-bold uppercase underline">Bank Details:</h4>
-                  <p className="mt-1 font-bold">Bank: <span className="font-normal uppercase">{firm.bankName}</span></p>
-                  <p className="font-bold">A/c No: <span className="font-normal uppercase">{firm.accountNumber}</span></p>
-                  <p className="font-bold">IFSC: <span className="font-normal uppercase">{firm.ifscCode}</span></p>
-                </div>
-              )}
-            </div>
-            <div className="text-right pr-4">
-              <p className="font-bold text-[10px] uppercase border-t border-black pt-1 inline-block min-w-[150px] text-center">Authorized Signature</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="w-full flex flex-col bg-white min-h-full">
       <div className="sap-header-title">Billing Documents List: ALV Grid</div>
@@ -454,9 +452,9 @@ export default function VF03() {
                            </div>
                         </div>
                         <div className="bg-white" id="invoice-print-area">
-                          <InvoicePreview invoice={inv} copyLabel="ORIGINAL: FOR RECIPIENT" />
+                          <InvoicePreview invoice={inv} copyLabel="ORIGINAL: FOR RECIPIENT" firms={firms} customerMap={customerMap} />
                           <div className="page-break"></div>
-                          <InvoicePreview invoice={inv} copyLabel="DUPLICATE: FOR CONSIGNEE" />
+                          <InvoicePreview invoice={inv} copyLabel="DUPLICATE: FOR CONSIGNEE" firms={firms} customerMap={customerMap} />
                         </div>
                       </DialogContent>
                     </Dialog>

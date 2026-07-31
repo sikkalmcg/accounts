@@ -56,3 +56,24 @@ export const addDoc = (reference: CollectionReference, data: any) => request(`/a
 export const updateDoc = (reference: DocumentReference, data: any) => request(`/api/data/${reference.collection}/${reference.id}`, { method: 'PATCH', body: JSON.stringify(data) });
 export const setDoc = (reference: DocumentReference, data: any) => request(`/api/data/${reference.collection}/${reference.id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const deleteDoc = (reference: DocumentReference) => request(`/api/data/${reference.collection}/${reference.id}`, { method: 'DELETE' });
+
+// This is a client-side simulation of a batch write for compatibility with Firestore-like API.
+// It executes operations sequentially and is NOT an atomic transaction on the backend
+// unless the /api/data endpoint is specifically designed to handle batch operations atomically.
+export const writeBatch = (_db: unknown) => {
+  const operations: Array<{ type: 'set'; ref: DocumentReference; data: any }> = [];
+
+  return {
+    set: (ref: DocumentReference, data: any) => {
+      operations.push({ type: 'set', ref, data });
+    },
+    // Add other batch operations (update, delete) here if needed in the future.
+    commit: async () => {
+      const promises = operations.map(op => {
+        if (op.type === 'set') return setDoc(op.ref, op.data);
+        return Promise.resolve(); // Fallback for unexpected operation types
+      });
+      await Promise.all(promises);
+    },
+  };
+};
