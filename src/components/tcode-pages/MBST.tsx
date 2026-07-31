@@ -48,6 +48,7 @@ export default function MBST() {
   // 4. Found Record State
   const [foundPayment, setFoundPayment] = useState<any>(null);
   const [foundInvoice, setFoundInvoice] = useState<any>(null);
+  const [bankingBalance, setBankingBalance] = useState<number | null>(null);
   const [paymentDocId, setPaymentDocId] = useState<string | null>(null);
 
   // 5. Editable Fields State
@@ -96,33 +97,28 @@ export default function MBST() {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Plant is mandatory", isError: true } }));
       return;
     }
-    if (!searchInvoiceNo) {
-      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Invoice Number is mandatory", isError: true } }));
-      return;
-    }
-    if (!searchBankUtr) {
-      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Bank UTR No. is mandatory", isError: true } }));
-      return;
-    }
 
     setIsSearching(true);
     setHasSearched(true);
     setFoundPayment(null);
     setFoundInvoice(null);
+    setBankingBalance(null);
     setPaymentDocId(null);
 
     try {
       // Search payment_receipts by Plant + Invoice No + Bank UTR
-      const paymentsQuery = query(
+      let paymentsQuery = query(
         collection(db, "payment_receipts"),
-        where("plantId", "==", searchPlant),
-        where("invoiceNo", "==", searchInvoiceNo),
-        where("bankingUtr", "==", searchBankUtr)
+        where("plantId", "==", searchPlant)
       );
+
+      if (searchInvoiceNo) paymentsQuery = query(paymentsQuery, where("invoiceNo", "==", searchInvoiceNo));
+      if (searchBankUtr) paymentsQuery = query(paymentsQuery, where("bankingUtr", "==", searchBankUtr));
+
       const paymentSnap = await getDocs(paymentsQuery);
 
       if (paymentSnap.empty) {
-        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `No payment record found for Invoice ${searchInvoiceNo} with UTR ${searchBankUtr} in Plant ${searchPlant}`, isError: true } }));
+        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `No payment record found with the specified criteria in Plant ${searchPlant}`, isError: true } }));
         setIsSearching(false);
         return;
       }
@@ -134,7 +130,7 @@ export default function MBST() {
       setFoundPayment(payment);
 
       // Populate editable fields
-      setEditPaymentMode(payment.paymentMode || "Banking");
+      setEditPaymentMode(payment.paymentMode || "");
       setEditReceiptAmount(String(payment.receiptAmount || ""));
       setEditTdsAmount(String(payment.tds || ""));
       setEditDeductionAmount(String(payment.deduction || ""));
@@ -144,11 +140,14 @@ export default function MBST() {
       setEditPaymentDate(payment.paymentDate || "");
       setEditProofData(payment.proofData || "");
 
+      // The invoice number to search for is the one from the found payment record
+      const invoiceToSearch = payment.invoiceNo || searchInvoiceNo;
+
       // Fetch associated invoice from sales_invoices
       const invoiceQuery = query(
         collection(db, "sales_invoices"),
         where("plantId", "==", searchPlant),
-        where("invoiceNumber", "==", searchInvoiceNo)
+        where("invoiceNumber", "==", invoiceToSearch)
       );
       const invoiceSnap = await getDocs(invoiceQuery);
 
@@ -170,7 +169,24 @@ export default function MBST() {
         setFoundInvoice(null);
       }
 
-      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Payment record found for Invoice ${searchInvoiceNo}`, isError: false } }));
+      // Fetch all payments for the invoice to calculate banking balance
+      const allPaymentsQuery = query(
+        collection(db, "payment_receipts"),
+        where("invoiceNo", "==", invoiceToSearch)
+      );
+      const allPaymentsSnap = await getDocs(allPaymentsQuery);
+      if (!allPaymentsSnap.empty) {
+        const totalPaid = allPaymentsSnap.docs.reduce((sum, doc) => {
+          const p = doc.data();
+          return sum + (Number(p.receiptAmount) || 0) + (Number(p.tds) || 0) + (Number(p.deduction) || 0);
+        }, 0);
+        const grossAmount = invoiceSnap.docs[0]?.data().totals?.grossAmount || 0;
+        setBankingBalance(grossAmount - totalPaid);
+      } else {
+        setFoundInvoice(null);
+      }
+
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Payment record found for Invoice ${invoiceToSearch}`, isError: false } }));
     } catch (e) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "System Error: Failed to fetch payment record", isError: true } }));
     } finally {
@@ -245,6 +261,7 @@ export default function MBST() {
     setHasSearched(false);
     setFoundPayment(null);
     setFoundInvoice(null);
+    setBankingBalance(null);
     setPaymentDocId(null);
     setEditPaymentMode("");
     setEditReceiptAmount("");
@@ -298,7 +315,7 @@ export default function MBST() {
             </div>
           </div>
           <div className="sap-selection-row">
-            <label className="sap-label">Invoice Number *</label>
+            <label className="sap-label">Invoice Number</label>
             <div className="sap-input-wrapper max-w-[250px]">
               <Input
                 value={searchInvoiceNo}
@@ -310,7 +327,7 @@ export default function MBST() {
             </div>
           </div>
           <div className="sap-selection-row">
-            <label className="sap-label">Bank UTR No. *</label>
+            <label className="sap-label">Bank UTR No.</label>
             <div className="sap-input-wrapper max-w-[250px]">
               <Input
                 value={searchBankUtr}
@@ -451,6 +468,14 @@ export default function MBST() {
                   </Select>
                 </div>
               </div>
+              {bankingBalance !== null && (
+                <div className="sap-selection-row">
+                  <label className="sap-label font-bold text-red-700">Banking Balance</label>
+                  <Input
+                    value={bankingBalance.toLocaleString()} readOnly className="bg-gray-100 text-right font-black text-red-900 border-red-200 h-6 rounded-none border-gray-400 text-xs px-1.5"
+                  />
+                </div>
+              )}
               <div className="sap-selection-row">
                 <label className="sap-label">Receipt Amount</label>
                 <Input
@@ -642,4 +667,3 @@ export default function MBST() {
     </div>
   );
 }
-
