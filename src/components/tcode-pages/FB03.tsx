@@ -5,7 +5,7 @@ import { useState, useMemo, useEffect } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDatabase, useCollection, useMemoDatabase } from "@/database";
 import { collection, query, orderBy } from "@/database/mongo";
-import { Search, ArrowUpDown, ChevronUp, ChevronDown, Filter, Printer, Download, LayoutDashboard, Receipt, Wallet, ArrowRight, FileSpreadsheet } from "lucide-react";
+import { Search, ArrowUpDown, ChevronUp, ChevronDown, Filter, Printer, Download, LayoutDashboard, Receipt, Wallet, ArrowRight, FileSpreadsheet, MinusCircle, PlusCircle } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -57,11 +57,15 @@ export default function FB03() {
 
   // Aggregate receipts by Invoice Number
   const invoiceReceiptMap = useMemo(() => {
-    const map: Record<string, number> = {};
+    const map: Record<string, any> = {};
     allReceipts?.forEach(r => {
       const invNo = r.invoiceNo;
-      const amt = Number(r.receiptAmount) || 0;
-      map[invNo] = (map[invNo] || 0) + amt;
+      if (!map[invNo]) {
+        map[invNo] = { receiptAmount: 0, tds: 0, deduction: 0, paymentDate: r.paymentDate, paymentAdviceNo: r.paymentAdviceNo, bankingUtr: r.bankingUtr };
+      }
+      map[invNo].receiptAmount += Number(r.receiptAmount) || 0;
+      map[invNo].tds += Number(r.tds) || 0;
+      map[invNo].deduction += Number(r.deduction) || 0;
     });
     return map;
   }, [allReceipts]);
@@ -78,12 +82,18 @@ export default function FB03() {
       return true;
     });
     return base.map(inv => {
-      const paid = invoiceReceiptMap[inv.invoiceNumber] || 0;
+      const receipt = invoiceReceiptMap[inv.invoiceNumber] || { receiptAmount: 0, tds: 0, deduction: 0 };
       const gross = inv.totals?.grossAmount || 0;
+      const totalCollection = (receipt.receiptAmount || 0) + (receipt.tds || 0) + (receipt.deduction || 0);
       return {
         ...inv,
-        paidAmount: paid,
-        balanceAmount: gross - paid
+        receiptAmount: receipt.receiptAmount,
+        tdsAmount: receipt.tds,
+        deductionAmount: receipt.deduction,
+        paymentDate: receipt.paymentDate,
+        paymentAdviceNo: receipt.paymentAdviceNo,
+        bankingUtr: receipt.bankingUtr,
+        balanceAmount: gross - totalCollection
       };
     });
   }, [allInvoices, isAdmin, assignedPlantId, filterPlant, filterConsignee, filterFY, invoiceReceiptMap]);
@@ -93,9 +103,11 @@ export default function FB03() {
   const summary = useMemo(() => {
     return processedData.reduce((acc, curr) => ({
       total: acc.total + (curr.totals?.grossAmount || 0),
-      paid: acc.paid + curr.paidAmount,
+      receipt: acc.receipt + (curr.receiptAmount || 0),
+      tds: acc.tds + (curr.tdsAmount || 0),
+      deduction: acc.deduction + (curr.deductionAmount || 0),
       balance: acc.balance + curr.balanceAmount
-    }), { total: 0, paid: 0, balance: 0 });
+    }), { total: 0, receipt: 0, tds: 0, deduction: 0, balance: 0 });
   }, [processedData]);
 
   const sortedData = useMemo(() => {
@@ -131,7 +143,7 @@ export default function FB03() {
   const handleExport = () => {
     if (sortedData.length === 0) return;
     const csvContent = [
-      ["#", "Plant", "Invoice No", "Inv. Date", "Bill Month", "Charge type", "Description", "Taxable Amt", "CGST", "SGST", "IGST", "Gross Payable", "Paid Amt", "Balance"].join(","),
+      ["#", "Plant", "Invoice No", "Inv. Date", "Bill Month", "Charge type", "Description", "Taxable Amt", "CGST", "SGST", "IGST", "Gross Payable", "Receipt Amt", "TDS Amt", "Deduction Amt", "Balance", "Pay Date", "Advice No", "UTR"].join(","),
       ...sortedData.map((row, idx) => [
         idx + 1,
         row.plantId,
@@ -145,8 +157,13 @@ export default function FB03() {
         row.totals?.sgst || 0,
         row.totals?.igst || 0,
         row.totals?.grossAmount || 0,
-        row.paidAmount || 0,
-        row.balanceAmount || 0
+        row.receiptAmount || 0,
+        row.tdsAmount || 0,
+        row.deductionAmount || 0,
+        row.balanceAmount || 0,
+        row.paymentDate || "",
+        row.paymentAdviceNo || "",
+        row.bankingUtr || ""
       ].join(","))
     ].join("\n");
 
@@ -204,14 +221,22 @@ export default function FB03() {
         </Button>
       </div>
 
-      <div className="p-4 grid grid-cols-3 gap-6">
+      <div className="p-4 grid grid-cols-5 gap-4">
         <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-blue-300 transition-colors">
           <div className="bg-blue-50 p-3 rounded-full group-hover:bg-blue-100 transition-colors"><Receipt className="h-6 w-6 text-blue-600" /></div>
           <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoice Amount</p><p className="text-xl font-black text-gray-800 font-mono">₹ {summary.total.toLocaleString()}</p></div>
         </div>
         <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-emerald-300 transition-colors">
           <div className="bg-emerald-50 p-3 rounded-full group-hover:bg-emerald-100 transition-colors"><Wallet className="h-6 w-6 text-emerald-600" /></div>
-          <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Paid Amount</p><p className="text-xl font-black text-emerald-700 font-mono">₹ {summary.paid.toLocaleString()}</p></div>
+          <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Receipt Amount</p><p className="text-xl font-black text-emerald-700 font-mono">₹ {summary.receipt.toLocaleString()}</p></div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-orange-300 transition-colors">
+          <div className="bg-orange-50 p-3 rounded-full group-hover:bg-orange-100 transition-colors"><MinusCircle className="h-6 w-6 text-orange-600" /></div>
+          <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total TDS Amount</p><p className="text-xl font-black text-orange-700 font-mono">₹ {summary.tds.toLocaleString()}</p></div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-purple-300 transition-colors">
+          <div className="bg-purple-50 p-3 rounded-full group-hover:bg-purple-100 transition-colors"><PlusCircle className="h-6 w-6 text-purple-600" /></div>
+          <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Deduction Amount</p><p className="text-xl font-black text-purple-700 font-mono">₹ {summary.deduction.toLocaleString()}</p></div>
         </div>
         <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-red-300 transition-colors">
           <div className="bg-red-50 p-3 rounded-full group-hover:bg-red-100 transition-colors"><ArrowRight className="h-6 w-6 text-red-600" /></div>
@@ -246,8 +271,13 @@ export default function FB03() {
                     </>
                   )}
                   {hasIgst && <TableHead className="w-28 text-right text-[10px] font-bold border-r border-[#b5c7de]">IGST</TableHead>}
-                  <TableHead onClick={() => handleSort('totals.grossAmount')} className="w-36 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-blue-50/50"><div className="flex items-center justify-end">Gross Payable <SortIcon col="totals.grossAmount" /></div></TableHead>
-                  <TableHead onClick={() => handleSort('paidAmount')} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">Paid Amt</TableHead>
+                  <TableHead onClick={() => handleSort('totals.grossAmount')} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-blue-50/50"><div className="flex items-center justify-end">Gross Payable <SortIcon col="totals.grossAmount" /></div></TableHead>
+                  <TableHead onClick={() => handleSort('receiptAmount')} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">Receipt Amt</TableHead>
+                  <TableHead onClick={() => handleSort('tdsAmount')} className="w-28 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">TDS Amt</TableHead>
+                  <TableHead onClick={() => handleSort('deductionAmount')} className="w-28 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">Deduction Amt</TableHead>
+                  <TableHead className="w-32 text-[10px] font-bold border-r border-[#b5c7de]">Pay Date</TableHead>
+                  <TableHead className="w-32 text-[10px] font-bold border-r border-[#b5c7de]">Advice No.</TableHead>
+                  <TableHead className="w-32 text-[10px] font-bold border-r border-[#b5c7de]">Bank UTR</TableHead>
                   <TableHead onClick={() => handleSort('balanceAmount')} className="w-32 text-right text-[10px] font-bold text-red-700 bg-red-50/30">Balance</TableHead>
                 </TableRow>
               </TableHeader>
@@ -293,5 +323,3 @@ export default function FB03() {
     </div>
   );
 }
-
-

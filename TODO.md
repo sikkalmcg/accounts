@@ -1,20 +1,16 @@
-# Multi-Plant Access & User Authorization Implementation
+# MBST - Reverse Payment Page Implementation
 
-## Completed Steps (VF01 - Billing Header Details) ✅
-- [x] All VF01 changes implemented and verified
+## Steps
 
-## New Task: Multi-Plant Access & User Authorization
+- [x] Step 1: Create `src/components/tcode-pages/MBST.tsx`
+  - [x] Search Criteria Section (Plant, Invoice Number, Bank UTR No.)
+  - [x] Fetch matching payment record from payment_receipts + sales_invoices
+  - [x] Invoice Information Section (Read-Only with conditional GST display)
+  - [x] Editable Payment Fields Section
+  - [x] Payment Proof (View/Replace)
+  - [x] Save/Update functionality
 
-### Phase 1: Master Data Multi-Plant Conversion
-- [x] XD01.tsx - Replace single plantId with multi-plant assignedPlantIds
-- [x] XK01.tsx - Same conversion  
-- [x] FM01.tsx - Same conversion
-- [x] VK11.tsx - Same conversion
-- [x] MM01.tsx - Same conversion
-- [x] VL01.tsx - Same conversion
-- [x] VOF01.tsx - Same conversion
+- [x] Step 2: Register MBST in `src/lib/tcode-registry.tsx`
 
-### Phase 2: SU01 Dynamic Authorization Enhancement
-- [x] SU01.tsx - Import TCODE_MAP from registry for dynamic permission groups
-- [x] SU01.tsx - Enhanced permission matrix with View/Create/Edit/Delete granular support
+- [x] Step 3: Build verification (TypeScript compilation passed)
 

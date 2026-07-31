@@ -36,6 +36,8 @@ import SU01 from "@/components/tcode-pages/SU01";
 import SU02 from "@/components/tcode-pages/SU02";
 import SU03 from "@/components/tcode-pages/SU03";
 import FB03 from "@/components/tcode-pages/FB03";
+import MB03 from "@/components/tcode-pages/MB03";
+import MBST from "@/components/tcode-pages/MBST";
 import ZINV from "@/components/tcode-pages/ZINV";
 import F110 from "@/components/tcode-pages/F110";
 
@@ -96,6 +98,8 @@ export const TCODE_MAP: Record<string, { title: string; component: React.ReactNo
 
   // Finance
   FB03: { title: "Invoice Payment Status", component: <FB03 />, isDisplayOnly: true },
+  MB03: { title: "Payment Record", component: <MB03 />, isDisplayOnly: true },
+  MBST: { title: "Reverse Payment / Modify Payment", component: <MBST /> },
   F110: { title: "Payment Proof Report", component: <F110 />, isDisplayOnly: true },
   
   // User Management

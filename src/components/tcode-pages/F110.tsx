@@ -190,9 +190,16 @@ export default function F110() {
                             <div><p className="text-[9px] font-bold text-gray-400 uppercase">Payment Advice No.</p><p className="text-sm font-black text-gray-800">{inv.receiptData?.paymentAdviceNo || "---"}</p></div>
                           </div>
                           
+                          <div className="grid grid-cols-2 gap-6 border-b border-gray-100 pb-4">
+                            <div><p className="text-[9px] font-bold text-gray-400 uppercase">Receipt Amount</p><p className="text-sm font-black text-gray-800">₹ {Number(inv.receiptData?.receiptAmount || 0).toLocaleString()}</p></div>
+                            <div><p className="text-[9px] font-bold text-gray-400 uppercase">TDS Amount</p><p className="text-sm font-black text-gray-800">₹ {Number(inv.receiptData?.tds || 0).toLocaleString()}</p></div>
+                            <div><p className="text-[9px] font-bold text-gray-400 uppercase">Deduction Amount</p><p className="text-sm font-black text-red-700">₹ {Number(inv.receiptData?.deduction || 0).toLocaleString()}</p></div>
+                            {Number(inv.receiptData?.deduction || 0) > 0 && <div><p className="text-[9px] font-bold text-gray-400 uppercase">Deduction Remark</p><p className="text-sm font-bold text-red-700 italic">{inv.receiptData?.deductionRemark || "NOT PROVIDED"}</p></div>}
+                          </div>
+
                           <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-sm flex justify-between items-center shadow-sm">
                             <div className="flex items-center gap-3 text-emerald-800 font-black uppercase text-[11px] tracking-tighter"><div className="bg-emerald-600 text-white p-2 rounded-full"><Receipt className="h-5 w-5" /></div> Total Collection Amount</div>
-                            <div className="text-2xl font-black text-emerald-900 font-mono">₹ {Number(inv.receiptData?.receiptAmount || 0).toLocaleString()}</div>
+                            <div className="text-2xl font-black text-emerald-900 font-mono">₹ {(Number(inv.receiptData?.receiptAmount || 0) + Number(inv.receiptData?.tds || 0) + Number(inv.receiptData?.deduction || 0)).toLocaleString()}</div>
                           </div>
 
                           <div className="border border-gray-300 rounded-sm overflow-hidden bg-gray-50">
@@ -253,5 +260,3 @@ export default function F110() {
     </div>
   );
 }
-
-

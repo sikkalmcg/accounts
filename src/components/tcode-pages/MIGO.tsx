@@ -26,7 +26,7 @@ const initialPaymentData = {
   tds: "",
   deduction: "",
   deductionRemark: "",
-  interest: "",
+  interest: "0",
   balanceAmount: 0,
   cgst: 0,
   sgst: 0,
@@ -38,6 +38,8 @@ const initialPaymentData = {
   proofData: "",
   consignorName: "",
   paymentDate: "",
+  currentOutstandingBalance: 0, // New field to store the actual outstanding balance of the invoice
+  isFullyPaid: false, // New field to indicate if the invoice is fully paid
 };
 
 export default function MIGO() {
@@ -74,6 +76,7 @@ export default function MIGO() {
   // --- Payment Receipt State ---
   const [consignorName, setConsignorName] = useState(""); // New field
   const [paymentData, setPaymentData] = useState(initialPaymentData);
+  const [invoiceDocId, setInvoiceDocId] = useState<string | null>(null); // To store the ID of the fetched invoice
 
   // --- Invoice/Stock Receipt State ---
   const [receiptHeader, setReceiptHeader] = useState({
@@ -96,16 +99,17 @@ export default function MIGO() {
   const [items, setItems] = useState<any[]>([{ id: '1', desc: '', matCode: '', hsn: '', qty: '', rate: '', amount: 0 }]);
 
   // --- Calculations ---
-  const calculatedBalance = useMemo(() => { // This is for Payment Receipt
+  // This calculates the remaining balance after the *current* payment attempt, based on the invoice's current outstanding balance.
+  const calculatedBalance = useMemo(() => {
     if (receiptType !== "Payment Receipt") return 0;
-    const gross = Number(paymentData.grossAmount) || 0;
+    const currentOutstanding = Number(paymentData.currentOutstandingBalance) || 0;
     const interest = Number(paymentData.interest) || 0;
     const receipt = Number(paymentData.receiptAmount) || 0;
     const tds = Number(paymentData.tds) || 0;
     const deduction = Number(paymentData.deduction) || 0;
     
-    // Balance Amount = Gross Payable Value + Interest - Receipt Amount - TDS - Deduction
-    return (gross + interest) - (receipt + tds + deduction);
+    // Balance Amount = Current Outstanding Balance + Interest - (Receipt Amount + TDS + Deduction)
+    return (currentOutstanding + interest) - (receipt + tds + deduction);
   }, [paymentData.grossAmount, paymentData.interest, paymentData.receiptAmount, paymentData.tds, paymentData.deduction, receiptType]);
 
   // --- Shared Logic ---
@@ -134,6 +138,7 @@ export default function MIGO() {
     setReceiptType("");
     setPlantId("");
     setPaymentData(initialPaymentData);
+    setInvoiceDocId(null);
     setReceiptHeader({
       firmId: "", inventoryType: "", invoiceNo: "", date: "",
       documentType: "Tax Invoice", vendorId: "", vendorGstin: "", address: "", state: "", stateCode: "", pin: "", gstRate: "18", proofData: ""
@@ -263,6 +268,11 @@ export default function MIGO() {
     }
 
     if (receiptType === "Payment Receipt") {
+      if (paymentData.isFullyPaid || paymentData.currentOutstandingBalance <= 0) {
+        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Payment cannot be processed. This invoice has already been fully paid or has no outstanding balance.", isError: true } }));
+        return;
+      }
+
       // Rule: If balance is > 100, Remark is mandatory
       if (calculatedBalance > 100 && !paymentData.remark) {
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Remark is mandatory for balance amount > 100", isError: true } }));
@@ -389,8 +399,9 @@ export default function MIGO() {
                       onKeyDown={e => e.key === 'Enter' && fetchInvoiceDetails()}
                       placeholder="Enter and press Enter..."
                       className="pr-8"
+                      disabled={paymentData.isFullyPaid}
                     />
-                    <button onClick={fetchInvoiceDetails} className="absolute right-2 text-gray-400 hover:text-blue-600"><Search className="h-3.5 w-3.5" /></button>
+                    <button onClick={fetchInvoiceDetails} className="absolute right-2 text-gray-400 hover:text-blue-600" disabled={paymentData.isFullyPaid}><Search className="h-3.5 w-3.5" /></button>
                   </div>
                 </div>
                 <div className="sap-selection-row"><label className="sap-label">Invoice Date</label><Input value={paymentData.date} readOnly className="bg-gray-100" /></div>
