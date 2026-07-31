@@ -192,29 +192,31 @@ export default function VF03() {
             </div>
             <div className="text-right">
               <h2 className="text-[10px] font-bold uppercase mb-4">{copyLabel}</h2>
-              <div className="w-20 h-20 bg-gray-50 border border-black ml-auto flex items-center justify-center">
+              <div className="w-24 h-24 bg-gray-50 border border-black ml-auto flex flex-col items-center justify-center text-center">
                 {invoice.qrData ? (
                   <div className="relative w-full h-full"><Image src={invoice.qrData} alt="QR" fill className="object-contain" /></div>
                 ) : (
                   <span className="text-[8px] text-gray-400 text-center px-1 uppercase font-bold opacity-40">QR Code</span>
                 )}
+                {invoice.irnNumber && <p className="text-[7px] font-mono font-bold bg-black text-white w-full p-0.5 mt-auto">{invoice.irnNumber}</p>}
               </div>
             </div>
           </div>
 
           <div className="border-y-2 border-black py-1.5 flex justify-between px-2 font-bold text-[12px] bg-gray-50 mb-3">
-            <span>Plant Code: {invoice.plantId}</span>
             <span className="text-center flex-1">{docTypeLabel.header}</span>
             <span className="text-right uppercase">{invoice.status === "Cancelled" ? "CANCELLED DOCUMENT" : (invoice.docCategory || "SERVICE CHARGE")}</span>
           </div>
 
           <div className="mb-3 px-2">
-            <div className="flex justify-between items-start mb-2">
-              <div>
+            <div className="flex justify-between items-center mb-2">
+              <div className="flex-1">
                 <p className="text-[13px] font-black"><span className="text-[9px] text-gray-500 font-bold uppercase">{docTypeLabel.no}:</span> {invoice.invoiceNumber}</p>
               </div>
-              <div className="text-right">
+              <div className="flex-1 text-center">
                 <p className="text-[11px] font-bold"><span className="text-[9px] text-gray-500 font-bold uppercase">Date:</span> {invoice.invoiceDate}</p>
+              </div>
+              <div className="flex-1 text-right">
                 <p className="text-[11px] font-bold uppercase"><span className="text-[9px] text-gray-500 font-bold uppercase">Working Month:</span> {invoice.billMonth}</p>
               </div>
             </div>
@@ -223,16 +225,13 @@ export default function VF03() {
                 <div className="border-t border-gray-100 pt-1">
                   <p className="break-all leading-none"><span className="text-[8px] text-gray-500 font-bold uppercase block mb-0.5">IRN:</span> <span className="font-mono text-[9px] font-black text-blue-900">{invoice.irnNumber || "N/A"}</span></p>
                 </div>
-                <div className="flex items-center justify-between text-[10px] border-t border-gray-100 pt-1">
-                  <div className="flex-1 min-w-0">
-                    <p><span className="text-[8px] text-gray-500 font-bold uppercase">ACK No:</span> <span className="font-mono font-bold ml-1">{invoice.ackNo || "N/A"}</span></p>
-                  </div>
-                  <div className="flex-1 text-center">
-                    <p><span className="text-[8px] text-gray-500 font-bold uppercase">ACK Date:</span> <span className="font-bold ml-1">{invoice.ackDate || "N/A"}</span></p>
-                  </div>
-                  <div className="flex-1 text-right">
-                    <p className="text-[9px] font-black italic text-gray-300">FY: {invoice.billYear || "N/A"}</p>
-                  </div>
+                <div className="grid grid-cols-2 gap-x-4 text-[10px] border-t border-gray-100 pt-1">
+                  <p><span className="text-[8px] text-gray-500 font-bold uppercase">ACK No:</span> <span className="font-mono font-bold ml-1">{invoice.ackNo || "N/A"}</span></p>
+                  <p><span className="text-[8px] text-gray-500 font-bold uppercase">ACK Date:</span> <span className="font-bold ml-1">{invoice.ackDate || "N/A"}</span></p>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 text-[10px] border-t border-gray-100 pt-1">
+                  <p><span className="text-[8px] text-gray-500 font-bold uppercase">Plant:</span> <span className="font-mono font-bold ml-1">{invoice.plantId}</span></p>
+                  <p><span className="text-[8px] text-gray-500 font-bold uppercase">Charge Type:</span> <span className="font-bold ml-1 uppercase">{invoice.docCategory}</span></p>
                 </div>
               </div>
             )}
@@ -240,7 +239,7 @@ export default function VF03() {
 
           <div className={cn("grid gap-0 border-y-2 border-black mb-3", isShipToApplicable ? "grid-cols-2" : "grid-cols-1")}>
             <div className={cn("p-3 pb-6", isShipToApplicable && "border-r border-black")}>
-              <h3 className="font-bold mb-2 text-[10px] uppercase underline">CONSIGNEE</h3>
+              <h3 className="font-bold mb-2 text-[10px] uppercase underline">Bill to Party</h3>
               <p className="font-black text-[12px] mb-1">{billToCust?.name?.toUpperCase()}</p>
               <p className={cn("whitespace-pre-wrap", isShipToApplicable ? "max-w-[280px]" : "max-w-full")}>{billToCust?.address}</p>
               <p>State: {billToCust?.stateName?.toUpperCase() || "N/A"} (Code: {billToCust?.stateCode || ""})</p>
@@ -494,5 +493,3 @@ export default function VF03() {
     </div>
   );
 }
-
-

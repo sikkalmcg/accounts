@@ -56,5 +56,3 @@ export const addDoc = (reference: CollectionReference, data: any) => request(`/a
 export const updateDoc = (reference: DocumentReference, data: any) => request(`/api/data/${reference.collection}/${reference.id}`, { method: 'PATCH', body: JSON.stringify(data) });
 export const setDoc = (reference: DocumentReference, data: any) => request(`/api/data/${reference.collection}/${reference.id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const deleteDoc = (reference: DocumentReference) => request(`/api/data/${reference.collection}/${reference.id}`, { method: 'DELETE' });
-
-

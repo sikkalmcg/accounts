@@ -12,6 +12,34 @@ import { parseGSTIN } from "@/lib/gst-utils";
 
 type ReceiptType = "Payment Receipt" | "Invoice Receipt" | "Stock Receipt";
 
+const initialPaymentData = {
+  invoiceNo: "",
+  date: "",
+  consigneeName: "",
+  itemDescription: "",
+  billMonth: "",
+  invoiceType: "",
+  taxableAmount: 0,
+  taxAmount: 0,
+  grossAmount: 0,
+  receiptAmount: "",
+  tds: "",
+  deduction: "",
+  deductionRemark: "",
+  interest: "",
+  balanceAmount: 0,
+  cgst: 0,
+  sgst: 0,
+  igst: 0,
+  remark: "",
+  paymentMode: "Banking",
+  bankingUtr: "",
+  paymentAdviceNo: "",
+  proofData: "",
+  consignorName: "",
+  paymentDate: "",
+};
+
 export default function MIGO() {
   const db = useDatabase(); // Assuming db is initialized elsewhere
   const fileRef = useRef<HTMLInputElement>(null);
@@ -45,33 +73,7 @@ export default function MIGO() {
 
   // --- Payment Receipt State ---
   const [consignorName, setConsignorName] = useState(""); // New field
-  const [paymentData, setPaymentData] = useState({
-    invoiceNo: "",
-    date: "",
-    consigneeName: "",
-    itemDescription: "", // New field
-    billMonth: "", // New field
-    invoiceType: "",
-    taxableAmount: 0,
-    taxAmount: 0,
-    grossAmount: 0,
-    receiptAmount: "",
-    tds: "",
-    deduction: "",
-    deductionRemark: "",
-    interest: "",
-    balanceAmount: 0, // Added missing property
-    cgst: 0, // New field
-    sgst: 0, // New field
-    igst: 0, // New field
-    remark: "",
-    paymentMode: "Banking",
-    bankingUtr: "",
-    paymentAdviceNo: "",
-    proofData: "",
-    consignorName: "", // Added missing property
-    paymentDate: "",
-  });
+  const [paymentData, setPaymentData] = useState(initialPaymentData);
 
   // --- Invoice/Stock Receipt State ---
   const [receiptHeader, setReceiptHeader] = useState({
@@ -128,23 +130,16 @@ export default function MIGO() {
     };
     reader.readAsDataURL(file);
   };
-
-  const resetAll = () => {
+  const resetAll = useCallback(() => {
     setReceiptType("");
     setPlantId("");
-    setPaymentData({
-      invoiceNo: "", date: "", consigneeName: "", invoiceType: "", taxableAmount: 0, taxAmount: 0, grossAmount: 0,
-      receiptAmount: "", tds: "", deduction: "", deductionRemark: "", interest: "", balanceAmount: 0, remark: "", 
-      paymentMode: "Banking", bankingUtr: "",
-      paymentAdviceNo: "", proofData: "", paymentDate: "", consignorName: ""
-    });
+    setPaymentData(initialPaymentData);
     setReceiptHeader({
       firmId: "", inventoryType: "", invoiceNo: "", date: "",
-      documentType: "Tax Invoice", // Reset renamed field
-      vendorId: "", vendorGstin: "", address: "", state: "", stateCode: "", pin: "", gstRate: "18", proofData: ""
+      documentType: "Tax Invoice", vendorId: "", vendorGstin: "", address: "", state: "", stateCode: "", pin: "", gstRate: "18", proofData: ""
     });
     setItems([{ id: '1', desc: '', matCode: '', hsn: '', qty: '', rate: '', amount: 0 }]);
-  };
+  }, []);
 
   // --- Payment Receipt Logic ---
   const [isFetchingInvoice, setIsFetchingInvoice] = useState(false); // New state for loading indicator
@@ -190,7 +185,6 @@ export default function MIGO() {
         consignorName: firm?.name || "N/A", // New field
         itemDescription: inv.items?.[0]?.desc || "N/A", // New field
         billMonth: inv.billMonth || "N/A", // New field
-        consigneeName: billToName,
         invoiceType: inv.docType || inv.docCategory || "Tax Invoice",
         taxableAmount: inv.totals?.taxableAmount || 0,
         taxAmount: totalTax,
@@ -304,7 +298,7 @@ export default function MIGO() {
 
     window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `${receiptType} saved successfully`, isError: false } }));
     resetAll();
-  }, [db, plantId, receiptType, inventoryType, paymentData, receiptHeader, items, totals, calculatedBalance, resetAll]);
+  }, [db, plantId, receiptType, inventoryType, paymentData, receiptHeader, items, totals, calculatedBalance, resetAll]); // resetAll is stable due to useCallback
 
   useEffect(() => {
     const onExec = () => handleExecute();

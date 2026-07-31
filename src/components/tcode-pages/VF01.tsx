@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useDatabase, useCollection, useMemoDatabase, addDocumentNonBlocking, updateDocumentNonBlocking } from "@/database";
-import { collection, serverTimestamp, query, where, getDocs, doc } from "@/database/mongo";
+import { collection, serverTimestamp, query, where, getDocs, doc, orderBy, limit } from "@/database/mongo";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
@@ -120,42 +120,36 @@ export default function VF01() {
   // 4. Auto-Invoice Number Generation
   useEffect(() => {
     async function generateNextInvoiceNo() {
-      if (!plantId) return;
+      if (!plantId || !docType) {
+        setInvoiceNo(""); // Clear if plant or doctype is not set
+        return;
+      }
       setIsGeneratingNo(true);
       try {
         const q = query(
           collection(db, "sales_invoices"),
           where("plantId", "==", plantId),
-          where("docType", "==", docType)
+          // We query all docTypes for the plant to find the latest number regardless of type,
+          // as per the new requirement for a single sequence per plant.
+          orderBy("invoiceNumber", "desc"),
+          limit(1)
         );
         const snap = await getDocs(q);
-        
-        const typeUpper = docType.toUpperCase();
-        const prefix = typeUpper.includes("CREDIT") ? "CN" : 
-                       typeUpper.includes("DEBIT") ? "DN" :
-                       typeUpper.includes("CHALLAN") ? "DC" : "INV";
 
         if (snap.empty) {
-          setInvoiceNo(`${prefix}${plantId}-00001`);
+          // If no invoices exist for the plant, allow manual entry.
+          setInvoiceNo(""); 
         } else {
-          const numbers = snap.docs
-            .map(d => d.data().invoiceNumber)
-            .filter(n => typeof n === 'string' && n.includes(plantId));
-
-          if (numbers.length === 0) {
-            setInvoiceNo(`${prefix}${plantId}-00001`);
+          const lastNo = snap.docs[0].data().invoiceNumber;
+          const match = lastNo.match(/(\d+)$/);
+          if (match) {
+            const nextSeq = parseInt(match[0]) + 1;
+            const paddedSeq = nextSeq.toString().padStart(match[0].length, '0');
+            const basePrefix = lastNo.substring(0, lastNo.length - match[0].length);
+            setInvoiceNo(`${basePrefix}${paddedSeq}`);
           } else {
-            numbers.sort((a, b) => b.localeCompare(a));
-            const lastNo = numbers[0];
-            const match = lastNo.match(/(\d+)$/);
-            if (match) {
-              const nextSeq = parseInt(match[0]) + 1;
-              const paddedSeq = nextSeq.toString().padStart(match[0].length, '0');
-              const basePrefix = lastNo.substring(0, lastNo.length - match[0].length);
-              setInvoiceNo(`${basePrefix}${paddedSeq}`);
-            } else {
-              setInvoiceNo(`${prefix}${plantId}-00001`);
-            }
+            // Fallback for non-numeric ending, allow manual entry.
+            setInvoiceNo("");
           }
         }
       } catch (error) {
