@@ -244,11 +244,11 @@ export default function ThemeSettingsDialog({ open, onOpenChange, currentTheme, 
       <Dialog open={open && !showRestartDialog} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-3xl rounded-sm border-gray-400 max-h-[90vh] overflow-y-auto">
           <DialogHeader className="border-b border-gray-200 pb-3">
-            <DialogTitle className="text-[14px] font-bold uppercase tracking-wider flex items-center gap-2 text-gray-800">
-              <Palette className="h-4 w-4 text-blue-600" />
+            <DialogTitle className="text-[14px] font-bold uppercase tracking-wider flex items-center gap-2 text-foreground">
+              <Palette className="h-4 w-4 text-primary" />
               Theme Settings
             </DialogTitle>
-            <DialogDescription className="text-[11px] text-gray-500">
+            <DialogDescription className="text-[11px] text-muted-foreground">
               Personalize the application appearance. Select a theme below to preview.
             </DialogDescription>
           </DialogHeader>
@@ -316,7 +316,7 @@ export default function ThemeSettingsDialog({ open, onOpenChange, currentTheme, 
 
               return (
                 <div key={category}>
-                  <h3 className="text-[11px] font-bold text-gray-600 uppercase tracking-wider mb-2 px-1">
+                  <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2 px-1">
                     {label} Theme
                   </h3>
                   <div className="grid grid-cols-4 gap-3">
@@ -357,7 +357,7 @@ export default function ThemeSettingsDialog({ open, onOpenChange, currentTheme, 
                         <p className="text-[10px] font-bold mt-1 truncate" style={{ color: theme.colors.text }}>
                           {theme.name}
                         </p>
-                        <p className="text-[8px] text-gray-400 truncate">{theme.description}</p>
+                        <p className="text-[8px] text-muted-foreground truncate">{theme.description}</p>
 
                         {/* Tags */}
                         <div className="flex gap-1 mt-1">
@@ -385,7 +385,7 @@ export default function ThemeSettingsDialog({ open, onOpenChange, currentTheme, 
                     style={{ backgroundColor: selectedThemeObj.colors.primary }}
                   />
                 )}
-                <span className="text-[10px] text-gray-500">
+                <span className="text-[10px] text-muted-foreground">
                   Selected: <strong>{selectedThemeObj?.name || 'Current'}</strong>
                 </span>
               </div>
@@ -422,7 +422,7 @@ export default function ThemeSettingsDialog({ open, onOpenChange, currentTheme, 
               <AlertTriangle className="h-5 w-5 text-amber-600" />
               Restart Required
             </DialogTitle>
-            <DialogDescription className="text-[11px] text-gray-500">
+            <DialogDescription className="text-[11px] text-muted-foreground">
               Some theme changes require an application restart to apply fully across all components.
             </DialogDescription>
           </DialogHeader>

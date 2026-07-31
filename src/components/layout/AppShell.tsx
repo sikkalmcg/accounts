@@ -602,14 +602,6 @@ useEffect(() => {
     );
   }
 
-  const themeStyles = {
-    classic: { standardToolbar: "bg-card border-border", appToolbar: "bg-card", main: "bg-background", status: "bg-border" },
-    gold: { standardToolbar: "bg-card border-border", appToolbar: "bg-card", main: "bg-background", status: "bg-border" },
-    green: { standardToolbar: "bg-card border-border", appToolbar: "bg-card", main: "bg-background", status: "bg-border" },
-    belize: { standardToolbar: "bg-card border-border", appToolbar: "bg-card", main: "bg-background", status: "bg-border" },
-    dark: { standardToolbar: "bg-card border-border text-foreground", appToolbar: "bg-card", main: "bg-background text-foreground", status: "bg-border" }
-  }[currentTheme];
-
   return (
     <TooltipProvider delayDuration={400}>
       <div className={cn(
@@ -680,7 +672,7 @@ useEffect(() => {
         </div>
 
         {/* Standard Toolbar */}
-        <div className={cn("border-b px-2 py-1 flex items-center justify-between shadow-inner h-9", themeStyles?.standardToolbar)}>
+        <div className="border-b px-2 py-1 flex items-center justify-between shadow-inner h-9 bg-card border-border text-foreground">
           <div className="flex items-center gap-0.5">
             <Tooltip><TooltipTrigger asChild><button onClick={() => handleTcodeSubmit()} className="p-1 hover:bg-muted/80 rounded transition-colors"><Check className="h-4 w-4 text-primary font-bold" strokeWidth={3} /></button></TooltipTrigger><TooltipContent>Enter</TooltipContent></Tooltip>
             
@@ -768,10 +760,10 @@ useEffect(() => {
             <div className="w-px h-6 bg-border mx-2" />
             
             <div className="flex items-center gap-0.5">
-              <Tooltip><TooltipTrigger asChild><button onClick={() => navigateRecord('first')} disabled={selectedRecord <= 0} className="p-1 hover:bg-muted/80 rounded disabled:opacity-30"><ChevronFirst className="h-4 w-4" /></button></TooltipTrigger><TooltipContent>First Record</TooltipContent></Tooltip>
-              <Tooltip><TooltipTrigger asChild><button onClick={() => navigateRecord('previous')} disabled={selectedRecord <= 0} className="p-1 hover:bg-muted/80 rounded disabled:opacity-30"><ChevronLeft className="h-4 w-4" /></button></TooltipTrigger><TooltipContent>Previous Record</TooltipContent></Tooltip>
-              <Tooltip><TooltipTrigger asChild><button onClick={() => navigateRecord('next')} disabled={selectedRecord < 0 || selectedRecord >= recordCount - 1} className="p-1 hover:bg-muted/80 rounded disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button></TooltipTrigger><TooltipContent>Next Record (Alt+Right)</TooltipContent></Tooltip>
-              <Tooltip><TooltipTrigger asChild><button onClick={() => navigateRecord('last')} disabled={selectedRecord < 0 || selectedRecord >= recordCount - 1} className="p-1 hover:bg-muted/80 rounded disabled:opacity-30"><ChevronLast className="h-4 w-4" /></button></TooltipTrigger><TooltipContent>Last Record</TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger asChild><button onClick={() => navigateRecord('first')} disabled={selectedRecord <= 0} className="p-1 hover:bg-muted/80 rounded disabled:opacity-30 text-foreground"><ChevronFirst className="h-4 w-4" /></button></TooltipTrigger><TooltipContent>First Record</TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger asChild><button onClick={() => navigateRecord('previous')} disabled={selectedRecord <= 0} className="p-1 hover:bg-muted/80 rounded disabled:opacity-30 text-foreground"><ChevronLeft className="h-4 w-4" /></button></TooltipTrigger><TooltipContent>Previous Record</TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger asChild><button onClick={() => navigateRecord('next')} disabled={selectedRecord < 0 || selectedRecord >= recordCount - 1} className="p-1 hover:bg-muted/80 rounded disabled:opacity-30 text-foreground"><ChevronRight className="h-4 w-4" /></button></TooltipTrigger><TooltipContent>Next Record (Alt+Right)</TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger asChild><button onClick={() => navigateRecord('last')} disabled={selectedRecord < 0 || selectedRecord >= recordCount - 1} className="p-1 hover:bg-muted/80 rounded disabled:opacity-30 text-foreground"><ChevronLast className="h-4 w-4" /></button></TooltipTrigger><TooltipContent>Last Record</TooltipContent></Tooltip>
             </div>
 
             <div className="w-px h-6 bg-border mx-2" />
@@ -790,7 +782,7 @@ useEffect(() => {
         </div>
 
         {/* Main Workspace */}
-        <main className={cn("flex-1 w-full overflow-auto flex flex-col transition-all duration-300", themeStyles?.main)}>
+        <main className="flex-1 w-full overflow-auto flex flex-col transition-all duration-300 bg-background text-foreground">
           {hasPageAccess ? children : (
             <div className="flex-1 flex flex-col items-center justify-center p-20 text-center space-y-6">
               <div className="bg-destructive/10 p-8 rounded-full border-2 border-destructive/40 animate-in zoom-in-75">
@@ -884,7 +876,7 @@ useEffect(() => {
           statusMessage?.level === 'warning' ? "bg-amber-600" :
           statusMessage?.level === 'info' ? "bg-blue-700" :
           statusMessage?.level === 'success' ? "bg-emerald-700" : 
-          themeStyles?.status
+          "bg-border"
         )}>
           <div className="flex-1 flex items-center gap-4 uppercase tracking-tighter font-black overflow-hidden">
             {statusMessage ? (
