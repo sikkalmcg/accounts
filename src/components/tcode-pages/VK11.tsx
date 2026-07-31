@@ -17,6 +17,8 @@ const initialData = {
   plantId: "",
   customerCode: "",
   materialCode: "",
+  hsnSac: "",
+  uom: "",
   documentType: "",
   documentCategory: "",
   inventoryType: "",
@@ -72,6 +74,21 @@ export default function VK11() {
   // First assigned plant used for UI data filtering
 
   useEffect(() => {
+    if (formData.materialCode && materials) {
+      const selectedMaterial = materials.find(m => m.productName === formData.materialCode);
+      if (selectedMaterial) {
+        setFormData(prev => ({
+          ...prev,
+          hsnSac: selectedMaterial.hsnSac || "",
+          uom: selectedMaterial.uom || ""
+        }));
+      }
+    } else if (!formData.materialCode) {
+      setFormData(prev => ({ ...prev, hsnSac: "", uom: "" }));
+    }
+  }, [formData.materialCode, materials]);
+
+  useEffect(() => {
     setFormData(prev => ({ ...prev, validFrom: new Date().toISOString().split('T')[0] }));
   }, []);
 
@@ -84,7 +101,8 @@ export default function VK11() {
     const primaryPlantId = formData.plantId;
     return (materials ?? []).filter(m => 
       m.plantId === primaryPlantId && 
-      m.documentCategory === formData.documentCategory
+      (!formData.documentCategory || m.documentCategory === formData.documentCategory) &&
+      (!formData.inventoryType || m.inventoryType === formData.inventoryType)
     );
   }, [materials, formData.plantId, formData.documentCategory]);
 
@@ -122,7 +140,7 @@ export default function VK11() {
 
   const handleExecute = useCallback(async (dataToSave: any = formData) => {
     const payload = dataToSave;
-    if (!payload.plantId || !payload.customerCode || !payload.materialCode || !payload.inventoryType || !payload.price || !payload.gstRate || !payload.validFrom) {
+    if (!payload.plantId || !payload.customerCode || !payload.materialCode || !payload.inventoryType || !payload.price || !payload.gstRate || !payload.validFrom || !payload.hsnSac || !payload.uom) {
       window.dispatchEvent(new CustomEvent('sap-status', { 
         detail: { text: "Error: Required fields missing in Condition Data", isError: true } 
       }));
@@ -136,7 +154,8 @@ export default function VK11() {
         where("customerCode", "==", payload.customerCode),
         where("materialCode", "==", payload.materialCode),
         where("plantId", "==", payload.plantId),
-        where("documentType", "==", payload.documentType),
+        where("inventoryType", "==", payload.inventoryType),
+        where("documentType", "==", payload.documentType), // This might need adjustment based on business logic
         where("documentCategory", "==", payload.documentCategory)
       );
       
@@ -318,6 +337,18 @@ export default function VK11() {
               </div>
             </div>
             <div className="sap-selection-row">
+              <label className="sap-label">Inventory Type *</label>
+              <div className="sap-input-wrapper max-w-[200px]">
+                <Select value={formData.inventoryType} onValueChange={(val) => setFormData({...formData, inventoryType: val, materialCode: ""})} disabled={!formData.plantId}>
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Service Invoice">Service Invoice</SelectItem>
+                    <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="sap-selection-row">
               <label className="sap-label">Doc. Type</label>
               <div className="sap-input-wrapper max-w-[200px]">
                 <Select value={formData.documentType} onValueChange={(val) => setFormData({...formData, documentType: val})} disabled={!formData.plantId}>
@@ -344,18 +375,6 @@ export default function VK11() {
           </div>
           <div className="p-2 space-y-1">
             <div className="sap-selection-row">
-              <label className="sap-label">Inventory Type *</label>
-              <div className="sap-input-wrapper max-w-[200px]">
-                <Select value={formData.inventoryType} onValueChange={(val) => setFormData({...formData, inventoryType: val})} disabled={!formData.plantId}>
-                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Service Invoice">Service Invoice</SelectItem>
-                    <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="sap-selection-row">
               <label className="sap-label">Customer *</label>
               <div className="sap-input-wrapper max-w-[200px]">
                 <Select value={formData.customerCode} onValueChange={(val) => setFormData({...formData, customerCode: val})} disabled={!formData.plantId}>
@@ -367,10 +386,22 @@ export default function VK11() {
             <div className="sap-selection-row">
               <label className="sap-label">MATERIAL *</label>
               <div className="sap-input-wrapper max-w-[200px]">
-                <Select value={formData.materialCode} onValueChange={(val) => setFormData({...formData, materialCode: val})} disabled={!formData.plantId || !formData.documentCategory}>
+                <Select value={formData.materialCode} onValueChange={(val) => setFormData({...formData, materialCode: val})} disabled={!formData.plantId || !formData.inventoryType}>
                   <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
                   <SelectContent>{filteredMaterials.map(m => <SelectItem key={m.id} value={m.productName}>{m.productName}</SelectItem>)}</SelectContent>
                 </Select>
+              </div>
+            </div>
+            <div className="sap-selection-row">
+              <label className="sap-label">HSN/SAC Code</label>
+              <div className="sap-input-wrapper max-w-[200px]">
+                <Input value={formData.hsnSac} readOnly className="bg-gray-100 font-mono" />
+              </div>
+            </div>
+            <div className="sap-selection-row">
+              <label className="sap-label">UOM</label>
+              <div className="sap-input-wrapper max-w-[100px]">
+                <Input value={formData.uom} readOnly className="bg-gray-100 font-mono text-center" />
               </div>
             </div>
             <div className="sap-selection-row">

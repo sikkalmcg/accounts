@@ -57,7 +57,7 @@ export default function VF01() {
   const [billType, setBillType] = useState("BILL UNDER F.C.M.");
   const [inventoryType, setInventoryType] = useState("");
   const [vehicleNo, setVehicleNo] = useState("");
-  const [consignorName, setConsignorName] = useState("");
+  const [consignorId, setConsignorId] = useState("");
   const [billTo, setBillTo] = useState(""); // Bill to Party
   const [shipTo, setShipTo] = useState(""); // Ship to Party
   const [isShipToApplicable, setIsShipToApplicable] = useState(false);
@@ -180,19 +180,6 @@ export default function VF01() {
   const { data: materials } = useCollection(materialsQuery);
 
   // Auto-fetch Consignor Name from Firm Master when plant changes
-  useEffect(() => {
-    if (plantId && firms) {
-      const firm = firms.find(f => f.plantId === plantId);
-      if (firm) {
-        setConsignorName(firm.name || "");
-      } else {
-        setConsignorName("");
-      }
-    } else {
-      setConsignorName("");
-    }
-  }, [plantId, firms]);
-
   // 6. Reference Fetch Logic
   const handleRefFetch = async () => {
     if (!referenceNo || !plantId) {
@@ -249,18 +236,24 @@ export default function VF01() {
         return;
       }
       setIsFetchingOptions(true);
+      
       try {
+        // Fetching from VK13 (pricing collection)
         const q = query(
           collection(db, "pricing"),
           where("plantId", "==", plantId),
-          where("documentCategory", "==", docCategory),
-          where("customerCode", "==", billTo)
+          where("customerCode", "==", billTo),
+          where("inventoryType", "==", inventoryType),
+          where("documentType", "==", docType),
+          where("documentCategory", "==", docCategory)
         );
         const snap = await getDocs(q);
+        
         const options: PricingOption[] = snap.docs.map(doc => {
           const data = doc.data();
+          // Fetching from MM03 (materials collection)
           const matMaster = materials?.find(m => m.productName === data.materialCode);
-          return {
+          return { // This is the description from VK13
             materialCode: data.materialCode || "",
             hsn: data.hsnSac || matMaster?.hsnSac || "",
             uom: matMaster?.uom || "PCS",
@@ -276,10 +269,13 @@ export default function VF01() {
       }
     }
     fetchOptions();
-  }, [plantId, docCategory, billTo, db, materials]);
+  }, [plantId, docCategory, billTo, db, materials, inventoryType, docType]);
 
   // 8. Calculations
-  const filteredBilling = useMemo(() => billingTypes?.filter(b => b.plantId === plantId) || [], [billingTypes, plantId]);
+  const filteredBillingCategories = useMemo(() => {
+    if (!billingTypes || !plantId) return [];
+    return Array.from(new Set(billingTypes.filter(b => b.plantId === plantId && b.documentCategory).map(b => b.documentCategory!)));
+  }, [billingTypes, plantId]);
   const filteredCustomers = useMemo(() => customers?.filter(c => c.plantId === plantId) || [], [customers, plantId]);
   
   const totals = useMemo(() => {
@@ -425,7 +421,7 @@ export default function VF01() {
         billType,
         inventoryType,
         vehicleNo: showVehicleNo ? vehicleNo : "",
-        consignorName,
+        consignorName: firms?.find(f => f.id === consignorId)?.name || "",
         billTo, 
         shipTo: (isShipToApplicable ? shipTo : billTo) || billTo,
         originalInvoiceRef: isCreditNote ? referenceNo : null,
@@ -449,7 +445,7 @@ export default function VF01() {
     } finally {
       setIsProcessing(false);
     }
-  }, [db, plantId, invoiceNo, invoiceDate, billPeriod, docType, docCategory, billType, billTo, shipTo, isShipToApplicable, items, totals, customHeaders, note, firms, customers, userName, isCreditNote, referenceNo, referenceDocId, docLabels]);
+  }, [db, plantId, invoiceNo, invoiceDate, billPeriod, docType, docCategory, billType, billTo, shipTo, isShipToApplicable, items, totals, customHeaders, note, firms, customers, userName, isCreditNote, referenceNo, referenceDocId, docLabels, consignorId, inventoryType, showVehicleNo]);
 
   useEffect(() => {
     const onExecute = () => handleExecute();
@@ -467,7 +463,7 @@ export default function VF01() {
           <div className="p-2 grid grid-cols-2 gap-x-8">
             <div className="space-y-1">
               <div className="sap-selection-row">
-                <label className="sap-label">Plant ID</label>
+                <label className="sap-label">Plant ID *</label>
                 <Select value={plantId} onValueChange={setPlantId} disabled={!isAdmin && assignedPlantIds.length <= 1}>
                   <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -478,7 +474,7 @@ export default function VF01() {
 
               {/* Inventory Type - First field */}
               <div className="sap-selection-row">
-                <label className="sap-label">Inventory Type</label>
+                <label className="sap-label">Inventory Type *</label>
                 <Select value={inventoryType} onValueChange={setInventoryType}>
                   <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
                   <SelectContent>
@@ -498,8 +494,15 @@ export default function VF01() {
 
               {/* Consignor Name - Auto-fetched from Firm Master */}
               <div className="sap-selection-row">
-                <label className="sap-label">Consignor Name</label>
-                <Input value={consignorName} readOnly className="h-6 text-xs bg-gray-100 font-semibold text-blue-800" placeholder="Auto-fetched from Firm Master..." />
+                <label className="sap-label">Consignor Name *</label>
+                <Select value={consignorId} onValueChange={setConsignorId}>
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
+                    <SelectValue placeholder="Select Consignor Firm" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {firms?.filter(f => f.plantId === plantId && f.status !== 'inactive').map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
 
               {isCreditNote && (
@@ -521,13 +524,13 @@ export default function VF01() {
               )}
 
               <div className="sap-selection-row">
-                <label className="sap-label">{docLabels.no}</label>
+                <label className="sap-label">{docLabels.no} *</label>
                 <div className="sap-input-wrapper relative">
                   <Input value={invoiceNo} onChange={e => setInvoiceNo(e.target.value.toUpperCase())} className={cn(isGeneratingNo && "opacity-50")} />
                   {isGeneratingNo && <Loader2 className="absolute right-2 h-3 w-3 animate-spin text-blue-600" />}
                 </div>
               </div>
-              <div className="sap-selection-row"><label className="sap-label">Date</label><Input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} /></div>
+              <div className="sap-selection-row"><label className="sap-label">Date *</label><Input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} /></div>
               
               {/* Bill to Party (renamed from Consignee) */}
               <div className="sap-selection-row">
@@ -588,24 +591,28 @@ export default function VF01() {
 
               {/* Document Type - Fixed Dropdown */}
               <div className="sap-selection-row">
-                <label className="sap-label">Document Type</label>
+                <label className="sap-label">Document Type *</label>
                 <Select value={docType} onValueChange={setDocType}>
                   <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Tax Invoice">Tax Invoice</SelectItem>
-                    <SelectItem value="Non-Tax Invoice">Non-Tax Invoice</SelectItem>
-                    <SelectItem value="Delivery Challan">Delivery Challan</SelectItem>
-                    <SelectItem value="Debit Note">Debit Note</SelectItem>
-                    <SelectItem value="Credit Note">Credit Note</SelectItem>
+                    {Array.from(new Set(billingTypes?.filter(b => b.plantId === plantId && b.documentType).map(b => b.documentType!))).map(type => (
+                      <SelectItem key={type} value={type}>{type}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
 
               <div className="sap-selection-row">
-                <label className="sap-label">Charge Type</label>
+                <label className="sap-label">Charge Type *</label>
                 <Select value={docCategory} onValueChange={v => { setDocCategory(v); if(!isCreditNote) setItems([]); }}>
-                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
-                  <SelectContent>{filteredBilling.filter(b => b.documentCategory).map(b => <SelectItem key={b.id} value={b.documentCategory!}>{b.documentCategory}</SelectItem>)}</SelectContent>
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
+                    <SelectValue placeholder="Select Charge Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredBillingCategories.map(cat => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
               <div className="sap-selection-row">

@@ -15,6 +15,7 @@ const initialData = {
   productName: "", // Internal key for MATERIAL name
   hsnSac: "",
   uom: "",
+  documentType: "", // New field from requirements
   documentCategory: "",
   inventoryType: "", // New field
 };
@@ -47,6 +48,7 @@ export default function MM01() {
                      !dataToSave.productName || 
                      !dataToSave.hsnSac || 
                      !dataToSave.uom || 
+                     !dataToSave.documentType ||
                      !dataToSave.documentCategory ||
                      !dataToSave.inventoryType; // New field validation
 
@@ -80,7 +82,7 @@ export default function MM01() {
   }, [formData, db]);
 
   const downloadTemplate = () => {
-    const headers = ["PlantID", "MATERIAL", "HSN_SAC", "UOM", "ChargeType"];
+    const headers = ["PlantID", "MATERIAL", "HSN_SAC", "UOM", "DocumentType", "ChargeType", "InventoryType"];
     const csvContent = headers.join(",");
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
@@ -104,12 +106,13 @@ export default function MM01() {
       let errorCount = 0;
 
       for (const row of dataRows) {
-        const [plantId, material, hsn, uom, category, inventoryType] = row.split(",").map(val => val.trim()); // Updated parsing
-        if (plantId && material && hsn && uom && category) {
+        const [plantId, material, hsn, uom, docType, category, inventoryType] = row.split(",").map(val => val.trim()); // Updated parsing
+        if (plantId && material && hsn && uom && docType && category && inventoryType) {
           const success = await handleExecute({
             plantId,
             productName: material,
             hsnSac: hsn,
+            documentType: docType,
             uom: uom.toUpperCase(),
             documentCategory: category,
             inventoryType: inventoryType, // New field
@@ -238,6 +241,22 @@ export default function MM01() {
                     {UOM_OPTIONS.map(opt => (
                       <SelectItem key={opt} value={opt}>{opt}</SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="sap-selection-row">
+              <label className="sap-label">Document Type <span className="text-red-500">*</span></label>
+              <div className="sap-input-wrapper max-w-[200px]">
+                <Select
+                  value={formData.documentType}
+                  onValueChange={(val) => setFormData({ ...formData, documentType: val })}
+                >
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Tax Invoice">Tax Invoice</SelectItem>
+                    <SelectItem value="Non-Tax Invoice">Non-Tax Invoice</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
