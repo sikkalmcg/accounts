@@ -120,7 +120,7 @@ export default function VK13() {
               <TableHead onClick={() => handleSort('documentType')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">Doc. Type <SortIcon column="documentType" /></TableHead>
               <TableHead onClick={() => handleSort('documentCategory')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">Category <SortIcon column="documentCategory" /></TableHead>
               <TableHead onClick={() => handleSort('customerCode')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">Customer <SortIcon column="customerCode" /></TableHead>
-              <TableHead onClick={() => handleSort('inventoryType')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">Inventory Type <SortIcon column="inventoryType" /></TableHead>
+              <TableHead onClick={() => handleSort('inventoryType')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">Inv. Type <SortIcon column="inventoryType" /></TableHead>
               <TableHead onClick={() => handleSort('materialCode')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">Material <SortIcon column="materialCode" /></TableHead>
               <TableHead onClick={() => handleSort('price')} className="text-[11px] font-bold border-r w-28 text-right cursor-pointer hover:bg-gray-200">Basic Price <SortIcon column="price" /></TableHead>
               <TableHead className="text-[11px] font-bold border-r w-16 text-center">GST %</TableHead>
@@ -190,4 +190,3 @@ export default function VK13() {
     </div>
   );
 }
-

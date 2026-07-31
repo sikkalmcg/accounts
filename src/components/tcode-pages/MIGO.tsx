@@ -13,11 +13,12 @@ import { parseGSTIN } from "@/lib/gst-utils";
 type ReceiptType = "Payment Receipt" | "Invoice Receipt" | "Stock Receipt";
 
 export default function MIGO() {
-  const db = useDatabase();
+  const db = useDatabase(); // Assuming db is initialized elsewhere
   const fileRef = useRef<HTMLInputElement>(null);
   
   // Header State
   const [plantId, setPlantId] = useState("");
+  const [inventoryType, setInventoryType] = useState(""); // Added missing state declaration
   const [receiptType, setReceiptType] = useState<ReceiptType | "">("");
 
   // Master Data
@@ -43,10 +44,13 @@ export default function MIGO() {
   }, [customers]);
 
   // --- Payment Receipt State ---
+  const [consignorName, setConsignorName] = useState(""); // New field
   const [paymentData, setPaymentData] = useState({
     invoiceNo: "",
     date: "",
     consigneeName: "",
+    itemDescription: "", // New field
+    billMonth: "", // New field
     invoiceType: "",
     taxableAmount: 0,
     taxAmount: 0,
@@ -56,22 +60,26 @@ export default function MIGO() {
     deduction: "",
     deductionRemark: "",
     interest: "",
-    balanceAmount: 0,
+    balanceAmount: 0, // Added missing property
+    cgst: 0, // New field
+    sgst: 0, // New field
+    igst: 0, // New field
     remark: "",
     paymentMode: "Banking",
     bankingUtr: "",
     paymentAdviceNo: "",
     proofData: "",
+    consignorName: "", // Added missing property
     paymentDate: new Date().toISOString().split('T')[0],
   });
 
   // --- Invoice/Stock Receipt State ---
   const [receiptHeader, setReceiptHeader] = useState({
-    firmId: "",
-    inventoryType: "",
+    inventoryType: "", // Already exists, but ensure it's available for Invoice Entry
     invoiceNo: "",
     date: new Date().toISOString().split('T')[0],
-    invoiceType: "Tax Invoice",
+    documentType: "Tax Invoice", // Renamed from invoiceType
+    // inventoryType: "", // This is already in the general selection, no need to duplicate here
     vendorId: "",
     vendorGstin: "",
     address: "",
@@ -80,12 +88,13 @@ export default function MIGO() {
     pin: "",
     gstRate: "18",
     proofData: "",
+    firmId: "", // Moved firmId here as it's part of receiptHeader
   });
 
   const [items, setItems] = useState<any[]>([{ id: '1', desc: '', matCode: '', hsn: '', qty: '', rate: '', amount: 0 }]);
 
   // --- Calculations ---
-  const calculatedBalance = useMemo(() => {
+  const calculatedBalance = useMemo(() => { // This is for Payment Receipt
     if (receiptType !== "Payment Receipt") return 0;
     const gross = Number(paymentData.grossAmount) || 0;
     const interest = Number(paymentData.interest) || 0;
@@ -127,16 +136,18 @@ export default function MIGO() {
       invoiceNo: "", date: "", consigneeName: "", invoiceType: "", taxableAmount: 0, taxAmount: 0, grossAmount: 0,
       receiptAmount: "", tds: "", deduction: "", deductionRemark: "", interest: "", balanceAmount: 0, remark: "", 
       paymentMode: "Banking", bankingUtr: "", 
-      paymentAdviceNo: "", proofData: "", paymentDate: new Date().toISOString().split('T')[0]
+      paymentAdviceNo: "", proofData: "", paymentDate: new Date().toISOString().split('T')[0], consignorName: ""
     });
     setReceiptHeader({
-      firmId: "", inventoryType: "", invoiceNo: "", date: new Date().toISOString().split('T')[0], invoiceType: "Tax Invoice",
+      firmId: "", inventoryType: "", invoiceNo: "", date: new Date().toISOString().split('T')[0],
+      documentType: "Tax Invoice", // Reset renamed field
       vendorId: "", vendorGstin: "", address: "", state: "", stateCode: "", pin: "", gstRate: "18", proofData: ""
     });
     setItems([{ id: '1', desc: '', matCode: '', hsn: '', qty: '', rate: '', amount: 0 }]);
   };
 
   // --- Payment Receipt Logic ---
+  const [isFetchingInvoice, setIsFetchingInvoice] = useState(false); // New state for loading indicator
 
   const fetchInvoiceDetails = async () => {
     if (!plantId || !paymentData.invoiceNo) {
@@ -144,6 +155,7 @@ export default function MIGO() {
       return;
     }
 
+    setIsFetchingInvoice(true); // Start loading
     try {
       const q = query(collection(db, "sales_invoices"), 
         where("invoiceNumber", "==", paymentData.invoiceNo),
@@ -153,7 +165,7 @@ export default function MIGO() {
 
       if (snap.empty) {
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Invoice ${paymentData.invoiceNo} not found in Plant ${plantId}`, isError: true } }));
-        setPaymentData(p => ({ ...p, date: "", consigneeName: "", invoiceType: "", taxableAmount: 0, taxAmount: 0, grossAmount: 0 }));
+        setPaymentData(p => ({ ...p, date: "", consigneeName: "", consignorName: "", itemDescription: "", billMonth: "", invoiceType: "", taxableAmount: 0, taxAmount: 0, grossAmount: 0, cgst: 0, sgst: 0, igst: 0 })); // Reset new fields
         return;
       }
 
@@ -166,23 +178,34 @@ export default function MIGO() {
         return;
       }
 
+      const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consignor name
+
       const billToName = customerMap[inv.billTo]?.name || inv.billTo || "N/A";
       const totalTax = (inv.totals?.cgst || 0) + (inv.totals?.sgst || 0) + (inv.totals?.igst || 0);
 
       setPaymentData(prev => ({
         ...prev,
         date: inv.invoiceDate || "",
+        consigneeName: billToName, // Renamed to Party
+        consignorName: firm?.name || "N/A", // New field
+        itemDescription: inv.items?.[0]?.desc || "N/A", // New field
+        billMonth: inv.billMonth || "N/A", // New field
         consigneeName: billToName,
         invoiceType: inv.docType || inv.docCategory || "Tax Invoice",
         taxableAmount: inv.totals?.taxableAmount || 0,
         taxAmount: totalTax,
-        grossAmount: inv.totals?.grossAmount || 0
+        grossAmount: inv.totals?.grossAmount || 0,
+        cgst: inv.totals?.cgst || 0, // New field
+        sgst: inv.totals?.sgst || 0, // New field
+        igst: inv.totals?.igst || 0, // New field
+        balanceAmount: (inv.totals?.grossAmount || 0) - (inv.paidAmount || 0) // Initialize balance, assuming paidAmount exists on inv
       }));
 
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Details for Invoice ${paymentData.invoiceNo} fetched successfully`, isError: false } }));
     } catch (e) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "System Error: Failed to fetch invoice details", isError: true } }));
     }
+    setIsFetchingInvoice(false); // End loading
   };
 
   // --- Invoice/Stock Receipt Logic ---
@@ -207,7 +230,7 @@ export default function MIGO() {
     setItems(prev => prev.map(i => {
       if (i.id === id) {
         const updated = { ...i, [field]: val };
-        if (field === 'qty' || field === 'rate') {
+        if (field === 'qty' || field === 'rate' || field === 'desc') { // Recalculate if desc changes and rate/qty are already set
           updated.amount = (Number(updated.qty) || 0) * (Number(updated.rate) || 0);
         }
         return updated;
@@ -227,7 +250,7 @@ export default function MIGO() {
     const rate = Number(receiptHeader.gstRate) / 100;
     
     let cgst = 0, sgst = 0, igst = 0;
-    if (receiptHeader.invoiceType === "Tax Invoice") {
+    if (receiptHeader.documentType === "Tax Invoice") { // Renamed field
       if (isSameState) {
         cgst = (amount * rate) / 2;
         sgst = (amount * rate) / 2;
@@ -236,7 +259,7 @@ export default function MIGO() {
       }
     }
 
-    return { qty, amount, cgst, sgst, igst, total: amount + cgst + sgst + igst };
+    return { qty, amount, cgst, sgst, igst, total: amount + cgst + sgst + igst, isNonTax: receiptHeader.documentType === "Non-Tax Invoice" }; // Add isNonTax flag
   }, [items, receiptHeader, firms]);
 
   const handleExecute = useCallback(() => {
@@ -264,7 +287,7 @@ export default function MIGO() {
         createdAt: serverTimestamp() 
       });
     } else {
-      if (receiptHeader.invoiceType === "Tax Invoice" && !receiptHeader.vendorGstin) {
+      if (receiptHeader.documentType === "Tax Invoice" && !receiptHeader.vendorGstin) { // Renamed field
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Vendor GSTIN is mandatory for Tax Invoice", isError: true } }));
         return;
       }
@@ -272,7 +295,8 @@ export default function MIGO() {
       addDocumentNonBlocking(collection(db, col), { 
         ...receiptHeader, 
         plantId, 
-        items, 
+        inventoryType: inventoryType, // Add inventoryType from general selection
+        items,
         totals,
         createdAt: serverTimestamp() 
       });
@@ -280,7 +304,7 @@ export default function MIGO() {
 
     window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `${receiptType} saved successfully`, isError: false } }));
     resetAll();
-  }, [db, plantId, receiptType, paymentData, receiptHeader, items, totals, calculatedBalance]);
+  }, [db, plantId, receiptType, inventoryType, paymentData, receiptHeader, items, totals, calculatedBalance, resetAll]);
 
   useEffect(() => {
     const onExec = () => handleExecute();
@@ -321,7 +345,7 @@ export default function MIGO() {
             </div>
             <div className="sap-selection-row">
               <label className="sap-label">Type</label>
-              <div className="sap-input-wrapper max-w-[200px]">
+              <div className="sap-input-wrapper max-w-[200px]"> {/* Renamed from Condition Type */}
                 <Select value={receiptType} onValueChange={(val: any) => setReceiptType(val)}>
                   <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
                     <SelectValue placeholder="" />
@@ -329,7 +353,23 @@ export default function MIGO() {
                   <SelectContent>
                     <SelectItem value="Payment Receipt">Payment Receipt</SelectItem>
                     <SelectItem value="Invoice Receipt">Invoice Receipt</SelectItem>
-                    <SelectItem value="Stock Receipt">Stock Receipt</SelectItem>
+                    {/* <SelectItem value="Stock Receipt">Stock Receipt</SelectItem> */} {/* Removed as per instructions */}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {/* New field: Inventory Type */}
+            <div className="sap-selection-row">
+              <label className="sap-label">Inventory Type</label>
+              <div className="sap-input-wrapper max-w-[200px]">
+                <Select
+                  value={inventoryType}
+                  onValueChange={(val) => setInventoryType(val)}
+                >
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Service Invoice">Service Invoice</SelectItem>
+                    <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -343,7 +383,7 @@ export default function MIGO() {
             <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
               <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700 flex justify-between items-center">
                 <span>Invoice Reference (Auto-Fill)</span>
-                <span className="text-[10px] text-blue-600 font-bold uppercase italic">Press Enter on Invoice No to fetch</span>
+                <span className="text-[10px] text-blue-600 font-bold uppercase italic flex items-center gap-1">{isFetchingInvoice && <Loader2 className="h-3 w-3 animate-spin" />} Press Enter on Invoice No to fetch</span>
               </div>
               <div className="p-2 grid grid-cols-2 gap-x-8 gap-y-1">
                 <div className="sap-selection-row">
@@ -360,10 +400,27 @@ export default function MIGO() {
                   </div>
                 </div>
                 <div className="sap-selection-row"><label className="sap-label">Invoice Date</label><Input value={paymentData.date} readOnly className="bg-gray-100" /></div>
-                <div className="sap-selection-row"><label className="sap-label">Consignee Name</label><Input value={paymentData.consigneeName} readOnly className="bg-gray-100 font-bold" /></div>
+                {/* New field: Consignor */}
+                <div className="sap-selection-row"><label className="sap-label">Consignor</label><Input value={paymentData.consignorName} readOnly className="bg-gray-100 font-bold" /></div>
+                {/* Renamed field: Party */}
+                <div className="sap-selection-row"><label className="sap-label">Party</label><Input value={paymentData.consigneeName} readOnly className="bg-gray-100 font-bold" /></div>
+                {/* New field: Item Description */}
+                <div className="sap-selection-row"><label className="sap-label">Item Description</label><Input value={paymentData.itemDescription} readOnly className="bg-gray-100" /></div>
+                {/* New field: Bill Month */}
+                <div className="sap-selection-row"><label className="sap-label">Bill Month</label><Input value={paymentData.billMonth} readOnly className="bg-gray-100 uppercase" /></div>
                 <div className="sap-selection-row"><label className="sap-label">Invoice Type</label><Input value={paymentData.invoiceType} readOnly className="bg-gray-100 uppercase" /></div>
                 <div className="sap-selection-row"><label className="sap-label">Taxable Amount</label><Input value={paymentData.taxableAmount.toLocaleString()} readOnly className="bg-gray-100 text-right font-mono" /></div>
-                <div className="sap-selection-row"><label className="sap-label">Tax Amount</label><Input value={paymentData.taxAmount.toLocaleString()} readOnly className="bg-gray-100 text-right font-mono" /></div>
+                {/* Conditional GST Columns */}
+                {paymentData.cgst > 0 && paymentData.sgst > 0 && (
+                  <>
+                    <div className="sap-selection-row"><label className="sap-label">CGST</label><Input value={paymentData.cgst.toLocaleString()} readOnly className="bg-gray-100 text-right font-mono" /></div>
+                    <div className="sap-selection-row"><label className="sap-label">SGST</label><Input value={paymentData.sgst.toLocaleString()} readOnly className="bg-gray-100 text-right font-mono" /></div>
+                  </>
+                )}
+                {paymentData.igst > 0 && (
+                  <div className="sap-selection-row"><label className="sap-label">IGST</label><Input value={paymentData.igst.toLocaleString()} readOnly className="bg-gray-100 text-right font-mono" /></div>
+                )}
+                {/* Removed Tax Amount */}
                 <div className="sap-selection-row"><label className="sap-label font-bold text-blue-800">Gross Payable Value</label><Input value={paymentData.grossAmount.toLocaleString()} readOnly className="bg-gray-200 text-right font-black text-blue-900 border-blue-300" /></div>
               </div>
             </div>
@@ -453,12 +510,12 @@ export default function MIGO() {
                 </div>
                 <div className="sap-selection-row"><label className="sap-label">Inventory Type</label><Select value={receiptHeader.inventoryType} onValueChange={v => setReceiptHeader({...receiptHeader, inventoryType: v})}><SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="" /></SelectTrigger><SelectContent><SelectItem value="Service Invoice">Service Invoice</SelectItem><SelectItem value="Supply Invoice">Supply Invoice</SelectItem></SelectContent></Select></div>
                 <div className="sap-selection-row"><label className="sap-label">Invoice Number</label><Input value={receiptHeader.invoiceNo} onChange={e => setReceiptHeader({...receiptHeader, invoiceNo: e.target.value})} /></div>
-                <div className="sap-selection-row"><label className="sap-label">Date</label><Input type="date" value={receiptHeader.date} onChange={e => setReceiptHeader({...receiptHeader, date: e.target.value})} /></div>
+                <div className="sap-selection-row"><label className="sap-label">Date</label><Input type="date" value={receiptHeader.date} onChange={e => setReceiptHeader({...receiptHeader, date: e.target.value})} /></div> {/* This is for Invoice Entry */}
                 <div className="sap-selection-row">
-                  <label className="sap-label">Invoice Type</label>
-                  <Select value={receiptHeader.invoiceType} onValueChange={v => setReceiptHeader({...receiptHeader, invoiceType: v})}>
+                  <label className="sap-label">Document Type</label> {/* Renamed from Invoice Type */}
+                  <Select value={receiptHeader.documentType} onValueChange={v => setReceiptHeader({...receiptHeader, documentType: v})}> {/* Renamed field */}
                     <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="" /></SelectTrigger>
-                    <SelectContent><SelectItem value="Tax Invoice">Tax Invoice</SelectItem><SelectItem value="Non-Tax Invoice">Non-Tax Invoice</SelectItem></SelectContent>
+                    <SelectContent><SelectItem value="Tax Invoice">Tax Invoice</SelectItem><SelectItem value="Non-Tax Invoice">Non-Tax Invoice</SelectItem></SelectContent> {/* Options for Document Type */}
                   </Select>
                 </div>
               </div>
@@ -474,7 +531,7 @@ export default function MIGO() {
                     <SelectContent>{vendors?.map(v => <SelectItem key={v.id} value={v.vendorId}>{v.vendorId} - {v.vendorName}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
-                <div className="sap-selection-row"><label className="sap-label">Vendor GSTIN {receiptHeader.invoiceType === "Tax Invoice" && "*"}</label><Input value={receiptHeader.vendorGstin} readOnly className="bg-gray-100 font-mono" /></div>
+                <div className="sap-selection-row"><label className="sap-label">Vendor GSTIN {receiptHeader.documentType === "Tax Invoice" && "*"}</label><Input value={receiptHeader.vendorGstin} readOnly className="bg-gray-100 font-mono" /></div> {/* Renamed field */}
                 <div className="sap-selection-row"><label className="sap-label">Address</label><Input value={receiptHeader.address} readOnly className="bg-gray-100" /></div>
                 <div className="sap-selection-row gap-1">
                   <label className="sap-label">State / Code</label>
@@ -489,7 +546,7 @@ export default function MIGO() {
               <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] flex items-center justify-between">
                 <span className="text-[12px] font-semibold text-gray-700">Line Items</span>
                 <Button size="sm" variant="ghost" className="h-5 text-[10px] hover:bg-white/50" onClick={() => setItems([...items, { id: Math.random().toString(), desc: '', matCode: '', hsn: '', qty: '', rate: '', amount: 0 }])}><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
-              </div>
+              </div> {/* This is for Invoice Entry */}
               <Table>
                 <TableHeader className="bg-[#e7ebf1]">
                   <TableRow className="h-7">
@@ -497,7 +554,7 @@ export default function MIGO() {
                     <TableHead className="text-[11px] font-bold border-r">Description</TableHead>
                     <TableHead className="text-[11px] font-bold border-r w-24">HSN</TableHead>
                     <TableHead className="text-[11px] font-bold border-r w-20">Qty</TableHead>
-                    <TableHead className="text-[11px] font-bold border-r w-24">Rate</TableHead>
+                    <TableHead className="text-[11px] font-bold border-r w-24">Rate</TableHead> {/* This is for Invoice Entry */}
                     <TableHead className="text-[11px] font-bold border-r w-32 text-right">Amount</TableHead>
                     <TableHead className="w-8"></TableHead>
                   </TableRow>
@@ -505,7 +562,7 @@ export default function MIGO() {
                 <TableBody>
                   {items.map((row, idx) => (
                     <TableRow key={row.id} className="h-7 hover:bg-blue-50/30">
-                      {receiptType === "Stock Receipt" && (
+                      {receiptType === "Invoice Receipt" && ( // Only for Invoice Receipt, not Stock Receipt
                         <TableCell className="p-0 border-r">
                           <Select value={row.matCode} onValueChange={v => {
                             const m = materials?.find(mat => mat.productName === v);
@@ -517,7 +574,7 @@ export default function MIGO() {
                           </Select>
                         </TableCell>
                       )}
-                      <TableCell className="p-0 border-r"><Input className="h-full border-none shadow-none focus:bg-[#fff9c4]" value={row.desc} onChange={e => updateItem(row.id, 'desc', e.target.value)} /></TableCell>
+                      <TableCell className="p-0 border-r"><Input className="h-full border-none shadow-none focus:bg-[#fff9c4]" value={row.desc} onChange={e => updateItem(row.id, 'desc', e.target.value)} disabled={receiptType === "Invoice Receipt" && row.matCode !== ''} /></TableCell> {/* Disable if material is selected for Invoice Receipt */}
                       <TableCell className="p-0 border-r"><Input className="h-full border-none shadow-none focus:bg-[#fff9c4]" value={row.hsn} onChange={e => updateItem(row.id, 'hsn', e.target.value)} /></TableCell>
                       <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none shadow-none text-right focus:bg-[#fff9c4]" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} /></TableCell>
                       <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none shadow-none text-right focus:bg-[#fff9c4]" value={row.rate} onChange={e => updateItem(row.id, 'rate', e.target.value)} /></TableCell>
@@ -558,13 +615,19 @@ export default function MIGO() {
               <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-white shadow-inner">
                 <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700 uppercase">Calculation Preview</div>
                 <div className="p-3 space-y-1 text-xs">
-                  <div className="flex justify-between border-b pb-1"><span>Taxable Amount</span><span className="font-mono">{totals.amount.toLocaleString()}</span></div>
-                  {totals.igst > 0 ? (
-                    <div className="flex justify-between text-blue-700"><span>IGST ({receiptHeader.gstRate}%)</span><span className="font-mono">{totals.igst.toLocaleString()}</span></div>
+                  {totals.isNonTax ? (
+                    <div className="p-2 border border-blue-100 bg-blue-50 italic text-blue-800">Non-Tax Transaction - No GST applicable</div>
                   ) : (
                     <>
-                      <div className="flex justify-between text-emerald-700"><span>CGST ({Number(receiptHeader.gstRate)/2}%)</span><span className="font-mono">{totals.cgst.toLocaleString()}</span></div>
-                      <div className="flex justify-between text-emerald-700"><span>SGST ({Number(receiptHeader.gstRate)/2}%)</span><span className="font-mono">{totals.sgst.toLocaleString()}</span></div>
+                      <div className="flex justify-between border-b pb-1"><span>Taxable Amount</span><span className="font-mono">{totals.amount.toLocaleString()}</span></div>
+                      {totals.igst > 0 ? (
+                        <div className="flex justify-between text-blue-700"><span>IGST ({receiptHeader.gstRate}%)</span><span className="font-mono">{totals.igst.toLocaleString()}</span></div>
+                      ) : (
+                        <>
+                          <div className="flex justify-between text-emerald-700"><span>CGST ({Number(receiptHeader.gstRate)/2}%)</span><span className="font-mono">{totals.cgst.toLocaleString()}</span></div>
+                          <div className="flex justify-between text-emerald-700"><span>SGST ({Number(receiptHeader.gstRate)/2}%)</span><span className="font-mono">{totals.sgst.toLocaleString()}</span></div>
+                        </>
+                      )}
                     </>
                   )}
                   <div className="flex justify-between pt-2 border-t text-sm font-black text-blue-900 uppercase"><span>Total Gross Value</span><span className="font-mono text-base">{totals.total.toLocaleString()}</span></div>
@@ -581,5 +644,3 @@ export default function MIGO() {
     </div>
   );
 }
-
-

@@ -6,7 +6,7 @@ import { collection, serverTimestamp, query, where, getDocs } from "@/database/m
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Upload, CheckCircle2, FileText, Eye, X, Download, ExternalLink } from "lucide-react";
+import { Loader2, Upload, CheckCircle2, FileText, Eye, X, Download, ExternalLink, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import Image from "next/image";
@@ -14,7 +14,7 @@ import Image from "next/image";
 const initialData = {
   conditionType: "PR00",
   keyCombination: "Customer/Material",
-  assignedPlantIds: [] as string[],
+  plantId: "",
   customerCode: "",
   materialCode: "",
   documentType: "",
@@ -34,6 +34,7 @@ export default function VK11() {
   const [formData, setFormData] = useState(initialData);
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const bulkFileInputRef = useRef<HTMLInputElement>(null);
 
   const pdfBlobUrl = useMemo(() => {
     if (formData.approvalFile?.startsWith('data:application/pdf')) {
@@ -69,38 +70,28 @@ export default function VK11() {
   const { data: billingTypes } = useCollection(billingTypesQuery);
 
   // First assigned plant used for UI data filtering
-  const primaryPlantId = formData.assignedPlantIds[0] || "";
-
-  const togglePlant = (plantId: string) => {
-    setFormData(prev => ({
-      ...prev,
-      assignedPlantIds: prev.assignedPlantIds.includes(plantId)
-        ? prev.assignedPlantIds.filter(id => id !== plantId)
-        : [...prev.assignedPlantIds, plantId]
-    }));
-  };
 
   useEffect(() => {
     setFormData(prev => ({ ...prev, validFrom: new Date().toISOString().split('T')[0] }));
   }, []);
 
   const filteredBillingTypes = useMemo(() => {
-    if (!billingTypes || !primaryPlantId) return [];
-    return billingTypes.filter(bt => bt.plantId === primaryPlantId);
-  }, [billingTypes, primaryPlantId]);
+    if (!billingTypes || !formData.plantId) return [];
+    return billingTypes.filter(bt => bt.plantId === formData.plantId);
+  }, [billingTypes, formData.plantId]);
 
   const filteredMaterials = useMemo(() => {
-    if (!materials || !primaryPlantId || !formData.documentCategory) return [];
-    return materials.filter(m => 
+    const primaryPlantId = formData.plantId;
+    return (materials ?? []).filter(m => 
       m.plantId === primaryPlantId && 
       m.documentCategory === formData.documentCategory
     );
-  }, [materials, primaryPlantId, formData.documentCategory]);
+  }, [materials, formData.plantId, formData.documentCategory]);
 
   const filteredCustomers = useMemo(() => {
-    if (!customers || !primaryPlantId) return [];
-    return customers.filter(c => c.assignedPlantIds?.includes(primaryPlantId) || c.plantId === primaryPlantId);
-  }, [customers, primaryPlantId]);
+    if (!customers || !formData.plantId) return [];
+    return customers.filter(c => c.assignedPlantIds?.includes(formData.plantId) || c.plantId === formData.plantId);
+  }, [customers, formData.plantId]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -129,23 +120,24 @@ export default function VK11() {
     reader.readAsDataURL(file);
   };
 
-  const handleExecute = useCallback(async () => {
-    if (formData.assignedPlantIds.length === 0 || !formData.customerCode || !formData.materialCode || !formData.inventoryType || !formData.price || !formData.gstRate || !formData.validFrom) {
+  const handleExecute = useCallback(async (dataToSave: any = formData) => {
+    const payload = dataToSave;
+    if (!payload.plantId || !payload.customerCode || !payload.materialCode || !payload.inventoryType || !payload.price || !payload.gstRate || !payload.validFrom) {
       window.dispatchEvent(new CustomEvent('sap-status', { 
         detail: { text: "Error: Required fields missing in Condition Data", isError: true } 
       }));
-      return;
+      return false;
     }
 
     setLoading(true);
     try {
       const q = query(
         collection(db, "pricing"), 
-        where("customerCode", "==", formData.customerCode),
-        where("materialCode", "==", formData.materialCode),
-        where("plantId", "==", primaryPlantId),
-        where("documentType", "==", formData.documentType),
-        where("documentCategory", "==", formData.documentCategory)
+        where("customerCode", "==", payload.customerCode),
+        where("materialCode", "==", payload.materialCode),
+        where("plantId", "==", payload.plantId),
+        where("documentType", "==", payload.documentType),
+        where("documentCategory", "==", payload.documentCategory)
       );
       
       const snap = await getDocs(q);
@@ -153,30 +145,127 @@ export default function VK11() {
         window.dispatchEvent(new CustomEvent('sap-status', { 
           detail: { text: `Error: Duplicate pricing record found in repository`, isError: true } 
         }));
-        setLoading(false);
-        return;
+        return false;
       }
 
-      addDocumentNonBlocking(collection(db, "pricing"), {
-        ...formData,
-        price: parseFloat(formData.price),
-        gstRate: parseFloat(formData.gstRate),
-        plantId: primaryPlantId, // backward compatibility
+      await addDocumentNonBlocking(collection(db, "pricing"), {
+        ...payload,
+        price: parseFloat(payload.price),
+        gstRate: parseFloat(payload.gstRate),
         createdAt: serverTimestamp(),
       });
       
       window.dispatchEvent(new CustomEvent('sap-status', { 
         detail: { text: `Condition record committed successfully`, isError: false } 
       }));
-      setFormData({ ...initialData, validFrom: new Date().toISOString().split('T')[0] });
+      if (dataToSave === formData) {
+        setFormData({ ...initialData, validFrom: new Date().toISOString().split('T')[0] });
+      }
+      return true;
     } catch (error) {
       window.dispatchEvent(new CustomEvent('sap-status', { 
         detail: { text: "System Error: Failed to reach backend repository", isError: true } 
       }));
+      return false;
     } finally {
       setLoading(false);
     }
   }, [formData, db]);
+
+  const downloadTemplate = () => {
+    const headers = [
+      "Plant ID", "Document Type", "Charge Type", "Inventory Type", 
+      "Customer Code", "Material Name", "Basic Rate", "GST Rate (%)", 
+      "Validity From Date", "Validity To Date"
+    ];
+    const csvContent = headers.join(",");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "VK11_Pricing_Template.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setLoading(true);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const text = event.target?.result as string;
+      const rows = text.split('\n').map(line => line.trim()).filter(line => line);
+      const dataRows = rows.slice(1);
+
+      let successCount = 0;
+      let errorCount = 0;
+      let totalCreated = 0;
+      let errors: string[] = [];
+
+      for (let i = 0; i < dataRows.length; i++) {
+        const row = dataRows[i];
+        const [plantIdStr, docType, docCategory, invType, customer, material, rate, gst, validFrom, validTo] = row.split(',').map(v => v.trim());
+
+        // Basic mandatory field validation
+        if (!plantIdStr || !customer || !material || !invType || !rate || !gst || !validFrom || !validTo) {
+          errors.push(`Row ${i + 2}: Mandatory fields are missing.`);
+          errorCount++;
+          continue;
+        }
+
+        // Date and numeric validation
+        if (new Date(validFrom) > new Date(validTo)) {
+          errors.push(`Row ${i + 2}: Validity From Date cannot be after Validity To Date.`);
+          errorCount++;
+          continue;
+        }
+        if (isNaN(parseFloat(rate)) || isNaN(parseFloat(gst))) {
+          errors.push(`Row ${i + 2}: Basic Rate and GST Rate must be numeric.`);
+          errorCount++;
+          continue;
+        }
+
+        const plantIds = Array.from(new Set(plantIdStr.split(',').map(p => p.trim())));
+        const invalidPlants = plantIds.filter(pId => !plants?.some(p => p.plantId === pId));
+
+        if (invalidPlants.length > 0) {
+          errors.push(`Row ${i + 2}: Invalid Plant ID(s) found: ${invalidPlants.join(', ')}.`);
+          errorCount++;
+          continue;
+        }
+
+        let rowSuccess = true;
+        for (const plantId of plantIds) {
+          const recordData = {
+            plantId, customerCode: customer, materialCode: material, documentType: docType, documentCategory: docCategory,
+            inventoryType: invType, price: parseFloat(rate), gstRate: parseFloat(gst), validFrom, validTo,
+            conditionType: "PR00", keyCombination: "Customer/Material", currency: "INR", approvalFile: "", approvalFileName: "",
+          };
+
+          const success = await handleExecute(recordData);
+          if (success) {
+            totalCreated++;
+          } else {
+            rowSuccess = false;
+            errors.push(`Row ${i + 2} (Plant: ${plantId}): Failed to create record. It might be a duplicate.`);
+          }
+        }
+
+        if (rowSuccess) successCount++;
+        else errorCount++;
+      }
+
+      const summary = `Bulk Upload Finished. Total Rows: ${dataRows.length}, Successful Rows: ${successCount}, Failed Rows: ${errorCount}, Total VK11 Records Created: ${totalCreated}.`;
+      const errorDetails = errors.length > 0 ? `\n\nErrors:\n${errors.join('\n')}` : "";
+      
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: summary + errorDetails, isError: errorCount > 0 } }));
+      if (bulkFileInputRef.current) bulkFileInputRef.current.value = "";
+      setLoading(false);
+    };
+    reader.readAsText(file);
+  };
 
   useEffect(() => {
     const onExecute = () => handleExecute();
@@ -191,9 +280,26 @@ export default function VK11() {
   return (
     <div className="w-full flex flex-col bg-white min-h-full">
       <div className="bg-[#dae8f5] px-4 py-1 border-b border-gray-300">
-        <h2 className="text-[13px] font-bold text-gray-800 uppercase italic tracking-wider">
-          Create Condition Record (VK11)
-        </h2>
+        <div className="flex justify-between items-center">
+          <h2 className="text-[13px] font-bold text-gray-800 uppercase italic tracking-wider">
+            Create Condition Record (VK11)
+          </h2>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={downloadTemplate} className="h-6 text-[11px] font-bold text-blue-700 hover:bg-blue-50 border border-blue-200 rounded-none gap-1">
+              <FileSpreadsheet className="h-3 w-3" /> Download Template
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => bulkFileInputRef.current?.click()} className="h-6 text-[11px] font-bold text-emerald-700 hover:bg-emerald-50 border border-emerald-200 rounded-none gap-1">
+              <Upload className="h-3 w-3" /> Bulk Upload
+            </Button>
+            <input 
+              type="file" 
+              ref={bulkFileInputRef} 
+              onChange={handleBulkUpload} 
+              accept=".csv" 
+              className="hidden" 
+            />
+          </div>
+        </div>
       </div>
 
       <div className="p-4 space-y-4">
@@ -338,4 +444,3 @@ export default function VK11() {
     </div>
   );
 }
-

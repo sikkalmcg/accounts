@@ -202,6 +202,23 @@ export default function MM02() {
                     {isBillingLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-600 ml-1" />}
                   </div>
                 </div>
+
+                {/* New field: Inventory Type */}
+                <div className="sap-selection-row">
+                  <label className="sap-label">Inventory Type</label>
+                  <div className="sap-input-wrapper max-w-[200px]">
+                    <Select
+                      value={formData.inventoryType || ""}
+                      onValueChange={(val) => setFormData({...formData, inventoryType: val})}
+                    >
+                      <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Service Invoice">Service Invoice</SelectItem>
+                        <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -211,5 +228,3 @@ export default function MM02() {
     </div>
   );
 }
-
-

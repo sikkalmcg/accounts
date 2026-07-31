@@ -79,6 +79,9 @@ export default function MM03() {
               <TableHead onClick={() => handleSort('uom')} className="text-[11px] font-bold text-gray-700 border-r w-24 cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">UOM <SortIcon column="uom" /></div>
               </TableHead>
+              <TableHead onClick={() => handleSort('inventoryType')} className="text-[11px] font-bold text-gray-700 border-r w-32 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">Inv. Type <SortIcon column="inventoryType" /></div>
+              </TableHead>
               <TableHead onClick={() => handleSort('plantId')} className="text-[11px] font-bold text-gray-700 w-24 cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Plant <SortIcon column="plantId" /></div>
               </TableHead>
@@ -96,6 +99,7 @@ export default function MM03() {
                 <TableCell className="p-0 px-2 text-[10px] border-r text-gray-600">{m.documentCategory || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center">{m.hsnSac}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center">{m.uom}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center">{m.inventoryType || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px]">{m.plantId}</TableCell>
               </TableRow>
             ))}
@@ -108,5 +112,3 @@ export default function MM03() {
     </div>
   );
 }
-
-

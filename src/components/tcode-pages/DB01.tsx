@@ -71,15 +71,15 @@ export default function DB01() {
     return (
       <div className="select-inherit">
         <div 
-          className="flex items-center gap-1 py-0.5 px-2 hover:bg-blue-100 cursor-pointer group whitespace-nowrap"
+          className="flex items-center gap-1 py-0.5 px-2 hover:bg-primary/10 cursor-pointer group whitespace-nowrap"
           onClick={handleClick}
         >
           <div className="w-4 flex items-center justify-center">
-            {hasChildren && (isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />)}
+            {hasChildren && (isExpanded ? <ChevronDown className="h-3 w-3 text-primary" /> : <ChevronRight className="h-3 w-3 text-primary" />)}
           </div>
-          {Icon && <Icon className="h-4 w-4 text-blue-600/70" />}
-          <span className="text-[13px] text-gray-700 group-hover:text-blue-900">
-            {label} {tcode && <span className="text-gray-400 font-mono text-xs ml-2">[{tcode}]</span>}
+          {Icon && <Icon className="h-4 w-4 text-primary/80" />}
+          <span className="text-[13px] text-foreground group-hover:text-primary">
+            {label} {tcode && <span className="text-muted-foreground font-mono text-xs ml-2">[{tcode}]</span>}
           </span>
         </div>
         {hasChildren && isExpanded && (

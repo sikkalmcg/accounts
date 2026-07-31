@@ -6,7 +6,7 @@ import { useDatabase, useCollection, useMemoDatabase, addDocumentNonBlocking, up
 import { collection, serverTimestamp, query, where, getDocs, doc } from "@/database/mongo";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Trash2, Loader2, Columns, X, ChevronDown, Search } from "lucide-react";
@@ -61,6 +61,7 @@ export default function VF01() {
   const [billTo, setBillTo] = useState(""); // Bill to Party
   const [shipTo, setShipTo] = useState(""); // Ship to Party
   const [isShipToApplicable, setIsShipToApplicable] = useState(false);
+  const [termsAndConditions, setTermsAndConditions] = useState("");
   const [note, setNote] = useState("");
   
   const [isFetchingOptions, setIsFetchingOptions] = useState(false);
@@ -698,7 +699,7 @@ export default function VF01() {
           <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9] p-3 space-y-3">
              <div>
                <div className="text-[11px] font-bold text-gray-600 mb-1 uppercase tracking-tighter">Terms & Conditions</div>
-               <textarea className="w-full h-16 text-[11px] bg-white border border-gray-400 p-2 outline-none focus:border-blue-500" placeholder="Standard billing terms..."></textarea>
+              <textarea value={termsAndConditions} onChange={e => setTermsAndConditions(e.target.value)} className="w-full h-16 text-[11px] bg-white border border-gray-400 p-2 outline-none focus:border-blue-500" placeholder="Standard billing terms..."/>
              </div>
              <div>
                <div className="text-[11px] font-bold text-gray-600 mb-1 uppercase tracking-tighter">Note</div>
@@ -742,5 +743,3 @@ export default function VF01() {
     </div>
   );
 }
-
-

@@ -131,7 +131,7 @@ export default function SystemMenu({
   return (
     <div
       ref={menuRef}
-      className="absolute left-0 top-full z-[200] min-w-[240px] bg-white border border-gray-300 shadow-lg shadow-black/20"
+      className="absolute left-0 top-full z-[200] min-w-[240px] bg-card border border-border shadow-lg shadow-black/20"
       style={{ 
         boxShadow: '2px 2px 6px rgba(0,0,0,0.15)',
       }}
@@ -139,7 +139,7 @@ export default function SystemMenu({
       <div className="py-0.5">
         {menuItems.map((item, index) => {
           if ('type' in item && item.type === 'separator') {
-            return <div key={index} className="border-t border-gray-200 my-1" />;
+            return <div key={index} className="border-t border-border/70 my-1" />;
           }
 
           const Icon = item.icon;
@@ -148,17 +148,17 @@ export default function SystemMenu({
               key={item.id}
               onClick={item.onClick}
               className={cn(
-                "w-full flex items-center gap-3 px-4 py-1.5 text-[12px] text-left hover:bg-blue-600 hover:text-white transition-colors group",
-                item.danger && "text-red-700 hover:bg-red-600 hover:text-white"
+                "w-full flex items-center gap-3 px-4 py-1.5 text-[12px] text-left hover:bg-primary hover:text-white transition-colors group",
+                item.danger && "text-destructive hover:bg-destructive/90 hover:text-white"
               )}
             >
               <Icon className={cn(
                 "h-4 w-4 shrink-0",
-                item.danger ? "text-red-500 group-hover:text-white" : "text-gray-500 group-hover:text-white"
+                item.danger ? "text-destructive group-hover:text-white" : "text-muted-foreground group-hover:text-white"
               )} />
               <span className="flex-1 font-medium">{item.label}</span>
               {item.shortcut && (
-                <span className="text-[10px] text-gray-400 group-hover:text-blue-200 font-mono">
+                <span className="text-[10px] text-muted-foreground group-hover:text-primary font-mono">
                   {item.shortcut}
                 </span>
               )}
@@ -168,7 +168,7 @@ export default function SystemMenu({
       </div>
 
       {/* SAP-style footer */}
-      <div className="bg-[#e7ebf1] border-t border-gray-300 px-4 py-1 text-[9px] text-gray-500 font-bold uppercase tracking-wider">
+      <div className="bg-muted border-t border-border px-4 py-1 text-[9px] text-muted-foreground font-bold uppercase tracking-wider">
         System Settings • User Specific
       </div>
     </div>

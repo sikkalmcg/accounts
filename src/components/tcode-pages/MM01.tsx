@@ -16,6 +16,7 @@ const initialData = {
   hsnSac: "",
   uom: "",
   documentCategory: "",
+  inventoryType: "", // New field
 };
 
 export default function MM01() {
@@ -41,12 +42,13 @@ export default function MM01() {
     return Array.from(new Set(categories));
   }, [billingTypes, formData.plantId]);
 
-  const handleExecute = useCallback(async (dataToSave = formData) => {
+  const handleExecute = useCallback(async (dataToSave = formData, resetForm = true) => {
     const isInvalid = !dataToSave.plantId || 
                      !dataToSave.productName || 
                      !dataToSave.hsnSac || 
                      !dataToSave.uom || 
-                     !dataToSave.documentCategory;
+                     !dataToSave.documentCategory ||
+                     !dataToSave.inventoryType; // New field validation
 
     if (isInvalid) {
       window.dispatchEvent(new CustomEvent('sap-status', { 
@@ -65,7 +67,7 @@ export default function MM01() {
       window.dispatchEvent(new CustomEvent('sap-status', { 
         detail: { text: `Material ${dataToSave.productName} created successfully`, isError: false } 
       }));
-      if (dataToSave === formData) setFormData(initialData);
+      if (resetForm && dataToSave === formData) setFormData(initialData);
       return true;
     } catch (error) {
       window.dispatchEvent(new CustomEvent('sap-status', { 
@@ -102,15 +104,16 @@ export default function MM01() {
       let errorCount = 0;
 
       for (const row of dataRows) {
-        const [plantId, material, hsn, uom, category] = row.split(",").map(val => val.trim());
+        const [plantId, material, hsn, uom, category, inventoryType] = row.split(",").map(val => val.trim()); // Updated parsing
         if (plantId && material && hsn && uom && category) {
           const success = await handleExecute({
             plantId,
             productName: material,
             hsnSac: hsn,
             uom: uom.toUpperCase(),
-            documentCategory: category
-          });
+            documentCategory: category,
+            inventoryType: inventoryType, // New field
+          }, false); // Pass false to prevent resetting form after each item
           if (success) successCount++;
           else errorCount++;
         } else {
@@ -118,7 +121,7 @@ export default function MM01() {
         }
       }
 
-      window.dispatchEvent(new CustomEvent('sap-status', { 
+      window.dispatchEvent(new CustomEvent('sap-status', {
         detail: { text: `Bulk Upload Finished: ${successCount} successful, ${errorCount} errors`, isError: errorCount > 0 } 
       }));
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -260,6 +263,23 @@ export default function MM01() {
                 {isBillingLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-600 ml-1" />}
               </div>
             </div>
+
+            {/* New field: Inventory Type */}
+            <div className="sap-selection-row">
+              <label className="sap-label">Inventory Type <span className="text-red-500">*</span></label>
+              <div className="sap-input-wrapper max-w-[200px]">
+                <Select
+                  value={formData.inventoryType}
+                  onValueChange={(val) => setFormData({...formData, inventoryType: val})}
+                >
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Service Invoice">Service Invoice</SelectItem>
+                    <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -272,4 +292,3 @@ export default function MM01() {
     </div>
   );
 }
-
