@@ -38,6 +38,8 @@ export default function IRN01() {
   const { data: allInvoices, isLoading } = useCollection(invoicesQuery);
   const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
   const { data: customers } = useCollection(customersQuery);
+  const firmsQuery = useMemoDatabase(() => collection(db, "firms"), [db]);
+  const { data: firms } = useCollection(firmsQuery);
 
   const customerMap = useMemo(() => {
     const map: Record<string, any> = {};
@@ -95,6 +97,11 @@ export default function IRN01() {
     const item1 = selectedInvoice.items?.[0] || {};
     const gstPct = totals.avgGst || 0;
     const isInterstate = totals.isInterstate;
+    const firm = firms?.find(f => f.plantId === selectedInvoice.plantId);
+
+    const description = selectedInvoice.description || item1.desc || item1.activity || "N/A";
+    const quantityWithUom = item1.qty ? `${Number(item1.qty).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ${item1.uom || "PCS"}` : "0 PCS";
+    const invoiceDate = selectedInvoice.invoiceDate || selectedInvoice.createdAt || "";
 
     return (
       <div className="w-full flex flex-col bg-white min-h-full select-text animate-in slide-in-from-right duration-300">
@@ -108,45 +115,34 @@ export default function IRN01() {
           <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
             <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[11px] font-semibold text-gray-700">Invoice Context</div>
             <div className="p-3 grid grid-cols-4 gap-x-6 gap-y-4 text-[11px]">
-              {/* Row 1: Document Basics */}
               <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Plant</label><span className="font-bold">{selectedInvoice.plantId}</span></div>
-              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Invoice No</label><span className="font-bold text-blue-700">{selectedInvoice.invoiceNumber}</span></div>
-              <div>
-                <label className="text-gray-500 block uppercase font-bold text-[9px]">Date</label>
-                {/* Visual sync with ACK Date */}
-                <span className="font-bold text-emerald-700">{toSAPDate(irnData.ackDate)}</span>
-              </div>
-              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">FY</label><span className="font-bold">{selectedInvoice.billYear}</span></div>
-              
-              {/* Row 2: Consignee Details */}
-              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Consignee</label><span className="font-bold truncate">{consignee?.name || "N/A"}</span></div>
-              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Consignee GSTIN</label><span className="font-bold font-mono">{consignee?.gstin || "N/A"}</span></div>
-              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Consignee State</label><span className="font-bold">{consignee?.stateName || "N/A"}</span></div>
+              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Consignor Name</label><span className="font-bold truncate">{firm?.name || "N/A"}</span></div>
+              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Consignor GSTIN</label><span className="font-bold font-mono">{firm?.gstin || "N/A"}</span></div>
+              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Consignor State</label><span className="font-bold">{firm?.stateName || firm?.state || "N/A"}</span></div>
+
+              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Bill-to Party Name</label><span className="font-bold truncate">{consignee?.name || "N/A"}</span></div>
+              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Bill-to Party GSTIN</label><span className="font-bold font-mono">{consignee?.gstin || "N/A"}</span></div>
+              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Bill-to Party State</label><span className="font-bold">{consignee?.stateName || "N/A"}</span></div>
+              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Invoice No.</label><span className="font-bold text-blue-700">{selectedInvoice.invoiceNumber}</span></div>
+
+              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Invoice Date</label><span className="font-bold">{invoiceDate}</span></div>
+              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Inventory Type</label><span className="font-bold uppercase">{selectedInvoice.inventoryType || "N/A"}</span></div>
               <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Document Type</label><span className="font-bold uppercase">{selectedInvoice.docType || "N/A"}</span></div>
-
-              {/* Row 3: Ship To & Classification */}
-              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Ship to Party</label><span className="font-bold truncate">{shipTo?.name || "N/A"}</span></div>
-              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Ship to GSTIN</label><span className="font-bold font-mono">{shipTo?.gstin || "N/A"}</span></div>
               <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Charge Type</label><span className="font-bold uppercase text-blue-800">{selectedInvoice.docCategory || "N/A"}</span></div>
-              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">HSN/SAC</label><span className="font-bold">{item1.hsn || "---"}</span></div>
 
-              {/* Row 4: Item Details */}
-              <div className="col-span-1"><label className="text-gray-500 block uppercase font-bold text-[9px]">Description</label><span className="font-bold truncate block">{item1.desc || "N/A"}</span></div>
-              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Activity</label><span className="font-bold">{item1.activity || "---"}</span></div>
-              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Qty</label><span className="font-bold">{item1.qty || 0}</span></div>
-              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Rate</label><span className="font-bold">₹ {parseFloat(item1.rate || 0).toLocaleString()}</span></div>
-
-              {/* Row 5: Financials & Taxes */}
+              <div className="col-span-2"><label className="text-gray-500 block uppercase font-bold text-[9px]">Description</label><span className="font-bold truncate block">{description}</span></div>
+              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Total Quantity with UOM</label><span className="font-bold">{quantityWithUom}</span></div>
               <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Taxable Amount</label><span className="font-bold">₹ {totals.taxableAmount?.toLocaleString()}</span></div>
 
+              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">GST Rate (%)</label><span className="font-bold">{gstPct.toFixed(2)}</span></div>
               {!isInterstate ? (
                 <>
-                  <div><label className="text-gray-500 block uppercase font-bold text-[9px]">CGST @ {gstPct / 2}%</label><span className="font-bold">₹ {(totals.cgst || 0).toLocaleString()}</span></div>
-                  <div><label className="text-gray-500 block uppercase font-bold text-[9px]">SGST @ {gstPct / 2}%</label><span className="font-bold">₹ {(totals.sgst || 0).toLocaleString()}</span></div>
+                  <div><label className="text-gray-500 block uppercase font-bold text-[9px]">CGST Amount</label><span className="font-bold">₹ {(totals.cgst || 0).toLocaleString()}</span></div>
+                  <div><label className="text-gray-500 block uppercase font-bold text-[9px]">SGST Amount</label><span className="font-bold">₹ {(totals.sgst || 0).toLocaleString()}</span></div>
                 </>
               ) : (
                 <>
-                  <div className="col-span-2"><label className="text-gray-500 block uppercase font-bold text-[9px]">IGST @ {gstPct}%</label><span className="font-bold">₹ {(totals.igst || 0).toLocaleString()}</span></div>
+                  <div className="col-span-2"><label className="text-gray-500 block uppercase font-bold text-[9px]">IGST Amount</label><span className="font-bold">₹ {(totals.igst || 0).toLocaleString()}</span></div>
                 </>
               )}
 

@@ -47,7 +47,7 @@ export default function VF01() {
   const [userName, setUserName] = useState("USER");
   const [plantId, setPlantId] = useState("");
   const [invoiceNo, setInvoiceNo] = useState("");
-  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [invoiceDate, setInvoiceDate] = useState("");
   
   const [billPeriod, setBillPeriod] = useState(format(new Date(), "MMM-yyyy"));
   const [isPickerOpen, setIsPickerOpen] = useState(false);

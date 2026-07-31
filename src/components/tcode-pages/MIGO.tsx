@@ -70,14 +70,14 @@ export default function MIGO() {
     paymentAdviceNo: "",
     proofData: "",
     consignorName: "", // Added missing property
-    paymentDate: new Date().toISOString().split('T')[0],
+    paymentDate: "",
   });
 
   // --- Invoice/Stock Receipt State ---
   const [receiptHeader, setReceiptHeader] = useState({
     inventoryType: "", // Already exists, but ensure it's available for Invoice Entry
     invoiceNo: "",
-    date: new Date().toISOString().split('T')[0],
+    date: "",
     documentType: "Tax Invoice", // Renamed from invoiceType
     // inventoryType: "", // This is already in the general selection, no need to duplicate here
     vendorId: "",
@@ -135,11 +135,11 @@ export default function MIGO() {
     setPaymentData({
       invoiceNo: "", date: "", consigneeName: "", invoiceType: "", taxableAmount: 0, taxAmount: 0, grossAmount: 0,
       receiptAmount: "", tds: "", deduction: "", deductionRemark: "", interest: "", balanceAmount: 0, remark: "", 
-      paymentMode: "Banking", bankingUtr: "", 
-      paymentAdviceNo: "", proofData: "", paymentDate: new Date().toISOString().split('T')[0], consignorName: ""
+      paymentMode: "Banking", bankingUtr: "",
+      paymentAdviceNo: "", proofData: "", paymentDate: "", consignorName: ""
     });
     setReceiptHeader({
-      firmId: "", inventoryType: "", invoiceNo: "", date: new Date().toISOString().split('T')[0],
+      firmId: "", inventoryType: "", invoiceNo: "", date: "",
       documentType: "Tax Invoice", // Reset renamed field
       vendorId: "", vendorGstin: "", address: "", state: "", stateCode: "", pin: "", gstRate: "18", proofData: ""
     });
