@@ -52,11 +52,13 @@ export default function VF01() {
   const [billPeriod, setBillPeriod] = useState(format(new Date(), "MMM-yyyy"));
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   
-  const [docType, setDocType] = useState("TAX INVOICE");
+  const [docType, setDocType] = useState("Tax Invoice");
   const [docCategory, setDocCategory] = useState("");
   const [billType, setBillType] = useState("BILL UNDER F.C.M.");
   const [inventoryType, setInventoryType] = useState("");
-  const [billTo, setBillTo] = useState(""); // Consignee
+  const [vehicleNo, setVehicleNo] = useState("");
+  const [consignorName, setConsignorName] = useState("");
+  const [billTo, setBillTo] = useState(""); // Bill to Party
   const [shipTo, setShipTo] = useState(""); // Ship to Party
   const [isShipToApplicable, setIsShipToApplicable] = useState(false);
   const [note, setNote] = useState("");
@@ -97,14 +99,22 @@ export default function VF01() {
 
   // 3. Dynamic Labels & Config
   const docLabels = useMemo(() => {
-    const t = docType.toUpperCase();
+    const t = docType?.toUpperCase() || "";
     if (t.includes("CREDIT NOTE")) return { no: "Credit Note Number", date: "Date", header: "Credit Note" };
     if (t.includes("DEBIT NOTE")) return { no: "Debit Note Number", date: "Date", header: "Debit Note" };
     if (t.includes("DELIVERY CHALLAN")) return { no: "Delivery Challan Number", date: "Date", header: "Delivery Challan" };
     return { no: "Invoice Number", date: "Date", header: "Billing Document" };
   }, [docType]);
 
-  const isCreditNote = docType.toUpperCase().includes("CREDIT NOTE");
+  const isCreditNote = docType?.toUpperCase().includes("CREDIT NOTE");
+  
+  // Derived document type flags
+  const isNonTax = docType?.toUpperCase() === "NON-TAX INVOICE";
+  const isDeliveryChallan = docType?.toUpperCase() === "DELIVERY CHALLAN";
+  const isDebitNote = docType?.toUpperCase() === "DEBIT NOTE";
+  const isTaxInvoice = docType?.toUpperCase() === "TAX INVOICE";
+  const showVehicleNo = inventoryType === "Supply Invoice";
+  const isRCM = billType === "BILL UNDER R.C.M.";
 
   // 4. Auto-Invoice Number Generation
   useEffect(() => {
@@ -167,6 +177,20 @@ export default function VF01() {
   const { data: firms } = useCollection(firmsQuery);
   const materialsQuery = useMemoDatabase(() => collection(db, "materials"), [db]);
   const { data: materials } = useCollection(materialsQuery);
+
+  // Auto-fetch Consignor Name from Firm Master when plant changes
+  useEffect(() => {
+    if (plantId && firms) {
+      const firm = firms.find(f => f.plantId === plantId);
+      if (firm) {
+        setConsignorName(firm.name || "");
+      } else {
+        setConsignorName("");
+      }
+    } else {
+      setConsignorName("");
+    }
+  }, [plantId, firms]);
 
   // 6. Reference Fetch Logic
   const handleRefFetch = async () => {
@@ -257,8 +281,6 @@ export default function VF01() {
   const filteredBilling = useMemo(() => billingTypes?.filter(b => b.plantId === plantId) || [], [billingTypes, plantId]);
   const filteredCustomers = useMemo(() => customers?.filter(c => c.plantId === plantId) || [], [customers, plantId]);
   
-  const isNonTax = useMemo(() => docType?.toUpperCase() === "NON-TAX INVOICE", [docType]);
-
   const totals = useMemo(() => {
     const taxableAmount = items.reduce((acc, i) => acc + (i.amount || 0), 0);
     const totalQty = items.reduce((acc, i) => acc + (Number(i.qty) || 0), 0);
@@ -328,9 +350,12 @@ export default function VF01() {
     setIsColumnDialogOpen(false);
   };
 
+  // Amount column label based on document type
+  const amountColumnLabel = isNonTax ? "Invoice Amount" : isDeliveryChallan ? "Invoice Amount" : "Taxable Amount";
+
   const handleExecute = useCallback(async () => {
     if (!plantId || !invoiceNo || !billTo || !inventoryType) {
-      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Plant, Invoice Number, Consignee and Inventory Type are mandatory", isError: true } }));
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Plant, Invoice Number, Bill to Party and Inventory Type are mandatory", isError: true } }));
       return;
     }
 
@@ -398,6 +423,8 @@ export default function VF01() {
         docCategory, 
         billType,
         inventoryType,
+        vehicleNo: showVehicleNo ? vehicleNo : "",
+        consignorName,
         billTo, 
         shipTo: (isShipToApplicable ? shipTo : billTo) || billTo,
         originalInvoiceRef: isCreditNote ? referenceNo : null,
@@ -448,6 +475,32 @@ export default function VF01() {
                 </Select>
               </div>
 
+              {/* Inventory Type - First field */}
+              <div className="sap-selection-row">
+                <label className="sap-label">Inventory Type</label>
+                <Select value={inventoryType} onValueChange={setInventoryType}>
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
+                    <SelectItem value="Service Invoice">Service Invoice</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Vehicle No. - Only for Supply Invoice */}
+              {showVehicleNo && (
+                <div className="sap-selection-row animate-in slide-in-from-top-1 duration-200">
+                  <label className="sap-label">Vehicle No.</label>
+                  <Input value={vehicleNo} onChange={e => setVehicleNo(e.target.value.toUpperCase())} placeholder="Enter vehicle number..." className="h-6 text-xs uppercase" />
+                </div>
+              )}
+
+              {/* Consignor Name - Auto-fetched from Firm Master */}
+              <div className="sap-selection-row">
+                <label className="sap-label">Consignor Name</label>
+                <Input value={consignorName} readOnly className="h-6 text-xs bg-gray-100 font-semibold text-blue-800" placeholder="Auto-fetched from Firm Master..." />
+              </div>
+
               {isCreditNote && (
                 <div className="sap-selection-row animate-in slide-in-from-top-2 duration-300">
                   <label className="sap-label font-bold text-red-700">Reference Number *</label>
@@ -474,8 +527,10 @@ export default function VF01() {
                 </div>
               </div>
               <div className="sap-selection-row"><label className="sap-label">Date</label><Input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} /></div>
+              
+              {/* Bill to Party (renamed from Consignee) */}
               <div className="sap-selection-row">
-                <label className="sap-label">Consignee (Bill to)</label>
+                <label className="sap-label">Bill to Party</label>
                 <Select value={billTo} onValueChange={v => { setBillTo(v); }}>
                   <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
                   <SelectContent>{filteredCustomers.map(c => <SelectItem key={c.id} value={c.customerId}>{c.customerId} - {c.name}</SelectItem>)}</SelectContent>
@@ -492,7 +547,7 @@ export default function VF01() {
                       if (!v) setShipTo("");
                     }} 
                   />
-                  <span className="text-[10px] text-gray-400 ml-2 italic">(Toggle if Ship-to is different from Consignee)</span>
+                  <span className="text-[10px] text-gray-400 ml-2 italic">(Toggle if Ship-to is different from Bill to Party)</span>
                 </div>
               </div>
 
@@ -529,13 +584,22 @@ export default function VF01() {
                   </Popover>
                 </div>
               </div>
+
+              {/* Document Type - Fixed Dropdown */}
               <div className="sap-selection-row">
                 <label className="sap-label">Document Type</label>
                 <Select value={docType} onValueChange={setDocType}>
                   <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
-                  <SelectContent>{filteredBilling.filter(b => b.documentType).map(b => <SelectItem key={b.id} value={b.documentType!}>{b.documentType}</SelectItem>)}</SelectContent>
+                  <SelectContent>
+                    <SelectItem value="Tax Invoice">Tax Invoice</SelectItem>
+                    <SelectItem value="Non-Tax Invoice">Non-Tax Invoice</SelectItem>
+                    <SelectItem value="Delivery Challan">Delivery Challan</SelectItem>
+                    <SelectItem value="Debit Note">Debit Note</SelectItem>
+                    <SelectItem value="Credit Note">Credit Note</SelectItem>
+                  </SelectContent>
                 </Select>
               </div>
+
               <div className="sap-selection-row">
                 <label className="sap-label">Charge Type</label>
                 <Select value={docCategory} onValueChange={v => { setDocCategory(v); if(!isCreditNote) setItems([]); }}>
@@ -548,21 +612,20 @@ export default function VF01() {
                 <Select value={billType} onValueChange={setBillType}>
                   <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="BILL UNDER F.C.M.">BILL UNDER F.C.M.</SelectItem>
+                    <SelectItem value="BILL UNDER F.C.M.">BILL UNDER F.C.M. (Default)</SelectItem>
                     <SelectItem value="BILL UNDER R.C.M.">BILL UNDER R.C.M.</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <div className="sap-selection-row">
-                <label className="sap-label">Inventory Type</label>
-                <Select value={inventoryType} onValueChange={setInventoryType}>
-                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Service Invoice">Service Invoice</SelectItem>
-                    <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+
+              {/* RCM Note */}
+              {isRCM && (
+                <div className="sap-selection-row animate-in slide-in-from-top-1 duration-200">
+                  <div className="col-span-2 p-2 border border-orange-300 bg-orange-50 text-[10px] text-orange-800 font-bold italic">
+                    GST Payable under Reverse Charge Mechanism (RCM). Invoice Total excludes GST payable by the recipient.
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -597,7 +660,7 @@ export default function VF01() {
                 <TableHead className="text-[11px] font-bold border-r w-24 text-center">Qty</TableHead>
                 <TableHead className="text-[11px] font-bold border-r w-20">UOM</TableHead>
                 <TableHead className="text-[11px] font-bold border-r w-14 text-center">Rate</TableHead>
-                <TableHead className="text-[11px] font-bold text-right w-40 pr-4">Amount</TableHead>
+                <TableHead className="text-[11px] font-bold text-right w-40 pr-4">{amountColumnLabel}</TableHead>
                 <TableHead className="w-8"></TableHead>
               </TableRow>
             </TableHeader>
@@ -644,8 +707,20 @@ export default function VF01() {
           </div>
           <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-white shadow-inner">
             <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700 uppercase">Calculation Summary</div>
-            <div className="p-3 space-y-1 text-[11px]">
-              {!isNonTax ? (
+          <div className="p-3 space-y-1 text-[11px]">
+              {isNonTax ? (
+                <>
+                  <div className="flex justify-between border-b pb-1"><span>Invoice Amount</span><span className="font-mono font-bold">{totals.taxableAmount.toLocaleString()}</span></div>
+                  <div className="p-2 border border-blue-100 bg-blue-50 italic text-blue-800">Non-Tax Transaction - No GST applicable</div>
+                </>
+              ) : isRCM ? (
+                <>
+                  <div className="flex justify-between border-b pb-1"><span>Invoice Amount (Excl. GST)</span><span className="font-mono font-bold">{totals.taxableAmount.toLocaleString()}</span></div>
+                  <div className="p-2 border border-orange-200 bg-orange-50 italic text-orange-700 text-[10px]">
+                    GST is payable by the recipient under Reverse Charge Mechanism (RCM)
+                  </div>
+                </>
+              ) : (
                 <>
                   <div className="flex justify-between border-b pb-1"><span>Taxable Amount</span><span className="font-mono font-bold">{totals.taxableAmount.toLocaleString()}</span></div>
                   {totals.isInterstate ? (
@@ -657,8 +732,8 @@ export default function VF01() {
                     </>
                   )}
                 </>
-              ) : <div className="p-2 border border-blue-100 bg-blue-50 italic text-blue-800">Non-Tax Transaction</div>}
-              <div className="flex justify-between pt-2 border-t text-sm font-black text-emerald-900 uppercase"><span>{isNonTax ? "Net Total" : "Gross Payable"}</span><span className="font-mono text-lg">₹ {totals.grossAmount.toLocaleString()}</span></div>
+              )}
+              <div className="flex justify-between pt-2 border-t text-sm font-black text-emerald-900 uppercase"><span>{isNonTax ? "Net Total" : isRCM ? "Net Payable (Excl. GST)" : "Gross Payable"}</span><span className="font-mono text-lg">₹ {totals.grossAmount.toLocaleString()}</span></div>
             </div>
           </div>
         </div>

@@ -398,10 +398,19 @@ export default function VF03() {
                 <div className="flex items-center">Date <SortIcon column="invoiceDate" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('billTo')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center">Consignee <SortIcon column="billTo" /></div>
+                <div className="flex items-center">Bill to Party <SortIcon column="billTo" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('shipTo')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Ship to Party <SortIcon column="shipTo" /></div>
+              </TableHead>
+              <TableHead onClick={() => handleSort('consignorName')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">Consignor Name <SortIcon column="consignorName" /></div>
+              </TableHead>
+              <TableHead onClick={() => handleSort('docType')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">Doc Type <SortIcon column="docType" /></div>
+              </TableHead>
+              <TableHead onClick={() => handleSort('inventoryType')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">Inventory Type <SortIcon column="inventoryType" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('plantId')} className="text-[11px] font-bold border-r w-24 text-center">
                 <div className="flex items-center justify-center">Plant <SortIcon column="plantId" /></div>
@@ -423,7 +432,7 @@ export default function VF03() {
           </TableHeader>
           <TableBody>
             {isInvoicesLoading ? (
-              <TableRow><TableCell colSpan={12} className="text-center py-10 text-xs">LOADING...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={15} className="text-center py-10 text-xs">LOADING...</TableCell></TableRow>
             ) : sortedData.map((inv, i) => {
               const consigneeName = inv.snapshotBillTo?.name || (customerMap[inv.billTo] ? customerMap[inv.billTo].name : inv.billTo);
               const shipToName = inv.snapshotShipTo?.name || (inv.shipTo ? (customerMap[inv.shipTo] ? customerMap[inv.shipTo].name : inv.shipTo) : consigneeName);
@@ -455,8 +464,11 @@ export default function VF03() {
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[11px] border-r font-bold text-blue-700 font-mono">{inv.invoiceNumber}</TableCell>
                   <TableCell className="p-0 px-2 text-[11px] border-r font-mono">{inv.invoiceDate}</TableCell>
-                  <TableCell className="p-0 px-2 text-[11px] border-r text-gray-700 truncate max-w-[250px]">{consigneeName}</TableCell>
-                  <TableCell className="p-0 px-2 text-[11px] border-r text-gray-700 truncate max-w-[250px]">{shipToName}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r text-gray-700 truncate max-w-[180px]">{consigneeName}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r text-gray-700 truncate max-w-[180px]">{shipToName}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r text-gray-600 truncate max-w-[150px]">{inv.consignorName || customerMap[inv.billTo]?.name || "-"}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r text-center font-semibold">{inv.docType || "-"}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r text-center">{inv.inventoryType || "-"}</TableCell>
                   <TableCell className="p-0 px-2 text-[11px] border-r text-center font-bold text-gray-600">{inv.plantId}</TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r text-center">
                     {isCancelled ? (

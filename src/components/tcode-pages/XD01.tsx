@@ -8,6 +8,7 @@ import { Save, Loader2 } from "lucide-react";
 import { parseGSTIN } from "@/lib/gst-utils";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -17,7 +18,7 @@ import {
 } from "@/components/ui/select";
 
 const initialData = {
-  plantId: "",
+  assignedPlantIds: [] as string[],
   customerId: "",
   name: "",
   mobile: "",
@@ -35,9 +36,18 @@ export default function XD01() {
   const [formData, setFormData] = useState(initialData);
   const [loading, setLoading] = useState(false);
 
-  // Fetch plants for the dropdown
+  // Fetch plants for the multi-select
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
   const { data: plants, isLoading: isPlantsLoading } = useCollection(plantsQuery);
+
+  const togglePlant = (plantId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      assignedPlantIds: prev.assignedPlantIds.includes(plantId)
+        ? prev.assignedPlantIds.filter(id => id !== plantId)
+        : [...prev.assignedPlantIds, plantId]
+    }));
+  };
 
   const handleGSTINChange = (val: string) => {
     const gstin = val.toUpperCase().substring(0, 15);
@@ -59,9 +69,9 @@ export default function XD01() {
   };
 
   const handleExecute = useCallback(async () => {
-    if (!formData.name || !formData.mobile || !formData.plantId || !formData.customerId) {
+    if (!formData.name || !formData.mobile || !formData.customerId || formData.assignedPlantIds.length === 0) {
       window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "Validation Error: Customer Name, Mobile, Plant ID, and Customer Code are required", isError: true } 
+        detail: { text: "Validation Error: Customer Name, Mobile, Customer Code, and at least one Plant are required", isError: true } 
       }));
       return;
     }
@@ -81,6 +91,7 @@ export default function XD01() {
       addDocumentNonBlocking(collection(db, "customers"), {
         ...formData,
         customerId: normalizedCode,
+        plantId: formData.assignedPlantIds[0], // backward compatibility with single-plant queries
         createdAt: serverTimestamp(),
       });
       
@@ -130,25 +141,24 @@ export default function XD01() {
           </div>
           
           <div className="p-2 space-y-1">
-            <div className="sap-selection-row">
-              <label className="sap-label">Plant ID</label>
-              <div className="sap-input-wrapper max-w-[200px]">
-                <Select 
-                  value={formData.plantId} 
-                  onValueChange={(val) => setFormData({...formData, plantId: val})}
-                >
-                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
-                    <SelectValue placeholder="" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {plants?.map(p => (
-                      <SelectItem key={p.id} value={p.plantId}>
-                        {p.plantId} - {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {isPlantsLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
+            <div className="sap-selection-row items-start">
+              <label className="sap-label mt-1">Plant Access <span className="text-red-500">*</span></label>
+              <div className="sap-input-wrapper">
+                <div className="border border-gray-300 bg-white p-2 grid grid-cols-2 gap-x-4 gap-y-1 max-h-[160px] overflow-y-auto">
+                  {isPlantsLoading ? (
+                    <div className="text-xs text-gray-400 flex items-center gap-2 col-span-2"><Loader2 className="h-3 w-3 animate-spin" /> Loading Plants...</div>
+                  ) : plants?.length === 0 ? (
+                    <div className="text-xs text-red-500 col-span-2">No plants found. Create a plant first (OP01).</div>
+                  ) : (
+                    plants?.map(p => (
+                      <div key={p.id} className="flex items-center space-x-2 p-1 hover:bg-blue-50 rounded">
+                        <Checkbox id={`p-${p.plantId}`} checked={formData.assignedPlantIds.includes(p.plantId)} onCheckedChange={() => togglePlant(p.plantId)} />
+                        <label htmlFor={`p-${p.plantId}`} className="text-[11px] font-bold cursor-pointer">{p.plantId} - {p.name}</label>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <span className="text-[10px] text-gray-400 italic mt-1 block">Select at least one plant. Customer will be accessible only for selected plants.</span>
               </div>
             </div>
 

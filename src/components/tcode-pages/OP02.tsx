@@ -3,10 +3,11 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from "@/database";
-import { collection, doc } from "@/database/mongo";
+import { collection, doc, query, where, getDocs } from "@/database/mongo";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { validateDuplicateWithExclusion } from "@/lib/duplicate-validator";
 
 export default function OP02() {
   const db = useDatabase();
@@ -30,10 +31,20 @@ export default function OP02() {
       }));
       return;
     }
+
+    // Duplicate validation with exclusion for edit
+    const error = await validateDuplicateWithExclusion(db, "plants", "plantId", formData.plantId, selectedId);
+    if (error) {
+      window.dispatchEvent(new CustomEvent('sap-status', { 
+        detail: { text: error, isError: true } 
+      }));
+      return;
+    }
+
     setLoading(true);
     try {
       const { id, ...data } = formData;
-      updateDocumentNonBlocking(doc(db, "plants", selectedId), data);
+      updateDocumentNonBlocking(doc(db, "plants", selectedId), { ...data, plantId: (formData.plantId || "").trim().toUpperCase() });
       window.dispatchEvent(new CustomEvent('sap-status', { 
         detail: { text: `Plant ${formData.plantId} updated successfully`, isError: false } 
       }));

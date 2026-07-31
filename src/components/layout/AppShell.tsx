@@ -34,6 +34,18 @@ import {
   Square,
   Maximize2
 } from "lucide-react";
+
+// System Menu Components
+import SystemMenu from "@/components/layout/SystemMenu";
+import UserProfileDialog from "@/components/system/UserProfileDialog";
+import ChangePasswordDialog from "@/components/system/ChangePasswordDialog";
+import ThemeSettingsDialog from "@/components/system/ThemeSettingsDialog";
+import SoundSettingsDialog from "@/components/system/SoundSettingsDialog";
+import KeyboardShortcutsDialog from "@/components/system/KeyboardShortcutsDialog";
+
+// System Hooks
+import { useSounds, setGlobalSoundPlayer, playGlobalSound } from "@/hooks/use-sounds";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { TCODE_MAP } from "@/lib/tcode-registry";
@@ -95,11 +107,24 @@ export default function AppShell({ children }: AppShellProps) {
   const [selectedRecord, setSelectedRecord] = useState(-1);
   const [recordCount, setRecordCount] = useState(0);
   const [saveInFlight, setSaveInFlight] = useState(false);
+
+  // System Menu State
+  const [systemMenuOpen, setSystemMenuOpen] = useState(false);
+  const [showUserProfile, setShowUserProfile] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showThemeSettings, setShowThemeSettings] = useState(false);
+  const [showSoundSettings, setShowSoundSettings] = useState(false);
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+
+  // System Hooks
+  const { settings: soundSettings, playSound } = useSounds();
+  const { shortcuts: keyboardShortcuts, findShortcutByKey } = useKeyboardShortcuts();
+
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = userData?.role === 'admin' || userData?.username === "ajaysomra";
 
-  useEffect(() => {
+useEffect(() => {
     const stored = localStorage.getItem("sikka_user");
     
     if (!stored && pathname !== "/login") {
@@ -128,6 +153,9 @@ export default function AppShell({ children }: AppShellProps) {
         // ignore parse errors
       }
     }
+
+    // Set global sound player for non-React contexts
+    setGlobalSoundPlayer(playSound);
   }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -452,9 +480,33 @@ export default function AppShell({ children }: AppShellProps) {
             <div className="flex items-center gap-1 cursor-default hover:bg-blue-100 px-2 py-0.5 rounded">
               <Monitor className="h-4 w-4 text-blue-600" />
             </div>
-            {["Menu", "Edit", "Favorites", "Extras", "System", "Help"].map((item) => (
+{["Menu", "Edit", "Favorites", "Extras"].map((item) => (
               <span key={item} className="cursor-default hover:bg-blue-100/50 px-2 py-0.5 rounded transition-colors">{item}</span>
             ))}
+            <div className="relative">
+              <span 
+                onClick={() => { setSystemMenuOpen(!systemMenuOpen); if (!systemMenuOpen) playGlobalSound('button_click'); }}
+                className="cursor-default hover:bg-blue-100/50 px-2 py-0.5 rounded transition-colors inline-block"
+              >
+                System
+              </span>
+              <SystemMenu
+                isOpen={systemMenuOpen}
+                onClose={() => setSystemMenuOpen(false)}
+                onOpenProfile={() => setShowUserProfile(true)}
+                onOpenChangePassword={() => setShowChangePassword(true)}
+                onOpenThemeSettings={() => setShowThemeSettings(true)}
+                onOpenSoundSettings={() => setShowSoundSettings(true)}
+                onOpenKeyboardShortcuts={() => setShowKeyboardShortcuts(true)}
+                onLogout={handleLogout}
+                onAbout={() => {
+                  window.dispatchEvent(new CustomEvent('sap-status', {
+                    detail: { text: 'SIKKA LMC - Smart Accounting Platform v1.0.0', level: 'info' },
+                  }));
+                }}
+              />
+            </div>
+            <span className="cursor-default hover:bg-blue-100/50 px-2 py-0.5 rounded transition-colors">Help</span>
           </div>
 
           {/* RIGHT SIDE: Standard Window Controls */}
@@ -645,6 +697,43 @@ export default function AppShell({ children }: AppShellProps) {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+{/* System Menu Dialogs */}
+        {userData && (
+          <>
+            <UserProfileDialog
+              open={showUserProfile}
+              onOpenChange={setShowUserProfile}
+              userData={userData}
+              onSave={(updatedUser) => {
+                setUserData(updatedUser);
+                localStorage.setItem("sikka_user", JSON.stringify(updatedUser));
+              }}
+            />
+            <ChangePasswordDialog
+              open={showChangePassword}
+              onOpenChange={setShowChangePassword}
+              userData={userData}
+            />
+            <ThemeSettingsDialog
+              open={showThemeSettings}
+              onOpenChange={setShowThemeSettings}
+              currentTheme={currentTheme}
+              onApplyTheme={(theme) => setCurrentTheme(theme as ThemeType)}
+              userData={userData}
+            />
+            <SoundSettingsDialog
+              open={showSoundSettings}
+              onOpenChange={setShowSoundSettings}
+              userData={userData}
+            />
+            <KeyboardShortcutsDialog
+              open={showKeyboardShortcuts}
+              onOpenChange={setShowKeyboardShortcuts}
+              userData={userData}
+            />
+          </>
+        )}
 
         {/* SAP Status Bar */}
         <div className={cn(

@@ -1,53 +1,20 @@
-# SAP Standard Toolbar Implementation - Task List
+# Multi-Plant Access & User Authorization Implementation
 
-## Step 1: Create `src/hooks/use-unsaved-changes.ts`
-- Hook to track dirty/unsaved form state across pages
-- Exposes `dirty`, `setDirty`, `resetDirty` 
+## Completed Steps (VF01 - Billing Header Details) ✅
+- [x] All VF01 changes implemented and verified
 
-## Step 2: Create `src/components/layout/ConfirmDialog.tsx`
-- SAP-style confirmation dialog component
-- Supports: title, message, confirm/cancel buttons, custom button labels
+## New Task: Multi-Plant Access & User Authorization
 
-## Step 3: Create `src/components/layout/FindDialog.tsx`
-- Find/Search dialog with keyword search
-- Visual highlighting of matching results in the page
-- Search by document number, customer, vendor, plant, material, etc.
+### Phase 1: Master Data Multi-Plant Conversion
+- [x] XD01.tsx - Replace single plantId with multi-plant assignedPlantIds
+- [x] XK01.tsx - Same conversion  
+- [x] FM01.tsx - Same conversion
+- [x] VK11.tsx - Same conversion
+- [x] MM01.tsx - Same conversion
+- [x] VL01.tsx - Same conversion
+- [x] VOF01.tsx - Same conversion
 
-## Step 4: Create `src/components/layout/PrintDialog.tsx`
-- Print dialog with options:
-  - A4 Portrait
-  - A4 Landscape  
-  - PDF Export
-- Only enabled for saved documents
-
-## Step 5: Create `src/components/layout/ToolbarContext.tsx`
-- React Context + Provider wrapping AppShell
-- Provides:
-  - `registerSaveHandler` / `unregisterSaveHandler`
-  - `registerCancelHandler` / `unregisterCancelHandler`
-  - `setNavigationData(records, currentIndex)`
-  - `setDirty(isDirty)`
-  - `isDirty` state
-  - `isPrintEnabled` state
-  - `hasRecordNavigation` state
-  - `saveHandler`, `cancelHandler`
-  - `navigationRecords`, `navigationIndex`
-  - `setPrintEnabled(bool)`
-
-## Step 6: Modify `src/components/layout/AppShell.tsx`
-- Wrap with ToolbarProvider
-- Major refactor of Standard Toolbar section:
-  - **Save** → Call registered handler, validate, show status
-  - **Back** → History stack, unsaved changes popup
-  - **Exit** → Dashboard redirect with unsaved warning
-  - **Cancel** → Confirmation popup → reset
-  - **Print** → Open PrintDialog
-  - **Find** → Open FindDialog
-  - **Record Nav** → First/Prev/Next/Last with context data
-  - **Open in New Window** → Preserve session/doc/filters/mode
-- Enhanced keyboard shortcuts
-- Permission-aware buttons
-
-## Step 7: Integration with tcode pages (if needed)
-- Pages already use custom events, but we can add `useUnsavedChanges` hook calls
+### Phase 2: SU01 Dynamic Authorization Enhancement
+- [x] SU01.tsx - Import TCODE_MAP from registry for dynamic permission groups
+- [x] SU01.tsx - Enhanced permission matrix with View/Create/Edit/Delete granular support
 

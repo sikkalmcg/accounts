@@ -5,6 +5,7 @@ import { useDatabase, addDocumentNonBlocking, useCollection, useMemoDatabase } f
 import { collection, serverTimestamp, query, where, getDocs } from "@/database/mongo";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Upload, CheckCircle2, FileText, Eye, X, Download, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -13,7 +14,7 @@ import Image from "next/image";
 const initialData = {
   conditionType: "PR00",
   keyCombination: "Customer/Material",
-  plantId: "",
+  assignedPlantIds: [] as string[],
   customerCode: "",
   materialCode: "",
   documentType: "",
@@ -67,22 +68,39 @@ export default function VK11() {
   const billingTypesQuery = useMemoDatabase(() => collection(db, "billing_types"), [db]);
   const { data: billingTypes } = useCollection(billingTypesQuery);
 
+  // First assigned plant used for UI data filtering
+  const primaryPlantId = formData.assignedPlantIds[0] || "";
+
+  const togglePlant = (plantId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      assignedPlantIds: prev.assignedPlantIds.includes(plantId)
+        ? prev.assignedPlantIds.filter(id => id !== plantId)
+        : [...prev.assignedPlantIds, plantId]
+    }));
+  };
+
   useEffect(() => {
     setFormData(prev => ({ ...prev, validFrom: new Date().toISOString().split('T')[0] }));
   }, []);
 
   const filteredBillingTypes = useMemo(() => {
-    if (!billingTypes || !formData.plantId) return [];
-    return billingTypes.filter(bt => bt.plantId === formData.plantId);
-  }, [billingTypes, formData.plantId]);
+    if (!billingTypes || !primaryPlantId) return [];
+    return billingTypes.filter(bt => bt.plantId === primaryPlantId);
+  }, [billingTypes, primaryPlantId]);
 
   const filteredMaterials = useMemo(() => {
-    if (!materials || !formData.plantId || !formData.documentCategory) return [];
+    if (!materials || !primaryPlantId || !formData.documentCategory) return [];
     return materials.filter(m => 
-      m.plantId === formData.plantId && 
+      m.plantId === primaryPlantId && 
       m.documentCategory === formData.documentCategory
     );
-  }, [materials, formData.plantId, formData.documentCategory]);
+  }, [materials, primaryPlantId, formData.documentCategory]);
+
+  const filteredCustomers = useMemo(() => {
+    if (!customers || !primaryPlantId) return [];
+    return customers.filter(c => c.assignedPlantIds?.includes(primaryPlantId) || c.plantId === primaryPlantId);
+  }, [customers, primaryPlantId]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -112,7 +130,7 @@ export default function VK11() {
   };
 
   const handleExecute = useCallback(async () => {
-    if (!formData.plantId || !formData.customerCode || !formData.materialCode || !formData.inventoryType || !formData.price || !formData.gstRate || !formData.validFrom) {
+    if (formData.assignedPlantIds.length === 0 || !formData.customerCode || !formData.materialCode || !formData.inventoryType || !formData.price || !formData.gstRate || !formData.validFrom) {
       window.dispatchEvent(new CustomEvent('sap-status', { 
         detail: { text: "Error: Required fields missing in Condition Data", isError: true } 
       }));
@@ -125,7 +143,7 @@ export default function VK11() {
         collection(db, "pricing"), 
         where("customerCode", "==", formData.customerCode),
         where("materialCode", "==", formData.materialCode),
-        where("plantId", "==", formData.plantId),
+        where("plantId", "==", primaryPlantId),
         where("documentType", "==", formData.documentType),
         where("documentCategory", "==", formData.documentCategory)
       );
@@ -143,6 +161,7 @@ export default function VK11() {
         ...formData,
         price: parseFloat(formData.price),
         gstRate: parseFloat(formData.gstRate),
+        plantId: primaryPlantId, // backward compatibility
         createdAt: serverTimestamp(),
       });
       

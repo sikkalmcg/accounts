@@ -48,7 +48,12 @@ export default function IRN01() {
   const filteredInvoices = useMemo(() => {
     if (!allInvoices) return [];
     let base = isAdmin ? allInvoices : allInvoices.filter(i => i.plantId === assignedPlantId);
-    base = base.filter(i => (!i.irnNumber || i.irnNumber.trim() === "") && i.status !== "Cancelled");
+    // Exclude Cancelled, Non-Tax Invoices, and those with IRN already
+    base = base.filter(i => 
+      (!i.irnNumber || i.irnNumber.trim() === "") && 
+      i.status !== "Cancelled" &&
+      i.docType?.toUpperCase() !== "NON-TAX INVOICE"
+    );
     return base.filter(i => 
       i.invoiceNumber?.toLowerCase().includes(search.toLowerCase()) ||
       i.plantId?.toLowerCase().includes(search.toLowerCase()) ||

@@ -4,6 +4,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useDatabase, addDocumentNonBlocking } from "@/database";
 import { collection, serverTimestamp, query, where, getDocs } from "@/database/mongo";
+import { validateDuplicate } from "@/lib/duplicate-validator";
 
 const initialData = {
   plantId: "",
@@ -27,23 +28,25 @@ export default function OP01() {
     setLoading(true);
     try {
       // Duplicate Restriction Validation
-      const q = query(collection(db, "plants"), where("plantId", "==", formData.plantId));
-      const snap = await getDocs(q);
-      if (!snap.empty) {
+      const error = await validateDuplicate(db, "plants", "plantId", formData.plantId);
+      if (error) {
         window.dispatchEvent(new CustomEvent('sap-status', { 
-          detail: { text: `Error: Plant ID ${formData.plantId} already exists`, isError: true } 
+          detail: { text: error, isError: true } 
         }));
         setLoading(false);
         return;
       }
 
+      const normalizedPlantId = formData.plantId.trim().toUpperCase();
+
       addDocumentNonBlocking(collection(db, "plants"), {
         ...formData,
+        plantId: normalizedPlantId,
         createdAt: serverTimestamp(),
       });
       
       window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: `Plant ${formData.plantId} created successfully`, isError: false } 
+        detail: { text: `Plant ${normalizedPlantId} created successfully`, isError: false } 
       }));
       setFormData(initialData);
     } catch (e) {

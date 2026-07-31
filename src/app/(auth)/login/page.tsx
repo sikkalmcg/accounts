@@ -41,13 +41,50 @@ export default function LoginPage() {
       // Store the authenticated application's session details.
       initiateAnonymousSignIn(auth);
       
-      localStorage.setItem("sikka_user", JSON.stringify({
+localStorage.setItem("sikka_user", JSON.stringify({
         username: userDoc.username,
         name: userDoc.name,
+        employeeId: userDoc.employeeId || userDoc.username,
+        designation: userDoc.designation || '',
+        department: userDoc.department || '',
+        mobile: userDoc.mobile || '',
+        email: userDoc.email || '',
+        preferredLanguage: userDoc.preferredLanguage || 'en',
+        timeZone: userDoc.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata',
+        dateFormat: userDoc.dateFormat || 'DD/MM/YYYY',
+        timeFormat: userDoc.timeFormat || '12h',
+        profilePhoto: userDoc.profilePhoto || '',
+        theme: userDoc.theme || 'Classic',
         role: userDoc.role || 'user',
         assignedPlantIds: userDoc.assignedPlantIds || [],
-        tcodePermissions: userDoc.tcodePermissions || []
+        tcodePermissions: userDoc.tcodePermissions || [],
+        lastLogin: new Date().toISOString(),
+        accountStatus: 'Active',
       }));
+
+      // Record login in audit log (fire-and-forget)
+      fetch('/api/audit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: userDoc.username,
+          username: userDoc.name || userDoc.username,
+          action: 'LOGIN',
+          settingName: 'User Session',
+          previousValue: null,
+          newValue: 'Logged in',
+        }),
+      }).catch(() => {});
+
+      // Update last login timestamp
+      fetch('/api/user-profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: userDoc.username,
+          lastLogin: new Date().toISOString(),
+        }),
+      }).catch(() => {});
 
       router.push("/tcode/DB01");
     } catch (err: any) {
