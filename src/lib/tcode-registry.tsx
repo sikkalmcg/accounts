@@ -40,6 +40,9 @@ import MB03 from "@/components/tcode-pages/MB03";
 import MBST from "@/components/tcode-pages/MBST";
 import ZINV from "@/components/tcode-pages/ZINV";
 import F110 from "@/components/tcode-pages/F110";
+import F51 from "@/components/tcode-pages/F51";
+import F52 from "@/components/tcode-pages/F52";
+import F53 from "@/components/tcode-pages/F53";
 
 export const TCODE_MAP: Record<string, { title: string; component: React.ReactNode; isDisplayOnly?: boolean }> = {
   DB01: { title: "Main Dashboard", component: <DB01 /> },
@@ -101,6 +104,9 @@ export const TCODE_MAP: Record<string, { title: string; component: React.ReactNo
   MB03: { title: "Payment Record", component: <MB03 />, isDisplayOnly: true },
   MBST: { title: "Reverse Payment / Modify Payment", component: <MBST /> },
   F110: { title: "Payment Proof Report", component: <F110 />, isDisplayOnly: true },
+  F51: { title: "Post Outgoing Payment", component: <F51 /> },
+  F52: { title: "Post Outgoing Payment Revise", component: <F52 /> },
+  F53: { title: "Post Outgoing Payment Record", component: <F53 />, isDisplayOnly: true },
   
   // User Management
   SU01: { title: "Create User", component: <SU01 /> },

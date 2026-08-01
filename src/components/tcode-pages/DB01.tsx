@@ -166,6 +166,9 @@ export default function DB01() {
           <MenuItem id="m-finance" label="Accounting & Finance" icon={CreditCard}>
             <MenuItem id="fb03" label="FB03 - Invoice Payment Status" tcode="FB03" />
             <MenuItem id="f110" label="F110 - Payment Proof Report" tcode="F110" />
+            <MenuItem id="f51" label="F51 - Post Outgoing Payment" tcode="F51" />
+            <MenuItem id="f52" label="F52 - Revise Outgoing Payment" tcode="F52" />
+            <MenuItem id="f53" label="F53 - Outgoing Payment Record" tcode="F53" />
           </MenuItem>
 
           <MenuItem id="m-reports" label="Information System" icon={ClipboardList}>

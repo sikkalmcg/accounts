@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useDatabase, useCollection, useMemoDatabase, addDocumentNonBlocking, updateDocumentNonBlocking } from "@/database";
-import { collection, query, where, getDocs, serverTimestamp, orderBy, limit } from "@/database/mongo";
+import { collection, query, where, getDocs, serverTimestamp, orderBy, limit, doc } from "@/database/mongo";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -42,7 +42,7 @@ const initialPaymentData = {
   isFullyPaid: false, // New field to indicate if the invoice is fully paid
 };
 
-const LC_BALANCE_TOLERANCE = 50; // Configurable tolerance for small balance write-offs.
+const LC_BALANCE_TOLERANCE = 10; // Configurable tolerance for small balance write-offs (₹10.00 rule).
 
 export default function MIGO() {
   const db = useDatabase(); // Assuming db is initialized elsewhere
@@ -142,6 +142,7 @@ export default function MIGO() {
     setPlantId("");
     setPaymentData(initialPaymentData);
     setInvoiceDocId(null);
+    setReceiptHistory([]);
     setReceiptHeader({
       firmId: "", inventoryType: "", invoiceNo: "", date: "",
       documentType: "Tax Invoice", vendorId: "", vendorGstin: "", address: "", state: "", stateCode: "", pin: "", gstRate: "18", proofData: ""
@@ -192,6 +193,10 @@ export default function MIGO() {
         balanceDisplayString: displayString
     };
   }, [paymentData.currentOutstandingBalance, paymentData.receiptAmount, paymentData.tds, paymentData.deduction, receiptType]);
+
+// --- Payment Receipt History ---
+  const [receiptHistory, setReceiptHistory] = useState<any[]>([]);
+  const [loadingReceiptHistory, setLoadingReceiptHistory] = useState(false);
 
   const [isFetchingInvoice, setIsFetchingInvoice] = useState(false); // New state for loading indicator
 
@@ -249,8 +254,22 @@ export default function MIGO() {
         sgst: inv.totals?.sgst || 0, // New field
         igst: inv.totals?.igst || 0, // New field
         currentOutstandingBalance: currentOutstanding,
-        isFullyPaid: false, // Ensure it's false if not fully paid
       }));
+      // Fetch previous Payment Receipt entries for the receipt history footer
+      try {
+        setLoadingReceiptHistory(true);
+        const histQ = query(
+          collection(db, "payment_receipts"),
+          where("plantId", "==", plantId),
+          where("invoiceNo", "==", paymentData.invoiceNo)
+        );
+        const histSnap = await getDocs(histQ);
+        setReceiptHistory(histSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (e) {
+        setReceiptHistory([]);
+      } finally {
+        setLoadingReceiptHistory(false);
+      }
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Details for Invoice ${paymentData.invoiceNo} fetched successfully`, isError: false } }));
     } catch (e) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "System Error: Failed to fetch invoice details", isError: true } }));
@@ -553,12 +572,48 @@ export default function MIGO() {
                     </div>
                   </>
                 )}
-                <div className="sap-selection-row">
+<div className="sap-selection-row">
                   <label className="sap-label">Payment Date</label>
                   <Input type="date" value={paymentData.paymentDate} onChange={e => setPaymentData({...paymentData, paymentDate: e.target.value})} disabled={paymentData.isFullyPaid || !paymentData.invoiceNo} />
                 </div>
               </div>
             </div>
+
+            {/* Receipt History Footer */}
+            {receiptHistory.length > 0 && (
+              <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-white">
+                <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700 flex items-center justify-between">
+                  <span>Receipt History</span>
+                  <span className="text-[10px] text-gray-500 italic">{loadingReceiptHistory ? "Loading..." : `${receiptHistory.length} entry(ies)`}</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader className="bg-[#e7ebf1]">
+                      <TableRow className="h-7">
+                        <TableHead className="text-[11px] font-bold border-r w-12 text-center">Serial No.</TableHead>
+                        <TableHead className="text-[11px] font-bold border-r w-32 text-right">Receipt Amount</TableHead>
+                        <TableHead className="text-[11px] font-bold border-r w-28 text-right">TDS</TableHead>
+                        <TableHead className="text-[11px] font-bold border-r w-28 text-right">Deduction</TableHead>
+                        <TableHead className="text-[11px] font-bold border-r w-28 text-right">Interest</TableHead>
+                        <TableHead className="text-[11px] font-bold border-r w-32 text-center">Payment Date</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {receiptHistory.map((entry, idx) => (
+                        <TableRow key={entry.id || idx} className="h-7 hover:bg-blue-50/30 border-b border-gray-100">
+                          <TableCell className="p-0 text-center text-[10px] border-r text-gray-400">{idx + 1}</TableCell>
+                          <TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-700">₹ {(Number(entry.receiptAmount) || 0).toLocaleString()}</TableCell>
+                          <TableCell className="p-0 px-2 text-[10px] border-r text-right">₹ {(Number(entry.tds) || 0).toLocaleString()}</TableCell>
+                          <TableCell className="p-0 px-2 text-[10px] border-r text-right">₹ {(Number(entry.deduction) || 0).toLocaleString()}</TableCell>
+                          <TableCell className="p-0 px-2 text-[10px] border-r text-right text-orange-700">₹ {(Number(entry.interest) || 0).toLocaleString()}</TableCell>
+                          <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono">{entry.paymentDate || "-"}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
