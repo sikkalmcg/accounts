@@ -21,11 +21,12 @@ const TCODE_GROUPS: Record<string, { label: string; codes: string[] }> = {
   "VOF01": { label: "Billing Definitions", codes: ["VOF01", "VOF02", "VOF03"] },
   "VK11": { label: "Pricing Conditions", codes: ["VK11", "VK12", "VK13"] },
 
-  "VF01": { label: "Billing & Invoicing", codes: ["VF01", "VF02", "VF03", "VF11"] },
+"VF01": { label: "Billing & Invoicing", codes: ["VF01", "VF02", "VF03", "VF11"] },
   "IRN01": { label: "E-Invoicing (IRN)", codes: ["IRN01", "IRN02", "IRN03"] },
   "MIGO": { label: "Goods Movement", codes: ["MIGO"] },
   "FB03": { label: "Payment Status", codes: ["FB03"] },
   "F110": { label: "Payment Audit", codes: ["F110"] },
+  "MB03": { label: "Payment Records", codes: ["MB03", "MBST"] },
   "ZINV": { label: "Invoice Report", codes: ["ZINV"] },
   "SU01": { label: "User Management", codes: ["SU01", "SU02", "SU03"] },
   "ZCODE": { label: "System Tools", codes: ["ZCODE"] },

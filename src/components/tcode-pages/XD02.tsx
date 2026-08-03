@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { parseGSTIN } from "@/lib/gst-utils";
+import PlantMultiSelect from "./PlantMultiSelect";
 
 export default function XD02() {
   const db = useDatabase();
@@ -29,8 +30,13 @@ export default function XD02() {
   const handleSelectCustomer = (id: string) => {
     const customer = customers?.find(c => c.id === id);
     if (customer) {
+      // Support both the new array-based assignedPlantIds and legacy single plantId
+      const plantIds = Array.isArray(customer.assignedPlantIds) && customer.assignedPlantIds.length > 0
+        ? customer.assignedPlantIds
+        : (customer.plantId ? [customer.plantId] : []);
       setFormData({
         ...customer,
+        assignedPlantIds: plantIds,
         stateName: customer.stateName || "",
         stateCode: customer.stateCode || "",
         pan: customer.pan || "",
@@ -40,7 +46,7 @@ export default function XD02() {
     }
   };
 
-  const handleGSTINChange = (val: string) => {
+const handleGSTINChange = (val: string) => {
     const gstin = val.toUpperCase().substring(0, 15);
     const parsed = parseGSTIN(gstin);
     
@@ -63,6 +69,13 @@ export default function XD02() {
     if (!formData || !selectedCustomerId) {
        window.dispatchEvent(new CustomEvent('sap-status', { 
         detail: { text: "Error: No customer selected for modification", isError: true } 
+      }));
+      return;
+    }
+
+    if (!formData.assignedPlantIds || formData.assignedPlantIds.length === 0) {
+      window.dispatchEvent(new CustomEvent('sap-status', { 
+        detail: { text: "Validation Error: At least one Plant must be selected", isError: true } 
       }));
       return;
     }
@@ -95,9 +108,15 @@ export default function XD02() {
         return;
       }
 
-      const customerRef = doc(db, "customers", selectedCustomerId);
+const customerRef = doc(db, "customers", selectedCustomerId);
       const { id, ...dataToUpdate } = formData;
-      updateDocumentNonBlocking(customerRef, { ...dataToUpdate, customerId: normalizedCode });
+      const assignedPlantIds = Array.isArray(formData.assignedPlantIds) ? formData.assignedPlantIds : [];
+      updateDocumentNonBlocking(customerRef, {
+        ...dataToUpdate,
+        assignedPlantIds,
+        plantId: assignedPlantIds[0] || "", // backward compatibility with single-plant queries
+        customerId: normalizedCode,
+      });
       window.dispatchEvent(new CustomEvent('sap-status', { 
         detail: { text: `Customer ${formData.customerId} updated successfully`, isError: false } 
       }));
@@ -199,25 +218,16 @@ export default function XD02() {
                 </Button>
               </div>
               <div className="p-2 space-y-1">
-                <div className="sap-selection-row">
-                  <label className="sap-label">Plant ID</label>
-                  <div className="sap-input-wrapper max-w-[200px]">
-                    <Select 
-                      value={formData.plantId} 
-                      onValueChange={(val) => setFormData({...formData, plantId: val})}
-                    >
-                      <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {plants?.map(p => (
-                          <SelectItem key={p.id} value={p.plantId}>
-                            {p.plantId} - {p.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {isPlantsLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
+<div className="sap-selection-row items-start">
+                  <label className="sap-label mt-1">Plant Access <span className="text-red-500">*</span></label>
+                  <div className="sap-input-wrapper max-w-[280px]">
+                    <PlantMultiSelect
+                      plants={plants}
+                      selected={formData.assignedPlantIds || []}
+                      onChange={(ids) => setFormData({...formData, assignedPlantIds: ids})}
+                      isLoading={isPlantsLoading}
+                      placeholder="Select Plant(s)..."
+                    />
                   </div>
                 </div>
 

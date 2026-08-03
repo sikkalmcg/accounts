@@ -32,6 +32,7 @@ const TCODE_GROUPS: Record<string, { label: string; codes: string[] }> = {
   "IRN01": { label: "E-Invoicing", codes: ["IRN01", "IRN02", "IRN03"] },
   "MIGO": { label: "Goods Movement", codes: ["MIGO"] },
   "FB03": { label: "Account Analysis", codes: ["FB03", "F110"] },
+  "MB03": { label: "Payment Records", codes: ["MB03", "MBST"] },
   "F51": { label: "Outgoing Payment", codes: ["F51", "F52", "F53"] },
   "ZINV": { label: "Invoice Report", codes: ["ZINV"] },
   "SU01": { label: "Security & Tools", codes: ["SU01", "SU02", "SU03", "ZCODE"] },

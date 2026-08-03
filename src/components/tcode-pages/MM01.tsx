@@ -17,6 +17,8 @@ type MaterialRow = {
   materialCode: string;
   materialName: string;
   uom: string;
+  hsnSac: string;
+  gstRate: string;
   status: string;
 };
 
@@ -25,6 +27,8 @@ const newRow = (): MaterialRow => ({
   materialCode: "",
   materialName: "",
   uom: "",
+  hsnSac: "",
+  gstRate: "",
   status: "Active",
 });
 
@@ -79,9 +83,12 @@ export default function MM01() {
         const code = row.materialCode.trim();
         const name = row.materialName.trim();
 
-        if (!code) rowErrors.push("Material Code is mandatory");
+if (!code) rowErrors.push("Material Code is mandatory");
         if (!name) rowErrors.push("Material Name is mandatory");
         if (!row.uom) rowErrors.push("UOM is mandatory");
+        if (row.gstRate !== "" && row.gstRate !== null && row.gstRate !== undefined && isNaN(Number(row.gstRate))) {
+          rowErrors.push("GST Rate must be numeric");
+        }
 
         if (code) {
           const normalized = normalize(code);
@@ -133,6 +140,8 @@ export default function MM01() {
             materialCode: row.materialCode.trim(),
             productName: row.materialName.trim(),
             uom: row.uom,
+            hsnSac: row.hsnSac.trim(),
+            gstRate: Number(row.gstRate),
             status: row.status,
             documentType: header.documentType,
             documentCategory: header.documentCategory,
@@ -175,7 +184,7 @@ export default function MM01() {
   }, [handleExecute]);
 
   const downloadTemplate = () => {
-    const headers = ["MaterialCode", "MaterialName", "UOM", "Status"];
+const headers = ["MaterialCode", "MaterialName", "UOM", "HSN/SAC Code", "GST Rate (%)", "Status"];
     const csvContent = headers.join(",");
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
@@ -195,13 +204,15 @@ export default function MM01() {
       const text = event.target?.result as string;
       const lines = text.split("\n").map(line => line.trim()).filter(line => line !== "");
       const dataRows = lines.slice(1);
-      const parsed: MaterialRow[] = dataRows.map(line => {
-        const [materialCode, materialName, uom, status] = line.split(",").map(val => val.trim());
+const parsed: MaterialRow[] = dataRows.map(line => {
+        const [materialCode, materialName, uom, hsnSac, gstRate, status] = line.split(",").map(val => val.trim());
         return {
           id: Math.random().toString(36).substr(2, 9),
           materialCode: materialCode || "",
           materialName: materialName || "",
           uom: uom || "",
+          hsnSac: hsnSac || "",
+          gstRate: gstRate || "",
           status: status || "Active",
         };
       }).filter(r => r.materialCode || r.materialName);
@@ -361,7 +372,9 @@ export default function MM01() {
                   <TableHead className="text-[11px] font-bold border-r w-10 text-center">#</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-44">Material Code <span className="text-red-500">*</span></TableHead>
                   <TableHead className="text-[11px] font-bold border-r">Material Name <span className="text-red-500">*</span></TableHead>
-                  <TableHead className="text-[11px] font-bold border-r w-32">UOM <span className="text-red-500">*</span></TableHead>
+<TableHead className="text-[11px] font-bold border-r w-32">UOM <span className="text-red-500">*</span></TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-32">HSN/SAC Code</TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-28">GST Rate (%)</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-32">Status</TableHead>
                   <TableHead className="w-10"></TableHead>
                 </TableRow>
@@ -405,6 +418,23 @@ export default function MM01() {
                             ))}
                           </SelectContent>
                         </Select>
+                      </TableCell>
+                      <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
+                        <Input
+                          className={`h-full border-none shadow-none rounded-none font-mono focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
+                          value={row.hsnSac}
+                          onChange={e => updateRow(row.id, "hsnSac", e.target.value)}
+                          placeholder="HSN/SAC"
+                        />
+                      </TableCell>
+                      <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
+                        <Input
+                          type="number"
+                          className={`h-full border-none shadow-none rounded-none text-center font-bold focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
+                          value={row.gstRate}
+                          onChange={e => updateRow(row.id, "gstRate", e.target.value)}
+                          placeholder="0"
+                        />
                       </TableCell>
                       <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
                         <Select value={row.status} onValueChange={v => updateRow(row.id, "status", v)}>
