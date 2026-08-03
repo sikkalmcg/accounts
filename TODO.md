@@ -1,41 +1,17 @@
-# MM02 Enhancement Tasks
+# ERP Change Request - Implementation Todos
 
-## Plan
+## Page MB03
+- [ ] 1. Bill to Party dropdown: show only Bill to Party Name + Code (no plant link, no plant name)
+- [ ] 2. Consignor dropdown: show only Consignor Name (no plant link, no plant name)
+- [ ] 3. Search logic: All Plants shows all Invoice/Payment records matching selected Bill to Party / Consignor across all plants
 
-- [x] Step 1: Rewrite MM02 to show ALL materials in a searchable table
-- [x] Step 2: Add search bar at top to filter materials
-- [x] Step 3: Add Edit button (opens popup) and Delete button per row
-- [x] Step 4: Create Edit Material Dialog with all editable fields
-- [x] Step 5: Implement Save logic using updateDocumentNonBlocking
-- [x] Step 6: Run `npx tsc --noEmit` to type-check
+## Page VOF02 / VOF03
+- [ ] 4. Store `plantIds` array on billing_types records
+- [ ] 5. VOF02: on save, update/create per-plant records for each selected plant
+- [ ] 6. VOF02: display all selected plants joined in Plant column
+- [ ] 7. VOF03: display all selected plants joined in Plant column
 
-# MM01 Enhancement Tasks
-
-## Plan
-
-- [x] Step 1: Add `hsnSac` and `gstRate` fields to MaterialRow type + newRow()
-- [x] Step 2: Add HSN/SAC Code and GST Rate (%) columns to the table
-- [x] Step 3: Add validation for HSN Code and GST Rate
-- [x] Step 4: Save hsnSac and gstRate in handleExecute
-- [x] Step 5: Update Download Template CSV headers
-- [x] Step 6: Update Bulk Upload parser for new columns
-- [x] Step 7: Run `npx tsc --noEmit` to type-check (passing)
-
-# XD02 Enhancement Tasks
-
-## Plan
-
-- [x] Step 1: Replace single Plant ID select with PlantMultiSelect (multi-select)
-- [x] Step 2: Populate assignedPlantIds from customer data (backward-compatible with legacy plantId)
-- [x] Step 3: Add validation requiring at least one plant selected
-- [x] Step 4: Save assignedPlantIds + plantId (backward compat) on update
-- [x] Step 5: Run `npx tsc --noEmit` to type-check (passing)
-
-# SU01 / SU02 Permission Addition
-
-## Plan
-
-- [x] Step 1: Add MB03 (Payment Record) and MBST (Reverse Payment) to SU01 permission groups
-- [x] Step 2: Add MB03 (Payment Record) and MBST (Reverse Payment) to SU02 permission groups
-- [x] Step 3: Run `npx tsc --noEmit` to type-check (passing)
-
+## Page FB03
+- [ ] 8. Rename field "Consignee (Bill To)" -> "Bill to Party"
+- [ ] 9. Bill to Party dropdown: show only Name + Code (no plant link, no plant name)
+- [ ] 10. Search records by selected Bill to Party across all applicable plants

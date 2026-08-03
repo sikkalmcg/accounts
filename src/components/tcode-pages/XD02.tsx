@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -6,50 +5,89 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from "@/database";
 import { collection, doc, query, where, getDocs } from "@/database/mongo";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Trash2 } from "lucide-react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { parseGSTIN } from "@/lib/gst-utils";
 import PlantMultiSelect from "./PlantMultiSelect";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Loader2, Trash2, Pencil, Users } from "lucide-react";
 
 export default function XD02() {
   const db = useDatabase();
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
   const [formData, setFormData] = useState<any>(null);
+  const [selectedId, setSelectedId] = useState("");
   const [loading, setLoading] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const [canEdit, setCanEdit] = useState(false);
 
-  // Fetch Customers for Selection
+  // Real-time customers
   const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
-  const { data: customers } = useCollection(customersQuery);
+  const { data: customers, isLoading: isCustomersLoading } = useCollection(customersQuery);
 
-  // Fetch Plants for Dropdown
+  // Real-time plants for validation
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
   const { data: plants, isLoading: isPlantsLoading } = useCollection(plantsQuery);
 
-  const handleSelectCustomer = (id: string) => {
-    const customer = customers?.find(c => c.id === id);
-    if (customer) {
-      // Support both the new array-based assignedPlantIds and legacy single plantId
-      const plantIds = Array.isArray(customer.assignedPlantIds) && customer.assignedPlantIds.length > 0
-        ? customer.assignedPlantIds
-        : (customer.plantId ? [customer.plantId] : []);
-      setFormData({
-        ...customer,
-        assignedPlantIds: plantIds,
-        stateName: customer.stateName || "",
-        stateCode: customer.stateCode || "",
-        pan: customer.pan || "",
-        address: customer.address || "",
-      });
-      setSelectedCustomerId(id);
+  // Authorization check for editing
+  useEffect(() => {
+    const stored = localStorage.getItem("sikka_user");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      const isSysAdmin = parsed.username === "ajaysomra" || parsed.role === "admin";
+      setCanEdit(isSysAdmin || (parsed.tcodePermissions || []).includes("XD02"));
     }
+  }, []);
+
+  const openEdit = (customer: any) => {
+    const plantIds = Array.isArray(customer.assignedPlantIds) && customer.assignedPlantIds.length > 0
+      ? customer.assignedPlantIds
+      : (customer.plantId ? [customer.plantId] : []);
+    setSelectedId(customer.id);
+    setFormData({
+      ...customer,
+      assignedPlantIds: plantIds,
+      customerId: customer.customerId || "",
+      name: customer.name || "",
+      mobile: customer.mobile || "",
+      email: customer.email || "",
+      address: customer.address || "",
+      gstin: customer.gstin || "",
+      pan: customer.pan || "",
+      stateName: customer.stateName || "",
+      stateCode: customer.stateCode || "",
+      creditLimit: customer.creditLimit || "",
+    });
+    setEditOpen(true);
   };
 
-const handleGSTINChange = (val: string) => {
+  const handleGSTINChange = (val: string) => {
     const gstin = val.toUpperCase().substring(0, 15);
     const parsed = parseGSTIN(gstin);
-    
     setFormData((prev: any) => ({
       ...prev,
       gstin,
@@ -58,306 +96,350 @@ const handleGSTINChange = (val: string) => {
         stateName: parsed.state,
         stateCode: parsed.stateCode,
       } : {
-        pan: prev.pan,
-        stateName: prev.stateName,
-        stateCode: prev.stateCode,
-      })
+        pan: "",
+        stateName: "",
+        stateCode: "",
+      }),
     }));
   };
 
-  const handleExecute = useCallback(async () => {
-    if (!formData || !selectedCustomerId) {
-       window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "Error: No customer selected for modification", isError: true } 
+  const handleSave = useCallback(async () => {
+    if (!formData || !selectedId) {
+      window.dispatchEvent(new CustomEvent("sap-status", {
+        detail: { text: "Please select a customer to update", isError: true },
       }));
       return;
     }
 
-    if (!formData.assignedPlantIds || formData.assignedPlantIds.length === 0) {
-      window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "Validation Error: At least one Plant must be selected", isError: true } 
+    if (!formData.assignedPlantIds || formData.assignedPlantIds.length === 0 || !formData.name || !formData.mobile || !formData.customerId) {
+      window.dispatchEvent(new CustomEvent("sap-status", {
+        detail: { text: "Validation Error: Plant(s), Name, Mobile, and Customer Code are required", isError: true },
       }));
       return;
     }
 
     if (!canEdit) {
-      window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "Error: You do not have permission to edit customer master data", isError: true } 
+      window.dispatchEvent(new CustomEvent("sap-status", {
+        detail: { text: "Error: You do not have permission to edit customer master data", isError: true },
+      }));
+      return;
+    }
+
+    const normalizedCode = String(formData.customerId || "").trim().toUpperCase();
+    if (!normalizedCode) {
+      window.dispatchEvent(new CustomEvent("sap-status", {
+        detail: { text: "Error: Customer Code is mandatory", isError: true },
       }));
       return;
     }
 
     setLoading(true);
     try {
-      const normalizedCode = String(formData.customerId || "").trim().toUpperCase();
-      if (!normalizedCode) {
-        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Customer Code is mandatory", isError: true } }));
-        setLoading(false);
-        return;
-      }
-
       const q = query(collection(db, "customers"), where("customerId", "==", normalizedCode));
       const snap = await getDocs(q);
-      const isDuplicate = snap.docs.some(doc => doc.id !== selectedCustomerId);
-      
+      const isDuplicate = snap.docs.some(d => d.id !== selectedId);
       if (isDuplicate) {
-        window.dispatchEvent(new CustomEvent('sap-status', { 
-          detail: { text: "Customer Code already exists. Please enter a unique code.", isError: true } 
+        window.dispatchEvent(new CustomEvent("sap-status", {
+          detail: { text: "Customer Code already exists. Please enter a unique code.", isError: true },
         }));
         setLoading(false);
         return;
       }
 
-const customerRef = doc(db, "customers", selectedCustomerId);
-      const { id, ...dataToUpdate } = formData;
       const assignedPlantIds = Array.isArray(formData.assignedPlantIds) ? formData.assignedPlantIds : [];
-      updateDocumentNonBlocking(customerRef, {
-        ...dataToUpdate,
+      const { id, ...dataToSave } = formData;
+      updateDocumentNonBlocking(doc(db, "customers", selectedId), {
+        ...dataToSave,
         assignedPlantIds,
         plantId: assignedPlantIds[0] || "", // backward compatibility with single-plant queries
         customerId: normalizedCode,
+        updatedAt: new Date().toISOString(),
       });
-      window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: `Customer ${formData.customerId} updated successfully`, isError: false } 
+
+      window.dispatchEvent(new CustomEvent("sap-status", {
+        detail: { text: `Customer ${formData.name} updated successfully`, isError: false },
       }));
+      setEditOpen(false);
+      setFormData(null);
+      setSelectedId("");
     } catch (error) {
-       window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "Update failed: Database synchronization error", isError: true } 
+      window.dispatchEvent(new CustomEvent("sap-status", {
+        detail: { text: "Update failed: Check database connection", isError: true },
       }));
     } finally {
       setLoading(false);
     }
-  }, [formData, selectedCustomerId, db]);
+  }, [formData, selectedId, canEdit, db]);
 
-  const handleDelete = async () => {
-    if (!selectedCustomerId) return;
-    if (!confirm("Confirm Deletion: Removing this customer from master data will not affect past invoices. Proceed?")) return;
-    
+  useEffect(() => {
+    const onExecute = () => handleSave();
+    window.addEventListener("sap-execute", onExecute);
+    return () => window.removeEventListener("sap-execute", onExecute);
+  }, [handleSave]);
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
     setLoading(true);
     try {
-      deleteDocumentNonBlocking(doc(db, "customers", selectedCustomerId));
-      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Customer removed successfully", isError: false } }));
-      setSelectedCustomerId("");
-      setFormData(null);
+      deleteDocumentNonBlocking(doc(db, "customers", deleteTarget.id));
+      window.dispatchEvent(new CustomEvent("sap-status", {
+        detail: { text: "Customer record removed successfully", isError: false },
+      }));
+      setDeleteTarget(null);
     } catch (e) {
-      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Deletion failed", isError: true } }));
+      window.dispatchEvent(new CustomEvent("sap-status", {
+        detail: { text: "Deletion failed", isError: true },
+      }));
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    const stored = localStorage.getItem("sikka_user");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      const isSysAdmin = parsed.username === "ajaysomra" || parsed.role === 'admin';
-      setCanEdit(isSysAdmin || (parsed.tcodePermissions || []).includes("XD02"));
+  const getPlantCodes = (customer: any): string => {
+    if (Array.isArray(customer.assignedPlantIds) && customer.assignedPlantIds.length > 0) {
+      return customer.assignedPlantIds.join(", ");
     }
-  }, []);
-
-  useEffect(() => {
-    const onExecute = () => handleExecute();
-    const onCancel = () => {
-      setFormData(null);
-      setSelectedCustomerId("");
-      window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "Changes discarded", isError: false } 
-      }));
-    };
-
-    window.addEventListener('sap-execute', onExecute);
-    window.addEventListener('sap-cancel', onCancel);
-
-    return () => {
-      window.removeEventListener('sap-execute', onExecute);
-      window.removeEventListener('sap-cancel', onCancel);
-    };
-  }, [handleExecute]);
+    return customer.plantId || "N/A";
+  };
 
   return (
     <div className="w-full flex flex-col bg-white min-h-full">
       <div className="bg-[#dae8f5] px-4 py-1 border-b border-gray-300">
         <h2 className="text-[13px] font-bold text-gray-800 uppercase italic tracking-wider">
-          CUSTOMER MASTER: CHANGE INITIAL SCREEN
+          Customer Master: Edit / Delete
         </h2>
       </div>
 
-      <div className="p-4 space-y-4">
-        <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
-          <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">
-            Selection
-          </div>
-          <div className="p-2 space-y-1">
-            <div className="sap-selection-row">
-              <label className="sap-label">Customer</label>
-              <div className="sap-input-wrapper max-w-md">
-                <Select onValueChange={handleSelectCustomer} value={selectedCustomerId}>
-                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
-                    <SelectValue placeholder="Choose customer to change" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {customers?.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.customerId} - {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {formData && (
-          <div className="animate-in fade-in duration-300 space-y-4">
-            <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
-              <div className="bg-[#dae8f5] px-3 py-1 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700 flex justify-between items-center">
-                <span>Customer Data</span>
-                <Button onClick={handleDelete} variant="destructive" size="sm" className="h-6 rounded-none gap-2 uppercase font-bold text-[10px]">
-                  <Trash2 className="h-3.5 w-3.5" /> Delete Customer
-                </Button>
-              </div>
-              <div className="p-2 space-y-1">
-<div className="sap-selection-row items-start">
-                  <label className="sap-label mt-1">Plant Access <span className="text-red-500">*</span></label>
-                  <div className="sap-input-wrapper max-w-[280px]">
-                    <PlantMultiSelect
-                      plants={plants}
-                      selected={formData.assignedPlantIds || []}
-                      onChange={(ids) => setFormData({...formData, assignedPlantIds: ids})}
-                      isLoading={isPlantsLoading}
-                      placeholder="Select Plant(s)..."
-                    />
+      <div className="flex-1 overflow-auto">
+        <Table>
+          <TableHeader className="bg-[#e7ebf1] sticky top-0 z-10">
+            <TableRow className="h-8">
+              <TableHead className="text-[11px] border-r w-12 text-center">#</TableHead>
+              <TableHead className="text-[11px] border-r w-40">Plant</TableHead>
+              <TableHead className="text-[11px] border-r">Customer Name</TableHead>
+              <TableHead className="text-[11px] border-r w-36">GSTIN</TableHead>
+              <TableHead className="text-[11px] border-r w-28">PAN</TableHead>
+              <TableHead className="text-[11px] border-r w-36">State</TableHead>
+              <TableHead className="text-[11px] border-r w-20">State Code</TableHead>
+              <TableHead className="text-[11px] w-32 text-center">Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isCustomersLoading ? (
+              <TableRow><TableCell colSpan={8} className="text-center py-4 text-xs">FETCHING CUSTOMERS...</TableCell></TableRow>
+            ) : !customers || customers.length === 0 ? (
+              <TableRow><TableCell colSpan={8} className="text-center py-10 text-xs text-red-500 font-bold">NO CUSTOMER RECORDS FOUND</TableCell></TableRow>
+            ) : customers.map((c, i) => (
+              <TableRow key={c.id} className="h-10 hover:bg-blue-50/50 transition-colors">
+                <TableCell className="p-0 text-center text-[10px] border-r text-gray-400">{i + 1}</TableCell>
+                <TableCell className="p-0 px-2 text-[11px] border-r font-mono text-gray-700">{getPlantCodes(c)}</TableCell>
+                <TableCell className="p-0 px-2 text-[11px] border-r font-bold">{c.name}</TableCell>
+                <TableCell className="p-0 px-2 text-[11px] border-r font-mono">{c.gstin}</TableCell>
+                <TableCell className="p-0 px-2 text-[11px] border-r font-mono">{c.pan}</TableCell>
+                <TableCell className="p-0 px-2 text-[11px] border-r">{c.stateName || "-"}</TableCell>
+                <TableCell className="p-0 px-2 text-[11px] border-r font-mono text-center">{c.stateCode || "-"}</TableCell>
+                <TableCell className="p-0 px-1 border-r">
+                  <div className="flex items-center justify-center gap-1">
+                    <Button
+                      onClick={() => openEdit(c)}
+                      size="sm"
+                      className="h-6 rounded-none px-2 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold gap-1"
+                    >
+                      <Pencil className="h-3 w-3" /> Edit
+                    </Button>
+                    <Button
+                      onClick={() => setDeleteTarget(c)}
+                      size="sm"
+                      variant="destructive"
+                      className="h-6 rounded-none px-2 text-[10px] font-bold gap-1"
+                    >
+                      <Trash2 className="h-3 w-3" /> Delete
+                    </Button>
                   </div>
-                </div>
-
-                <div className="sap-selection-row">
-                  <label className="sap-label">Customer Code</label>
-                  <div className="sap-input-wrapper max-w-[200px]">
-                    <Input
-                      value={formData.customerId}
-                      disabled={!canEdit}
-                      onChange={(e) => setFormData({...formData, customerId: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "")})}
-                    />
-                  </div>
-                </div>
-                <div className="sap-selection-row">
-                  <label className="sap-label">Full Name</label>
-                  <div className="sap-input-wrapper max-w-md">
-                    <Input
-                      value={formData.name}
-                      onChange={(e) => setFormData({...formData, name: e.target.value})}
-                    />
-                  </div>
-                </div>
-                <div className="sap-selection-row">
-                  <label className="sap-label">Mobile Number</label>
-                  <div className="sap-input-wrapper max-w-[200px]">
-                    <Input
-                      value={formData.mobile}
-                      onChange={(e) => setFormData({...formData, mobile: e.target.value})}
-                    />
-                  </div>
-                </div>
-                <div className="sap-selection-row">
-                  <label className="sap-label">Email Address</label>
-                  <div className="sap-input-wrapper max-w-md">
-                    <Input
-                      type="email"
-                      value={formData.email}
-                      onChange={(e) => setFormData({...formData, email: e.target.value})}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
-              <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">
-                Address
-              </div>
-              <div className="p-2 space-y-1">
-                <div className="sap-selection-row items-start">
-                  <label className="sap-label mt-1">Postal Address</label>
-                  <div className="sap-input-wrapper max-w-xl">
-                    <Textarea 
-                      rows={3}
-                      value={formData.address || ""}
-                      onChange={(e) => setFormData({...formData, address: e.target.value})}
-                      className="rounded-none border-gray-400 focus:bg-[#fff9c4]"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
-              <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">
-                Tax & Financial Details
-              </div>
-              <div className="p-2 space-y-1">
-                <div className="sap-selection-row">
-                  <label className="sap-label">GSTIN</label>
-                  <div className="sap-input-wrapper max-w-[200px]">
-                    <Input
-                      value={formData.gstin}
-                      onChange={(e) => handleGSTINChange(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="sap-selection-row">
-                  <label className="sap-label">PAN</label>
-                  <div className="sap-input-wrapper max-w-[150px]">
-                    <Input
-                      value={formData.pan}
-                      readOnly
-                      className="bg-gray-100 font-mono"
-                    />
-                  </div>
-                </div>
-                <div className="sap-selection-row">
-                  <label className="sap-label">State Name</label>
-                  <div className="sap-input-wrapper max-w-md">
-                    <Input
-                      value={formData.stateName}
-                      readOnly
-                      className="bg-gray-100"
-                    />
-                  </div>
-                </div>
-                <div className="sap-selection-row">
-                  <label className="sap-label">State code</label>
-                  <div className="sap-input-wrapper max-w-[100px]">
-                    <Input
-                      value={formData.stateCode}
-                      readOnly
-                      className="bg-gray-100 text-center"
-                    />
-                  </div>
-                </div>
-                <div className="sap-selection-row">
-                  <label className="sap-label">Credit Limit (₹)</label>
-                  <div className="sap-input-wrapper max-w-[150px]">
-                    <Input
-                      type="number"
-                      value={formData.creditLimit}
-                      onChange={(e) => setFormData({...formData, creditLimit: e.target.value})}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
 
-      {loading && (
-        <div className="fixed bottom-10 right-10 bg-[#333e4f] text-white px-4 py-2 text-xs animate-pulse border border-white/20">
-          SYSTEM: Updating Records...
-        </div>
-      )}
+      {/* Edit Modal — all XD01 fields */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto rounded-sm p-0">
+          <DialogHeader className="bg-[#dae8f5] px-4 py-2 border-b border-[#b5c7de]">
+            <DialogTitle className="text-[13px] font-bold text-gray-800 uppercase italic tracking-wider">
+              Edit Customer Master
+            </DialogTitle>
+            <DialogDescription className="text-[11px] text-gray-600">
+              Modify customer details. Fields marked with * are mandatory.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="p-4 space-y-4">
+            {formData && (
+              <>
+                {/* Customer Data */}
+                <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
+                  <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">
+                    Customer Data
+                  </div>
+                  <div className="p-2 space-y-1">
+                    <div className="sap-selection-row items-start">
+                      <label className="sap-label mt-1">Plant Access <span className="text-red-500">*</span></label>
+                      <div className="sap-input-wrapper max-w-[280px]">
+                        <PlantMultiSelect
+                          plants={plants}
+                          selected={formData.assignedPlantIds || []}
+                          onChange={(ids) => setFormData((prev: any) => ({ ...prev, assignedPlantIds: ids }))}
+                          isLoading={isPlantsLoading}
+                          placeholder="Select Plant(s)..."
+                        />
+                      </div>
+                    </div>
+
+                    <div className="sap-selection-row">
+                      <label className="sap-label">Customer Code</label>
+                      <div className="sap-input-wrapper max-w-[200px]">
+                        <Input
+                          value={formData.customerId}
+                          onChange={(e) => setFormData((prev: any) => ({ ...prev, customerId: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "") }))}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="sap-selection-row">
+                      <label className="sap-label">Full Name</label>
+                      <div className="sap-input-wrapper max-w-md">
+                        <Input value={formData.name} onChange={(e) => setFormData((prev: any) => ({ ...prev, name: e.target.value }))} />
+                      </div>
+                    </div>
+
+                    <div className="sap-selection-row">
+                      <label className="sap-label">Mobile Number</label>
+                      <div className="sap-input-wrapper max-w-[200px]">
+                        <Input value={formData.mobile} onChange={(e) => setFormData((prev: any) => ({ ...prev, mobile: e.target.value }))} />
+                      </div>
+                    </div>
+
+                    <div className="sap-selection-row">
+                      <label className="sap-label">Email Address</label>
+                      <div className="sap-input-wrapper max-w-md">
+                        <Input type="email" value={formData.email} onChange={(e) => setFormData((prev: any) => ({ ...prev, email: e.target.value }))} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Address */}
+                <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
+                  <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">
+                    Address
+                  </div>
+                  <div className="p-2 space-y-1">
+                    <div className="sap-selection-row items-start">
+                      <label className="sap-label mt-1">Postal Address</label>
+                      <div className="sap-input-wrapper max-w-xl">
+                        <Textarea
+                          rows={3}
+                          value={formData.address || ""}
+                          onChange={(e) => setFormData((prev: any) => ({ ...prev, address: e.target.value }))}
+                          className="rounded-none border-gray-400 focus:bg-[#fff9c4]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tax & Financial Details */}
+                <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
+                  <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">
+                    Tax & Financial Details
+                  </div>
+                  <div className="p-2 space-y-1">
+                    <div className="sap-selection-row">
+                      <label className="sap-label">GSTIN</label>
+                      <div className="sap-input-wrapper max-w-[200px]">
+                        <Input value={formData.gstin} onChange={(e) => handleGSTINChange(e.target.value)} />
+                      </div>
+                    </div>
+                    <div className="sap-selection-row">
+                      <label className="sap-label">PAN</label>
+                      <div className="sap-input-wrapper max-w-[150px]">
+                        <Input value={formData.pan} readOnly className="bg-gray-100 font-mono" />
+                      </div>
+                    </div>
+                    <div className="sap-selection-row">
+                      <label className="sap-label">State Name</label>
+                      <div className="sap-input-wrapper max-w-md">
+                        <Input value={formData.stateName} readOnly className="bg-gray-100" />
+                      </div>
+                    </div>
+                    <div className="sap-selection-row">
+                      <label className="sap-label">State code</label>
+                      <div className="sap-input-wrapper max-w-[100px]">
+                        <Input value={formData.stateCode} readOnly className="bg-gray-100 text-center" />
+                      </div>
+                    </div>
+                    <div className="sap-selection-row">
+                      <label className="sap-label">Credit Limit (₹)</label>
+                      <div className="sap-input-wrapper max-w-[150px]">
+                        <Input
+                          type="number"
+                          value={formData.creditLimit}
+                          onChange={(e) => setFormData((prev: any) => ({ ...prev, creditLimit: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          <DialogFooter className="px-4 py-3 border-t border-[#b5c7de] bg-[#f4f6f9]">
+            <Button variant="outline" onClick={() => setEditOpen(false)} className="h-7 rounded-none text-[11px] font-bold">
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={loading} className="h-7 rounded-none text-[11px] font-bold gap-1.5">
+              {loading && <Loader2 className="h-3 w-3 animate-spin" />}
+              {loading ? "SAVING..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Warning Confirmation Popup */}
+      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent className="max-w-md rounded-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-red-600 flex items-center gap-2">
+              <Trash2 className="h-5 w-5" /> Confirm Customer Deletion
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-[12px] leading-relaxed">
+              Are you sure you want to delete customer{" "}
+              <b>{deleteTarget?.name || ""}</b> (Code:{" "}
+              <b>{deleteTarget?.customerId || "-"}</b>)?
+              <br />
+              <br />
+              This operation will permanently remove the customer master record. Already generated invoices will remain frozen with current data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={loading} className="h-8 rounded-none text-[11px] font-bold">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              disabled={loading}
+              className="h-8 rounded-none text-[11px] font-bold bg-red-600 hover:bg-red-700"
+            >
+              {loading ? "Deleting..." : "Yes, Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {loading && <div className="fixed bottom-10 right-10 bg-[#333e4f] text-white px-4 py-2 text-xs border border-white/20 animate-pulse">UPDATING CUSTOMER MASTER...</div>}
     </div>
   );
 }
-
-

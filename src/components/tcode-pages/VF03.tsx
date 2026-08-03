@@ -96,10 +96,10 @@ export const InvoicePreview = ({ invoice, copyLabel, firms, customerMap }: { inv
 
         {!isNonTax && invoice.irnNumber && (
           <div className="border-y-2 border-black mb-3 p-2 space-y-1.5 bg-gray-50">
-            <p className="break-all leading-tight text-left"><span className="text-[15px] text-gray-500 font-bold block">IRN: {invoice.irnNumber || "N/A"}</span></p>
+            <p className="break-all leading-tight text-left"><span className="text-[11px] text-gray-500 font-bold block">IRN: {invoice.irnNumber || "N/A"}</span></p>
             <div className="grid grid-cols-2 gap-x-4 text-[11px]">
-              <p className="text-left"><span className="text-[9px] text-gray-500 font-bold uppercase">Ack No:</span> <span className="font-mono font-bold ml-1">{invoice.ackNo || "N/A"}</span></p> 
-              <p className="text-left"><span className="text-[9px] text-gray-500 font-bold uppercase">Ack Date:</span> <span className="font-bold ml-1">{invoice.ackDate || "N/A"}</span></p>
+              <p className="text-left"><span className="text-[10px] text-gray-500 font-bold uppercase">Ack No:</span> <span className="font-mono font-bold ml-1">{invoice.ackNo || "N/A"}</span></p> 
+              <p className="text-left"><span className="text-[10px] text-gray-500 font-bold uppercase">Ack Date:</span> <span className="font-bold ml-1">{invoice.ackDate || "N/A"}</span></p>
             </div>
           </div>
         )}
@@ -111,13 +111,13 @@ export const InvoicePreview = ({ invoice, copyLabel, firms, customerMap }: { inv
         <div className="mb-3 px-2">
           <div className="flex justify-between items-center mb-2">
             <div className="flex-1">
-              <p className="text-[13px] font-black"><span className="text-[9px] text-gray-500 font-bold uppercase">{docTypeLabel.no}:</span> {invoice.invoiceNumber}</p>
+              <p className="text-[11px] font-black"><span className="text-[10px] text-gray-500 font-bold uppercase">{docTypeLabel.no}:</span> {invoice.invoiceNumber}</p>
             </div>
             <div className="flex-1 text-center">
               <p className="text-[11px] font-bold"><span className="text-[9px] text-gray-500 font-bold uppercase">Date:</span> {invoice.invoiceDate}</p>
             </div>
             <div className="flex-1 text-right">
-              <p className="text-[11px] font-bold uppercase"><span className="text-[9px] text-gray-500 font-bold uppercase">Working Period:</span> {invoice.billMonth}</p>
+              <p className="text-[11px] font-bold uppercase"><span className="text-[9px] text-gray-500 font-bold uppercase">Working Month:</span> {invoice.billMonth}</p>
             </div>
           </div>
           {!isNonTax && (
@@ -570,7 +570,11 @@ export default function VF03() {
                   <TableCell className="p-0 px-2 text-[11px] border-r text-gray-700 truncate max-w-[180px]">{consigneeName}</TableCell>
                   <TableCell className="p-0 px-2 text-[11px] border-r text-gray-700 truncate max-w-[180px]">{shipToName}</TableCell>
                   <TableCell className="p-0 px-2 text-[11px] border-r text-gray-600 truncate max-w-[150px]">{inv.consignorName || customerMap[inv.billTo]?.name || "-"}</TableCell>
-                  <TableCell className="p-0 px-2 text-[11px] border-r text-center font-semibold">{inv.docType || "-"}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r text-center font-semibold">
+                    {filterPlants.length === 1
+                      ? inv.docType?.replace(`${filterPlants[0]} - `, "") || "-"
+                      : inv.docType || "-"}
+                  </TableCell>
                   <TableCell className="p-0 px-2 text-[11px] border-r text-center">{inv.inventoryType || "-"}</TableCell>
                   <TableCell className="p-0 px-2 text-[11px] border-r text-center font-bold text-gray-600">{inv.plantId}</TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r text-center">

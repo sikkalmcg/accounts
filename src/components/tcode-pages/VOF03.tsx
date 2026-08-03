@@ -1,19 +1,39 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDatabase, useCollection, useMemoDatabase } from "@/database";
 import { collection, query, orderBy } from "@/database/mongo";
-import { Search, Filter, Download, Printer, ArrowUpDown, ChevronUp, ChevronDown } from "lucide-react";
+import { Search, Filter, Download, Printer, ArrowUpDown, ChevronUp, ChevronDown, X } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import PlantMultiSelect from "./PlantMultiSelect";
 
 export default function VOF03() {
   const db = useDatabase();
   const [search, setSearch] = useState("");
+  const [selectedPlants, setSelectedPlants] = useState<string[]>([]);
+  const [authorizedPlantIds, setAuthorizedPlantIds] = useState<string[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("sikka_user");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        setIsAdmin(parsed.username === "ajaysomra" || parsed.role === 'admin');
+        setAuthorizedPlantIds(parsed.assignedPlantIds || []);
+      } catch (e) { /* ignore */ }
+    }
+  }, []);
 
   const billingQuery = useMemoDatabase(() => query(collection(db, "billing_types"), orderBy("createdAt", "desc")), [db]);
   const { data: records, isLoading } = useCollection(billingQuery);
+
+  const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
+  const { data: plants, isLoading: isPlantsLoading } = useCollection(plantsQuery);
+
+  const allowedPlantIds = isAdmin ? undefined : (authorizedPlantIds.length ? authorizedPlantIds : undefined);
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -25,7 +45,16 @@ export default function VOF03() {
 
   const sortedData = useMemo(() => {
     if (!records) return [];
-    const filtered = records.filter(r => 
+
+    // Start with plant-based authorization restriction
+    let baseData = isAdmin ? records : records.filter(r => authorizedPlantIds.includes(r.plantId));
+
+    // Apply the selected plants filter (multi-select) - if any selected, show only those
+    if (selectedPlants.length > 0) {
+      baseData = baseData.filter(r => selectedPlants.includes(r.plantId));
+    }
+
+    const filtered = baseData.filter(r => 
       r.plantId?.toLowerCase().includes(search.toLowerCase()) || 
       r.documentType?.toLowerCase().includes(search.toLowerCase()) ||
       r.documentCategory?.toLowerCase().includes(search.toLowerCase()) ||
@@ -41,7 +70,7 @@ export default function VOF03() {
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [records, search, sortConfig]);
+  }, [records, search, sortConfig, selectedPlants, isAdmin, authorizedPlantIds]);
 
   const SortIcon = ({ column }: { column: string }) => {
     if (sortConfig?.key !== column) return <ArrowUpDown className="h-3 w-3 ml-1 opacity-30" />;
@@ -56,11 +85,25 @@ export default function VOF03() {
         </h2>
       </div>
 
-      <div className="bg-[#e7ebf1] border-b border-[#b5c7de] px-4 py-1 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="relative flex items-center bg-white border border-gray-400 h-6 w-64 px-1 group focus-within:border-blue-500">
+<div className="bg-[#e7ebf1] border-b border-[#b5c7de] px-4 py-1.5 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <label className="text-[11px] font-bold text-gray-600 whitespace-nowrap">Plants</label>
+            <div className="w-[240px]">
+              <PlantMultiSelect
+                plants={plants}
+                selected={selectedPlants}
+                onChange={setSelectedPlants}
+                isLoading={isPlantsLoading}
+                allowedPlantIds={allowedPlantIds}
+                placeholder="All Plants..."
+              />
+            </div>
+          </div>
+          <div className="relative flex items-center bg-white border border-gray-400 h-7 w-64 px-1 group focus-within:border-blue-500">
              <Search className="h-3.5 w-3.5 text-gray-400 mr-1" />
              <input value={search} onChange={(e) => setSearch(e.target.value)} className="w-full h-full text-xs outline-none" />
+             {search && <button onClick={() => setSearch("")} className="text-gray-400 hover:text-gray-600"><X className="h-3 w-3" /></button>}
           </div>
           <TooltipProvider>
             <div className="flex items-center gap-1">

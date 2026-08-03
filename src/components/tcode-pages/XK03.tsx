@@ -4,8 +4,8 @@ import { useState, useMemo } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDatabase, useCollection, useMemoDatabase } from "@/database";
 import { collection, query, orderBy } from "@/database/mongo";
-import { Search, Filter, Download, Printer, ArrowUpDown, ChevronUp, ChevronDown } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Search, ArrowUpDown, ChevronUp, ChevronDown } from "lucide-react";
+import { parseGSTIN } from "@/lib/gst-utils";
 
 export default function XK03() {
   const db = useDatabase();
@@ -23,22 +23,61 @@ export default function XK03() {
     setSortConfig({ key, direction });
   };
 
+  // Helper to get all plant codes for a vendor (handles multi-plant assignment)
+  const getVendorPlantIds = (v: any): string[] => {
+    if (Array.isArray(v.assignedPlantIds) && v.assignedPlantIds.length > 0) {
+      return v.assignedPlantIds;
+    }
+    return v.plantId ? [v.plantId] : [];
+  };
+
+  const getVendorState = (v: any): { state: string; stateCode: string } => {
+    const storedState = v.stateName || "";
+    const storedCode = v.stateCode || "";
+    if (storedState || storedCode) return { state: storedState || "-", stateCode: storedCode || "-" };
+    if (v.gstin && v.gstin.length >= 15) {
+      const parsed = parseGSTIN(v.gstin);
+      if (parsed) return { state: parsed.state, stateCode: parsed.stateCode };
+    }
+    return { state: "-", stateCode: "-" };
+  };
+
   const sortedData = useMemo(() => {
     if (!vendors) return [];
-    const filtered = vendors.filter(v => 
-      v.vendorName?.toLowerCase().includes(search.toLowerCase()) || 
-      v.vendorId?.toLowerCase().includes(search.toLowerCase()) ||
-      v.vendorCode?.toLowerCase().includes(search.toLowerCase()) ||
-      v.gstin?.toLowerCase().includes(search.toLowerCase())
-    );
+    const filtered = vendors.filter(v => {
+      const plantCodes = getVendorPlantIds(v).join(", ");
+      const vs = getVendorState(v);
+      return v.vendorName?.toLowerCase().includes(search.toLowerCase()) || 
+        (v.vendorId || "").toLowerCase().includes(search.toLowerCase()) ||
+        (v.vendorCode || "").toLowerCase().includes(search.toLowerCase()) ||
+        (v.gstin || "").toLowerCase().includes(search.toLowerCase()) ||
+        plantCodes.toLowerCase().includes(search.toLowerCase()) ||
+        vs.state.toLowerCase().includes(search.toLowerCase()) ||
+        vs.stateCode.toLowerCase().includes(search.toLowerCase());
+    });
 
     if (!sortConfig) return filtered;
 
     return [...filtered].sort((a, b) => {
-      const aVal = String(a[sortConfig.key] || "").toLowerCase();
-      const bVal = String(b[sortConfig.key] || "").toLowerCase();
-      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      let aVal = "";
+      let bVal = "";
+      if (sortConfig.key === "plant") {
+        aVal = getVendorPlantIds(a).join(", ");
+        bVal = getVendorPlantIds(b).join(", ");
+      } else if (sortConfig.key === "state") {
+        aVal = getVendorState(a).state;
+        bVal = getVendorState(b).state;
+      } else if (sortConfig.key === "stateCode") {
+        aVal = getVendorState(a).stateCode;
+        bVal = getVendorState(b).stateCode;
+      } else {
+        aVal = String(a[sortConfig.key] || "");
+        bVal = String(b[sortConfig.key] || "");
+      }
+      const aStr = aVal.toLowerCase();
+      const bStr = bVal.toLowerCase();
+      if (aStr < bStr) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aStr > bStr) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
   }, [vendors, search, sortConfig]);
@@ -67,34 +106,45 @@ export default function XK03() {
           <TableHeader className="sap-alv-header">
             <TableRow className="h-8 border-b-[#b5c7de]">
               <TableHead className="text-[11px] font-bold border-r w-12 text-center">#</TableHead>
+              <TableHead className="text-[11px] font-bold border-r w-36">
+                <div className="flex items-center">Plant</div>
+              </TableHead>
               <TableHead onClick={() => handleSort('vendorCode')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Vendor Code <SortIcon column="vendorCode" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('vendorName')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Vendor Name <SortIcon column="vendorName" /></div>
               </TableHead>
-              <TableHead onClick={() => handleSort('contact')} className="text-[11px] font-bold border-r w-48 cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center">Contact <SortIcon column="contact" /></div>
-              </TableHead>
-              <TableHead onClick={() => handleSort('gstin')} className="text-[11px] font-bold text-gray-700 w-48 cursor-pointer hover:bg-gray-200">
+              <TableHead onClick={() => handleSort('gstin')} className="text-[11px] font-bold border-r w-40 cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">GSTIN <SortIcon column="gstin" /></div>
+              </TableHead>
+              <TableHead onClick={() => handleSort('state')} className="text-[11px] font-bold border-r w-40 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">State <SortIcon column="state" /></div>
+              </TableHead>
+              <TableHead onClick={() => handleSort('stateCode')} className="text-[11px] font-bold text-gray-700 w-24 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">State Code <SortIcon column="stateCode" /></div>
               </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={5} className="text-center py-10 text-xs">LOADING...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="text-center py-10 text-xs">LOADING...</TableCell></TableRow>
             ) : sortedData.length === 0 ? (
-              <TableRow><TableCell colSpan={5} className="text-center py-10 text-xs text-red-500 font-bold uppercase">No records found matching Selection</TableCell></TableRow>
-            ) : sortedData.map((v, i) => (
-              <TableRow key={v.id} className="h-8 hover:bg-blue-50/20 transition-colors border-b border-gray-100 group">
-                <TableCell className="p-0 text-center text-[11px] border-r text-gray-400 group-hover:text-blue-600">{i + 1}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r font-mono font-bold text-blue-700">{v.vendorCode || v.vendorId || "-"}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r font-medium">{v.vendorName}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r">{v.contact}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] font-mono">{v.gstin}</TableCell>
-              </TableRow>
-            ))}
+              <TableRow><TableCell colSpan={7} className="text-center py-10 text-xs text-red-500 font-bold uppercase">No records found matching Selection</TableCell></TableRow>
+            ) : sortedData.map((v, i) => {
+              const vs = getVendorState(v);
+              return (
+                <TableRow key={v.id} className="h-8 hover:bg-blue-50/20 transition-colors border-b border-gray-100 group">
+                  <TableCell className="p-0 text-center text-[11px] border-r text-gray-400 group-hover:text-blue-600">{i + 1}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r font-mono font-bold text-gray-700">{getVendorPlantIds(v).join(", ") || "N/A"}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r font-mono font-bold text-blue-700">{v.vendorCode || v.vendorId || "-"}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r font-medium">{v.vendorName}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r font-mono">{v.gstin}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r">{vs.state}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] font-mono text-center">{vs.stateCode}</TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </div>
@@ -104,5 +154,4 @@ export default function XK03() {
     </div>
   );
 }
-
 

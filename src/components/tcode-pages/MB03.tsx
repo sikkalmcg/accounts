@@ -73,9 +73,29 @@ export default function MB03() {
     return map;
   }, [customers]);
 
-  const firmMap = useMemo(() => {
+const firmMap = useMemo(() => {
     const map: Record<string, any> = {};
-    firms?.forEach(f => { map[f.plantId] = f; });
+    firms?.forEach(f => {
+      const ids = Array.isArray(f.assignedPlantIds) && f.assignedPlantIds.length > 0
+        ? f.assignedPlantIds
+        : (f.plantId ? [f.plantId] : []);
+      ids.forEach((id: string) => { map[id] = f; });
+    });
+    return map;
+  }, [firms]);
+
+  // Map a selected Consignor (firm id) to the set of plantIds it is assigned to,
+  // so the filter can match invoices across all plants of that consignor.
+  const consignorPlantMap = useMemo(() => {
+    const map: Record<string, Set<string>> = {};
+    firms?.forEach(f => {
+      const firmKey = f.firmId || f.consignorCode || f.id;
+      const ids = Array.isArray(f.assignedPlantIds) && f.assignedPlantIds.length > 0
+        ? f.assignedPlantIds
+        : (f.plantId ? [f.plantId] : []);
+      if (!map[firmKey]) map[firmKey] = new Set();
+      ids.forEach((id: string) => map[firmKey].add(id));
+    });
     return map;
   }, [firms]);
 
@@ -136,9 +156,9 @@ export default function MB03() {
       if (inv.status === "Cancelled") return false;
       if (filterPlant !== "ALL" && inv.plantId !== filterPlant) return false;
       if (filterBillTo !== "ALL" && inv.billTo !== filterBillTo) return false;
-      if (filterConsignor !== "ALL") {
-        const invFirm = firmMap[inv.plantId];
-        if (!invFirm || invFirm.plantId !== filterConsignor) return false;
+if (filterConsignor !== "ALL") {
+        const plantsOfConsignor = consignorPlantMap[filterConsignor];
+        if (!plantsOfConsignor || !plantsOfConsignor.has(inv.plantId)) return false;
       }
 
       // Date range filter (invoiceDate is in DD-MMM-YYYY format)
@@ -184,7 +204,7 @@ return base.map(inv => {
         billToGstin: consignee?.gstin || "N/A",
       };
     });
-  }, [allInvoices, isAdmin, assignedPlantId, filterPlant, filterBillTo, filterConsignor, fromDate, toDate, invoiceReceiptMap, firmMap, customerMap]);
+  }, [allInvoices, isAdmin, assignedPlantId, filterPlant, filterBillTo, filterConsignor, fromDate, toDate, invoiceReceiptMap, consignorPlantMap, firmMap, customerMap]);
 
   // Summary Calculation
   const summary = useMemo(() => {
@@ -325,15 +345,13 @@ return base.map(inv => {
             <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+<SelectContent>
               <SelectItem value="ALL">All Parties</SelectItem>
-              {customers
-                ?.filter(c => filterPlant === "ALL" || c.plantId === filterPlant)
-                .map(c => (
-                  <SelectItem key={c.id} value={c.customerId}>
-                    {c.customerId} - {c.name}
-                  </SelectItem>
-                ))}
+              {customers?.map(c => (
+                <SelectItem key={c.id} value={c.customerId}>
+                  {c.customerId} - {c.name}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -343,15 +361,13 @@ return base.map(inv => {
             <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+<SelectContent>
               <SelectItem value="ALL">All Consignors</SelectItem>
-              {firms
-                ?.filter(f => filterPlant === "ALL" || f.plantId === filterPlant)
-                .map(f => (
-                  <SelectItem key={f.id} value={f.plantId}>
-                    {f.plantId} - {f.name}
-                  </SelectItem>
-                ))}
+              {firms?.map(f => (
+                <SelectItem key={f.id} value={f.firmId || f.consignorCode || f.id}>
+                  {f.name}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>

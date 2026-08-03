@@ -149,7 +149,11 @@ export default function FM03() {
                 <TableCell className="p-0 px-2 text-[11px] border-r font-mono">{f.gstin}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r font-mono font-bold text-blue-700">{f.consignorCode || f.firmId || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r font-bold">{f.name}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r text-gray-600">{f.plantId || "N/A"}</TableCell>
+<TableCell className="p-0 px-2 text-[11px] border-r text-gray-600">
+                  {Array.isArray(f.assignedPlantIds) && f.assignedPlantIds.length > 0
+                    ? f.assignedPlantIds.join(", ")
+                    : (f.plantId || "N/A")}
+                </TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r font-mono">{f.pan}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px]">{f.state} ({f.stateCode})</TableCell>
               </TableRow>
