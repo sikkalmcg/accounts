@@ -79,7 +79,7 @@ export default function MB03() {
     return map;
   }, [firms]);
 
-  // Aggregate receipts by Plant_InvoiceNo key
+// Aggregate receipts by Plant_InvoiceNo key (separate posted vs reversed)
   const invoiceReceiptMap = useMemo(() => {
     const map: Record<string, any> = {};
     allReceipts?.forEach(r => {
@@ -89,6 +89,9 @@ export default function MB03() {
           receiptAmount: 0,
           tds: 0,
           deduction: 0,
+          reversedAmount: 0,
+          reversedTds: 0,
+          reversedDeduction: 0,
           deductionRemark: "",
           paymentDate: "",
           paymentAdviceNo: "",
@@ -97,9 +100,18 @@ export default function MB03() {
           paymentMode: "",
         };
       }
-      map[key].receiptAmount += Number(r.receiptAmount) || 0;
-      map[key].tds += Number(r.tds) || 0;
-      map[key].deduction += Number(r.deduction) || 0;
+      const amount = Number(r.receiptAmount) || 0;
+      const tds = Number(r.tds) || 0;
+      const deduction = Number(r.deduction) || 0;
+      if (r.status === "Reversed") {
+        map[key].reversedAmount += amount;
+        map[key].reversedTds += tds;
+        map[key].reversedDeduction += deduction;
+      } else {
+        map[key].receiptAmount += amount;
+        map[key].tds += tds;
+        map[key].deduction += deduction;
+      }
       if (r.deductionRemark) map[key].deductionRemark = r.deductionRemark;
       if (r.paymentDate) map[key].paymentDate = r.paymentDate;
       if (r.paymentAdviceNo) map[key].paymentAdviceNo = r.paymentAdviceNo;
@@ -142,14 +154,15 @@ export default function MB03() {
       return true;
     });
 
-    return base.map(inv => {
+return base.map(inv => {
       const key = `${inv.plantId}_${inv.invoiceNumber}`;
       const receipt = invoiceReceiptMap[key] || {
-        receiptAmount: 0, tds: 0, deduction: 0, deductionRemark: "",
+        receiptAmount: 0, tds: 0, deduction: 0, reversedAmount: 0, reversedTds: 0, reversedDeduction: 0, deductionRemark: "",
         paymentDate: "", paymentAdviceNo: "", bankingUtr: "", proofData: null, paymentMode: "",
       };
       const gross = inv.totals?.grossAmount || 0;
       const totalCollection = (receipt.receiptAmount || 0) + (receipt.tds || 0) + (receipt.deduction || 0);
+      const totalReversed = (receipt.reversedAmount || 0) + (receipt.reversedTds || 0) + (receipt.reversedDeduction || 0);
       const firm = firmMap[inv.plantId];
       const consignee = customerMap[inv.billTo];
 
@@ -164,7 +177,7 @@ export default function MB03() {
         bankingUtr: receipt.bankingUtr,
         proofData: receipt.proofData,
         paymentMode: receipt.paymentMode,
-        balanceAmount: gross - totalCollection,
+        balanceAmount: gross - totalCollection + totalReversed,
         consignorName: firm?.name || "N/A",
         consignorGstin: firm?.gstin || "N/A",
         billToName: consignee?.name || inv.billTo || "N/A",

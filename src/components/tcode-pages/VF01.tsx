@@ -246,7 +246,7 @@ export default function VF01() {
         const options: PricingOption[] = snap.docs.map(doc => {
           const data = doc.data();
           // Fetching from MM03 (materials collection)
-          const matMaster = materials?.find(m => m.productName === data.materialCode);
+          const matMaster = materials?.find(m => m.productName === data.materialCode || m.materialCode === data.materialCode);
           return { // This is the description from VK13
             materialCode: data.materialCode || "",
             hsn: data.hsnSac || matMaster?.hsnSac || "",

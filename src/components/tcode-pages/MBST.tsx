@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Search, Loader2, Receipt, Upload, CheckCircle2, X, Download, Save, RotateCcw, Eye, FileImage } from "lucide-react";
+import { Search, Loader2, Receipt, Upload, CheckCircle2, X, Download, Save, RotateCcw, Eye, FileImage, Undo2, Lock } from "lucide-react";
 import Image from "next/image";
 
 export default function MBST() {
@@ -50,6 +50,11 @@ export default function MBST() {
   const [foundInvoice, setFoundInvoice] = useState<any>(null);
   const [bankingBalance, setBankingBalance] = useState<number | null>(null);
   const [paymentDocId, setPaymentDocId] = useState<string | null>(null);
+
+  // 4b. Reversal State
+  const [isReversing, setIsReversing] = useState(false);
+  const [reversalReason, setReversalReason] = useState("");
+  const [isReversedRecord, setIsReversedRecord] = useState(false);
 
   // 5. Editable Fields State
   const [editPaymentMode, setEditPaymentMode] = useState("");
@@ -104,6 +109,9 @@ export default function MBST() {
     setFoundInvoice(null);
     setBankingBalance(null);
     setPaymentDocId(null);
+    setIsReversedRecord(false);
+    setReversalReason("");
+    setIsReversing(false);
 
     try {
       // Search payment_receipts by Plant + Invoice No + Bank UTR
@@ -128,6 +136,8 @@ export default function MBST() {
       const payment = paymentDoc.data();
       setPaymentDocId(paymentDoc.id);
       setFoundPayment(payment);
+      setIsReversedRecord(payment.status === "Reversed"); // Lock editing for already-reversed records
+      setReversalReason(payment.reversalReason || "");
 
       // Populate editable fields
       setEditPaymentMode(payment.paymentMode || "");
@@ -169,19 +179,27 @@ export default function MBST() {
         setFoundInvoice(null);
       }
 
-      // Fetch all payments for the invoice to calculate banking balance
+// Fetch all payments for the invoice to calculate banking balance (posted - reversed)
       const allPaymentsQuery = query(
         collection(db, "payment_receipts"),
         where("invoiceNo", "==", invoiceToSearch)
       );
       const allPaymentsSnap = await getDocs(allPaymentsQuery);
       if (!allPaymentsSnap.empty) {
-        const totalPaid = allPaymentsSnap.docs.reduce((sum, doc) => {
+        let totalPosted = 0;
+        let totalReversed = 0;
+        allPaymentsSnap.docs.forEach(doc => {
           const p = doc.data();
-          return sum + (Number(p.receiptAmount) || 0) + (Number(p.tds) || 0) + (Number(p.deduction) || 0);
-        }, 0);
+          const total = (Number(p.receiptAmount) || 0) + (Number(p.tds) || 0) + (Number(p.deduction) || 0);
+          if (p.status === "Reversed") {
+            totalReversed += total;
+          } else {
+            totalPosted += total;
+          }
+        });
         const grossAmount = invoiceSnap.docs[0]?.data().totals?.grossAmount || 0;
-        setBankingBalance(grossAmount - totalPaid);
+        // Balance = Gross - Total Posted + Total Reversed (restored)
+        setBankingBalance(grossAmount - totalPosted + totalReversed);
       } else {
         setFoundInvoice(null);
       }
@@ -212,10 +230,68 @@ export default function MBST() {
     reader.readAsDataURL(file);
   };
 
-  // 10. Save Handler
+// 10. Reverse Handler
+  const handleReverse = useCallback(async () => {
+    if (!paymentDocId || !foundPayment) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: No payment record loaded to reverse", isError: true } }));
+      return;
+    }
+    if (!reversalReason.trim()) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Reversal Reason is mandatory", isError: true } }));
+      return;
+    }
+
+    setIsReversing(true);
+    try {
+      const currentUser = (typeof window !== "undefined" ? JSON.parse(localStorage.getItem("sikka_user") || "{}")?.name : "") || "USER";
+      const reversalData = {
+        status: "Reversed",
+        reversalReason: reversalReason.trim(),
+        reversedAt: new Date().toISOString(),
+        reversedBy: currentUser,
+        originalReceiptAmount: foundPayment.receiptAmount,
+        originalTds: foundPayment.tds,
+        originalDeduction: foundPayment.deduction,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await updateDocumentNonBlocking(
+        { type: 'document', path: `payment_receipts/${paymentDocId}`, collection: 'payment_receipts', id: paymentDocId },
+        reversalData
+      );
+
+      // Restore paidAmount on the invoice (decrement by the reversed amount)
+      if (foundInvoice?.id) {
+        const reversedTotal = (Number(foundPayment.receiptAmount) || 0) + (Number(foundPayment.tds) || 0) + (Number(foundPayment.deduction) || 0);
+        const currentPaid = Number(foundInvoice.paidAmount) || 0;
+        await updateDocumentNonBlocking(
+          { type: 'document', path: `sales_invoices/${foundInvoice.id}`, collection: 'sales_invoices', id: foundInvoice.id },
+          {
+            paidAmount: Math.max(0, currentPaid - reversedTotal),
+            updatedAt: new Date().toISOString(),
+          }
+        );
+      }
+
+      setIsReversedRecord(true);
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Payment receipt reversed successfully. Amount restored to invoice balance.", isError: false } }));
+    } catch (e) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "System Error: Failed to reverse payment record", isError: true } }));
+    } finally {
+      setIsReversing(false);
+    }
+  }, [paymentDocId, foundPayment, foundInvoice, reversalReason]);
+
+  // 11. Save Handler
   const handleSave = useCallback(async () => {
     if (!paymentDocId) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: No payment record loaded to update", isError: true } }));
+      return;
+    }
+
+    // Block save for already-reversed records
+    if (isReversedRecord) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Cannot modify a reversed payment record", isError: true } }));
       return;
     }
 
@@ -263,7 +339,7 @@ export default function MBST() {
     setFoundInvoice(null);
     setBankingBalance(null);
     setPaymentDocId(null);
-    setEditPaymentMode("");
+setEditPaymentMode("");
     setEditReceiptAmount("");
     setEditTdsAmount("");
     setEditDeductionAmount("");
@@ -272,6 +348,9 @@ export default function MBST() {
     setEditPaymentAdviceNo("");
     setEditPaymentDate("");
     setEditProofData("");
+    setIsReversedRecord(false);
+    setReversalReason("");
+    setIsReversing(false);
   }, []);
 
   // 12. Keyboard Shortcuts
@@ -447,11 +526,29 @@ export default function MBST() {
             </div>
           </div>
 
+{/* Reversed Record Banner */}
+          {isReversedRecord && (
+            <div className="border border-red-400 bg-red-50 rounded-sm overflow-hidden">
+              <div className="bg-red-100 px-3 py-1 text-[12px] font-bold text-red-800 flex items-center gap-2">
+                <Lock className="h-3.5 w-3.5" /> This payment receipt has been reversed. Editing is locked.
+              </div>
+              {reversalReason && (
+                <div className="px-3 py-1 text-[11px] text-red-700 border-t border-red-200">
+                  Reversal Reason: {reversalReason}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Editable Payment Fields */}
           <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
             <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700 flex justify-between items-center">
-              <span>Payment Details (Editable)</span>
-              <span className="text-[10px] text-emerald-600 font-bold italic">Modify fields as needed</span>
+              <span>Payment Details {isReversedRecord ? "(Read-Only - Reversed)" : "(Editable)"}</span>
+              {isReversedRecord ? (
+                <span className="text-[10px] text-red-600 font-bold italic flex items-center gap-1"><Lock className="h-3 w-3" /> Locked</span>
+              ) : (
+                <span className="text-[10px] text-emerald-600 font-bold italic">Modify fields as needed</span>
+              )}
             </div>
             <div className="p-3 grid grid-cols-2 gap-x-8 gap-y-2">
               <div className="sap-selection-row">
@@ -615,11 +712,34 @@ export default function MBST() {
             </div>
           </div>
 
-          {/* Action Buttons */}
+{/* Action Buttons */}
           <div className="flex gap-3 justify-end border-t border-[#b5c7de] pt-4">
+            {!isReversedRecord && (
+              <>
+                <div className="flex-1">
+                  <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Reversal Reason (for reversing payment)</label>
+                  <div className="flex gap-2 items-center">
+                    <Input
+                      value={reversalReason}
+                      onChange={e => setReversalReason(e.target.value)}
+                      placeholder="Enter reason for reversal..."
+                      className="h-7 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4] flex-1"
+                    />
+                    <Button
+                      onClick={handleReverse}
+                      disabled={isReversing}
+                      className="h-7 rounded-none bg-orange-700 hover:bg-orange-800 text-[11px] font-bold uppercase gap-1.5 shadow-sm px-4"
+                    >
+                      {isReversing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />}
+                      Reverse Payment
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
             <Button
               onClick={handleSave}
-              disabled={isSaving}
+              disabled={isSaving || isReversedRecord}
               className="h-8 rounded-none bg-green-700 hover:bg-green-800 text-[11px] font-bold uppercase gap-1.5 shadow-sm px-6"
             >
               {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}

@@ -150,7 +150,7 @@ export default function VF02() {
         const snap = await getDocs(q);
         const options: PricingOption[] = snap.docs.map(doc => {
           const data = doc.data();
-          const matMaster = materials?.find(m => m.productName === data.materialCode);
+          const matMaster = materials?.find(m => m.productName === data.materialCode || m.materialCode === data.materialCode);
           return {
             materialCode: data.materialCode || "",
             hsn: data.hsnSac || matMaster?.hsnSac || "",

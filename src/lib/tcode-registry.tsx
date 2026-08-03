@@ -15,9 +15,7 @@ import XK03 from "@/components/tcode-pages/XK03";
 import VK11 from "@/components/tcode-pages/VK11";
 import VK12 from "@/components/tcode-pages/VK12";
 import VK13 from "@/components/tcode-pages/VK13";
-import VL01 from "@/components/tcode-pages/VL01";
-import VL02 from "@/components/tcode-pages/VL02";
-import VL03 from "@/components/tcode-pages/VL03";
+
 import VOF01 from "@/components/tcode-pages/VOF01";
 import VOF02 from "@/components/tcode-pages/VOF02";
 import VOF03 from "@/components/tcode-pages/VOF03";
@@ -71,12 +69,7 @@ export const TCODE_MAP: Record<string, { title: string; component: React.ReactNo
   VK12: { title: "Change Condition Record", component: <VK12 /> },
   VK13: { title: "Display Condition Records", component: <VK13 />, isDisplayOnly: true },
 
-  // Price Condition (Detailed)
-  VL01: { title: "Create Price Condition", component: <VL01 /> },
-  VL02: { title: "Edit Price Condition", component: <VL02 /> },
-  VL03: { title: "Display Price Condition List", component: <VL03 />, isDisplayOnly: true },
-
-  // Material Management
+// Material Management
   MM01: { title: "Create Material", component: <MM01 /> },
   MM02: { title: "Change Material", component: <MM02 /> },
   MM03: { title: "Display Material List", component: <MM03 />, isDisplayOnly: true },

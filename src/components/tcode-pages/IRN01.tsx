@@ -27,12 +27,15 @@ export default function IRN01() {
     qrData: "",
   });
 
+  const [userName, setUserName] = useState("USER");
+
   useEffect(() => {
     const stored = localStorage.getItem("sikka_user");
     if (stored) {
       const parsed = JSON.parse(stored);
       setIsAdmin(parsed.username === "ajaysomra" || parsed.role === 'admin');
       setAssignedPlantId(parsed.assignedPlantId || "");
+      setUserName(parsed.name || parsed.username || "USER");
     }
   }, []);
 
@@ -81,7 +84,8 @@ export default function IRN01() {
       invoiceDate: syncedDate, // Ensure Invoice Date is updated to match ACK Date
       ackDate: syncedDate,
       irnStatus: "Generated",
-      irnUpdatedAt: new Date().toISOString()
+      irnUpdatedAt: new Date().toISOString(),
+      irnGeneratedBy: userName
     });
 
     window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `IRN generated for invoice ${selectedInvoice.invoiceNumber}`, isError: false } }));
@@ -90,7 +94,7 @@ export default function IRN01() {
       setIrnData({ irnNumber: "", ackNo: "", ackDate: new Date().toISOString().split('T')[0], qrData: "" });
       setIsGenerating(false);
     }, 500);
-  }, [db, selectedInvoice, irnData]);
+  }, [db, selectedInvoice, irnData, userName]);
 
   if (selectedInvoice) {
     const consignee = customerMap[selectedInvoice.billTo];

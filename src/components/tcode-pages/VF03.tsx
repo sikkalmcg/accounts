@@ -1,16 +1,17 @@
-
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDatabase, useCollection, useMemoDatabase } from "@/database";
 import { collection, query, orderBy } from "@/database/mongo";
-import { Search, Filter, Download, Printer, ArrowUpDown, ChevronUp, ChevronDown, PrinterIcon, X, Clock, CheckCircle2 } from "lucide-react";
+import { Search, Filter, Download, Printer, ArrowUpDown, ChevronUp, ChevronDown, PrinterIcon, X, Clock, CheckCircle2, FileDown } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
+import PlantMultiSelect from "./PlantMultiSelect";
+import { downloadCsv, formatSapDateTime } from "@/lib/csv-export";
 
 // Utility to convert number to Indian words
 const numberToWords = (num: number): string => {
@@ -25,7 +26,7 @@ const numberToWords = (num: number): string => {
   str += (Number(n[4]) != 0) ? (a[Number(n[4])] || b[Number(n[4][0])] + ' ' + a[Number(n[4][1])]) + 'Hundred ' : '';
   str += (Number(n[5]) != 0) ? ((str != '') ? 'And ' : '') + (a[Number(n[5])] || b[Number(n[5][0])] + ' ' + a[Number(n[5][1])]) : '';
   return `Rupees ${str.trim()} Only`;
-}
+};
 export const InvoicePreview = ({ invoice, copyLabel, firms, customerMap }: { invoice: any; copyLabel: string, firms: any[] | null, customerMap: Record<string, any> }) => {
   const firm = invoice.snapshotFirm || firms?.find(f => f.plantId === invoice.plantId) || {};
   const billToCust = invoice.snapshotBillTo || customerMap[invoice.billTo] || {};
@@ -93,7 +94,7 @@ export const InvoicePreview = ({ invoice, copyLabel, firms, customerMap }: { inv
           </div>
         </div>
 
-        {!isNonTax && invoice.irnNumber && ( // Only show IRN details if not non-tax and IRN exists
+        {!isNonTax && invoice.irnNumber && (
           <div className="border-y-2 border-black mb-3 p-2 space-y-1.5 bg-gray-50">
             <p className="break-all leading-tight text-left"><span className="text-[15px] text-gray-500 font-bold block">IRN: {invoice.irnNumber || "N/A"}</span></p>
             <div className="grid grid-cols-2 gap-x-4 text-[11px]">
@@ -257,6 +258,48 @@ export const InvoicePreview = ({ invoice, copyLabel, firms, customerMap }: { inv
     </div> 
   );
 };
+
+/** Downloads the invoice as a PDF-like HTML file named by Invoice Number only */
+const downloadInvoice = (invoice: any, firms: any[] | null, customerMap: Record<string, any>) => {
+  const content = document.getElementById('invoice-print-area')?.innerHTML;
+  if (!content) return;
+  
+  const html = `
+    <html>
+      <head>
+        <title>${invoice.invoiceNumber}</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <style>
+          @page { size: A4 portrait; margin: 0; }
+          body { font-family: 'Inter', sans-serif; padding: 0; margin: 0; background: white; -webkit-print-color-adjust: exact; }
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #000; padding: 4px 6px; }
+          .invoice-container { margin: 0 !important; }
+          .watermark-text { opacity: 0.1 !important; color: #dc2626 !important; }
+          .page-break { page-break-after: always; }
+        </style>
+      </head>
+      <body>
+        ${content}
+      </body>
+    </html>
+  `;
+  
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', `${invoice.invoiceNumber}.pdf`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  
+  window.dispatchEvent(new CustomEvent('sap-status', {
+    detail: { text: `Invoice ${invoice.invoiceNumber} downloaded`, isError: false }
+  }));
+};
+
 export default function VF03() {
   const db = useDatabase();
   const [search, setSearch] = useState("");
@@ -264,6 +307,7 @@ export default function VF03() {
   const [authorizedPlantIds, setAuthorizedPlantIds] = useState<string[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
+  const [filterPlants, setFilterPlants] = useState<string[]>([]);
 
   useEffect(() => {
     const stored = localStorage.getItem("sikka_user");
@@ -280,6 +324,8 @@ export default function VF03() {
   const { data: customers } = useCollection(customersQuery);
   const firmsQuery = useMemoDatabase(() => collection(db, "firms"), [db]);
   const { data: firms } = useCollection(firmsQuery);
+  const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
+  const { data: plants } = useCollection(plantsQuery);
 
   const customerMap = useMemo(() => {
     const map: Record<string, any> = {};
@@ -299,6 +345,11 @@ export default function VF03() {
     if (!invoices) return [];
     
     let baseData = isAdmin ? invoices : invoices.filter(i => authorizedPlantIds.includes(i.plantId));
+    
+    // Apply multi-plant filter
+    if (filterPlants.length > 0) {
+      baseData = baseData.filter(i => filterPlants.includes(i.plantId));
+    }
     
     const filtered = baseData.filter(i => {
       const consigneeName = i.snapshotBillTo?.name || customerMap[i.billTo]?.name || "";
@@ -326,7 +377,36 @@ export default function VF03() {
       if (aStr > bStr) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [invoices, search, sortConfig, isAdmin, authorizedPlantIds, customerMap]);
+  }, [invoices, search, sortConfig, isAdmin, authorizedPlantIds, customerMap, filterPlants]);
+
+  const handleCsvExport = () => {
+    if (sortedData.length === 0) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "No records to export", isError: true } }));
+      return;
+    }
+    const headers = ["#", "Invoice Number", "Date", "Bill to Party", "Ship to Party", "Consignor Name", "Doc Type", "Inventory Type", "Plant", "Status", "Taxable Amount", "CGST", "SGST", "Gross Value"];
+    const rows = sortedData.map((inv, i) => {
+      const consigneeName = inv.snapshotBillTo?.name || (customerMap[inv.billTo] ? customerMap[inv.billTo].name : inv.billTo);
+      const shipToName = inv.snapshotShipTo?.name || (inv.shipTo ? (customerMap[inv.shipTo] ? customerMap[inv.shipTo].name : inv.shipTo) : consigneeName);
+      return [
+        i + 1,
+        inv.invoiceNumber,
+        inv.invoiceDate,
+        consigneeName,
+        shipToName,
+        inv.consignorName || customerMap[inv.billTo]?.name || "-",
+        inv.docType || "-",
+        inv.inventoryType || "-",
+        inv.plantId,
+        inv.status || "-",
+        inv.totals?.taxableAmount || 0,
+        inv.totals?.cgst || 0,
+        inv.totals?.sgst || 0,
+        inv.totals?.grossAmount || 0,
+      ];
+    });
+    downloadCsv("VF03", headers, rows);
+  };
 
   const SortIcon = ({ column }: { column: string }) => {
     if (sortConfig?.key !== column) return <ArrowUpDown className="h-3 w-3 ml-1 opacity-30" />;
@@ -371,13 +451,36 @@ export default function VF03() {
       <div className="sap-header-title">Billing Documents List: ALV Grid</div>
 
       <div className="sap-selection-area">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="relative flex items-center bg-white border border-gray-400 h-6 w-80 px-1 group focus-within:border-blue-500">
-             <Search className="h-3.5 w-3.5 text-gray-400 mr-1" />
-             <input value={search} onChange={(e) => setSearch(e.target.value)} className="w-full h-full text-xs outline-none" placeholder="Search Invoice / Status..." />
+        <div className="max-w-6xl mx-auto flex items-center gap-4">
+          <div className="flex-1 flex items-center gap-4">
+            <div className="relative flex items-center bg-white border border-gray-400 h-6 w-72 px-1 group focus-within:border-blue-500">
+               <Search className="h-3.5 w-3.5 text-gray-400 mr-1" />
+               <input value={search} onChange={(e) => setSearch(e.target.value)} className="w-full h-full text-xs outline-none" placeholder="Search Invoice / Status..." />
+            </div>
+            <div className="w-56">
+              <PlantMultiSelect
+                plants={plants}
+                selected={filterPlants}
+                onChange={setFilterPlants}
+                allowedPlantIds={isAdmin ? undefined : authorizedPlantIds}
+                placeholder="Filter by Plant(s)"
+              />
+            </div>
           </div>
-          <div className="text-[11px] font-bold text-gray-600 uppercase tracking-tighter">
-            Records Found: {sortedData.length} {isAdmin ? " (GLOBAL)" : ` (AUTHORIZED PLANTS)`}
+          <div className="flex items-center gap-3">
+            <div className="text-[11px] font-bold text-gray-600 uppercase tracking-tighter">
+              Records: {sortedData.length}
+            </div>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button onClick={handleCsvExport} className="p-1 hover:bg-blue-100 rounded text-blue-700 transition-colors" title="Download CSV">
+                    <FileDown className="h-5 w-5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Download CSV</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </div>
       </div>
@@ -425,11 +528,14 @@ export default function VF03() {
               <TableHead onClick={() => handleSort('totals.grossAmount')} className="text-[11px] font-bold text-right w-40 pr-4 cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center justify-end">Gross Value <SortIcon column="totals.grossAmount" /></div>
               </TableHead>
+              <TableHead className="w-20 text-center text-[11px] font-bold">Download</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isInvoicesLoading ? (
-              <TableRow><TableCell colSpan={15} className="text-center py-10 text-xs">LOADING...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={16} className="text-center py-10 text-xs">LOADING...</TableCell></TableRow>
+            ) : sortedData.length === 0 ? (
+              <TableRow><TableCell colSpan={16} className="text-center py-10 text-xs text-red-500 font-bold uppercase">Please select at least one Plant.</TableCell></TableRow>
             ) : sortedData.map((inv, i) => {
               const consigneeName = inv.snapshotBillTo?.name || (customerMap[inv.billTo] ? customerMap[inv.billTo].name : inv.billTo);
               const shipToName = inv.snapshotShipTo?.name || (inv.shipTo ? (customerMap[inv.shipTo] ? customerMap[inv.shipTo].name : inv.shipTo) : consigneeName);
@@ -482,6 +588,15 @@ export default function VF03() {
                   <TableCell className="p-0 px-2 text-[11px] border-r text-right pr-4 text-gray-600">₹ {(inv.totals?.cgst || 0).toLocaleString()}</TableCell>
                   <TableCell className="p-0 px-2 text-[11px] border-r text-right pr-4 text-gray-600">₹ {(inv.totals?.sgst || 0).toLocaleString()}</TableCell>
                   <TableCell className="p-0 px-2 text-[11px] text-right font-black text-emerald-800 pr-4">₹ {(inv.totals?.grossAmount || 0).toLocaleString()}</TableCell>
+                  <TableCell className="p-0 text-center">
+                    <button
+                      onClick={() => downloadInvoice(inv, firms, customerMap)}
+                      className="p-1 hover:text-blue-600 text-blue-500"
+                      title="Download Invoice"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </button>
+                  </TableCell>
                 </TableRow>
               );
             })}

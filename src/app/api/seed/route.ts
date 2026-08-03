@@ -8,7 +8,7 @@ const ALL_TCODES = [
   'FM01', 'FM02', 'FM03',
   'XK01', 'XK02', 'XK03',
   'VK11', 'VK12', 'VK13',
-  'VL01', 'VL02', 'VL03',
+
   'MM01', 'MM02', 'MM03',
   'VOF01', 'VOF02', 'VOF03',
   'MIGO',

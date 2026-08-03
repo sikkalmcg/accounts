@@ -1,7 +1,6 @@
-
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useDatabase, useCollection, useMemoDatabase, setDocumentNonBlocking } from "@/database";
 import { collection, query, where, getDocs, doc, serverTimestamp } from "@/database/mongo";
 import { Input } from "@/components/ui/input";
@@ -18,6 +17,7 @@ const initialUser = {
   role: "user",
 };
 
+// Every transaction code in the system, grouped by functional module.
 const TCODE_GROUPS: Record<string, { label: string; codes: string[] }> = {
   "DB01": { label: "Main Dashboard", codes: ["DB01"] },
   "FM01": { label: "Firm Management", codes: ["FM01", "FM02", "FM03"] },
@@ -27,18 +27,22 @@ const TCODE_GROUPS: Record<string, { label: string; codes: string[] }> = {
   "MM01": { label: "Material Master", codes: ["MM01", "MM02", "MM03"] },
   "VOF01": { label: "Billing Types", codes: ["VOF01", "VOF02", "VOF03"] },
   "VK11": { label: "Pricing Records", codes: ["VK11", "VK12", "VK13"] },
+
   "VF01": { label: "Billing & Invoicing", codes: ["VF01", "VF02", "VF03", "VF11"] },
   "IRN01": { label: "E-Invoicing", codes: ["IRN01", "IRN02", "IRN03"] },
   "MIGO": { label: "Goods Movement", codes: ["MIGO"] },
   "FB03": { label: "Account Analysis", codes: ["FB03", "F110"] },
+  "F51": { label: "Outgoing Payment", codes: ["F51", "F52", "F53"] },
   "ZINV": { label: "Invoice Report", codes: ["ZINV"] },
   "SU01": { label: "Security & Tools", codes: ["SU01", "SU02", "SU03", "ZCODE"] },
 };
 
+const ALL_TCODES = Object.values(TCODE_GROUPS).flatMap(g => g.codes);
+
 export default function SU01() {
   const db = useDatabase();
   const [formData, setFormData] = useState(initialUser);
-  const [permissions, setPermissions] = useState<string[]>(["DB01"]); 
+  const [permissions, setPermissions] = useState<string[]>(["DB01"]);
   const [loading, setLoading] = useState(false);
 
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
@@ -46,10 +50,20 @@ export default function SU01() {
 
   const primaryTcodes = Object.keys(TCODE_GROUPS).sort();
 
-  const togglePermission = (primaryCode: string) => {
+  const togglePermission = (code: string) => {
+    setPermissions(prev => {
+      if (prev.includes(code)) {
+        return prev.filter(c => c !== code);
+      }
+      return [...prev, code];
+    });
+  };
+
+  const toggleModule = (primaryCode: string) => {
     const groupCodes = TCODE_GROUPS[primaryCode].codes;
     setPermissions(prev => {
-      if (prev.includes(primaryCode)) {
+      const allSelected = groupCodes.every(c => prev.includes(c));
+      if (allSelected) {
         return prev.filter(c => !groupCodes.includes(c));
       }
       return Array.from(new Set([...prev, ...groupCodes]));
@@ -64,6 +78,9 @@ export default function SU01() {
         : [...prev.assignedPlantIds, plantId]
     }));
   };
+
+  const selectAll = () => setPermissions(ALL_TCODES);
+  const selectNone = () => setPermissions(["DB01"]);
 
   const handleExecute = useCallback(async () => {
     if (!formData.username || !formData.password || formData.assignedPlantIds.length === 0) {
@@ -130,22 +147,44 @@ export default function SU01() {
         </div>
 
         <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-white">
-          <div className="bg-[#dae8f5] px-3 py-1 border-b font-semibold text-[12px] flex items-center gap-2"><ShieldCheck size={14} /> Functional Permissions</div>
-          <div className="p-4 grid grid-cols-3 gap-4">
-            {primaryTcodes.map(code => (
-              <div key={code} className="flex items-start space-x-2 p-2 hover:bg-blue-50 rounded border border-gray-100">
-                <Checkbox id={`perm-${code}`} checked={permissions.includes(code)} onCheckedChange={() => togglePermission(code)} />
-                <label htmlFor={`perm-${code}`} className="flex flex-col cursor-pointer">
-                  <span className="text-[12px] font-black text-blue-900 font-mono">{code}</span>
-                  <span className="text-[9px] font-bold text-gray-500 uppercase">{TCODE_GROUPS[code].label}</span>
-                </label>
-              </div>
-            ))}
+          <div className="bg-[#dae8f5] px-3 py-1 border-b font-semibold text-[12px] flex items-center justify-between">
+            <div className="flex items-center gap-2"><ShieldCheck size={14} /> Functional Permissions (All Pages)</div>
+            <div className="flex gap-2">
+              <Button onClick={selectAll} variant="ghost" className="h-6 text-[10px] uppercase font-bold">Grant All</Button>
+              <Button onClick={selectNone} variant="ghost" className="h-6 text-[10px] uppercase font-bold">Reset</Button>
+            </div>
+          </div>
+          <div className="p-4 space-y-5 max-h-[500px] overflow-y-auto no-scrollbar">
+            {primaryTcodes.map(code => {
+              const groupCodes = TCODE_GROUPS[code].codes;
+              const allSelected = groupCodes.every(c => permissions.includes(c));
+              return (
+                <div key={code} className="border border-gray-200 rounded-sm overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-1.5 bg-[#f0f4f8] border-b border-gray-200">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox id={`mod-${code}`} checked={allSelected} onCheckedChange={() => toggleModule(code)} />
+                      <span className="text-[11px] font-black text-blue-900 uppercase">{TCODE_GROUPS[code].label}</span>
+                    </label>
+                    <span className="text-[9px] font-mono text-gray-500">{groupCodes.join(", ")}</span>
+                  </div>
+                  <div className="px-3 py-2 grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {groupCodes.map(tcode => (
+                      <div key={tcode} className="flex items-center space-x-2 p-1 hover:bg-blue-50 rounded">
+                        <Checkbox id={`perm-${tcode}`} checked={permissions.includes(tcode)} onCheckedChange={() => togglePermission(tcode)} />
+                        <label htmlFor={`perm-${tcode}`} className="text-[11px] font-bold font-mono text-gray-700 cursor-pointer">{tcode}</label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="bg-[#e7ebf1] p-1.5 px-4 text-[9px] font-bold text-gray-400 uppercase italic">
+            Each page (Create/Change/Display) is assigned individually. Check module header to grant all pages in that module.
           </div>
         </div>
       </div>
     </div>
   );
 }
-
 

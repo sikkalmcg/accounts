@@ -20,7 +20,7 @@ const TCODE_GROUPS: Record<string, { label: string; codes: string[] }> = {
   "MM01": { label: "Material Master", codes: ["MM01", "MM02", "MM03"] },
   "VOF01": { label: "Billing Definitions", codes: ["VOF01", "VOF02", "VOF03"] },
   "VK11": { label: "Pricing Conditions", codes: ["VK11", "VK12", "VK13"] },
-  "VL01": { label: "Price Condition (Detailed)", codes: ["VL01", "VL02", "VL03"] },
+
   "VF01": { label: "Billing & Invoicing", codes: ["VF01", "VF02", "VF03", "VF11"] },
   "IRN01": { label: "E-Invoicing (IRN)", codes: ["IRN01", "IRN02", "IRN03"] },
   "MIGO": { label: "Goods Movement", codes: ["MIGO"] },
@@ -58,19 +58,23 @@ export default function SU02() {
     }
   };
 
-  const togglePermission = (primaryCode: string) => {
+  const togglePermission = (code: string) => {
+    if (!formData) return;
+    const current = formData.tcodePermissions || [];
+    const updated = current.includes(code)
+      ? current.filter((c: string) => c !== code)
+      : Array.from(new Set([...current, code]));
+    setFormData({ ...formData, tcodePermissions: updated });
+  };
+
+  const toggleModule = (primaryCode: string) => {
     if (!formData) return;
     const groupCodes = TCODE_GROUPS[primaryCode].codes;
     const current = formData.tcodePermissions || [];
-    
-    let updated;
-    if (current.includes(primaryCode)) {
-      // Remove entire group
-      updated = current.filter((c: string) => !groupCodes.includes(c));
-    } else {
-      // Add entire group
-      updated = Array.from(new Set([...current, ...groupCodes]));
-    }
+    const allSelected = groupCodes.every(c => current.includes(c));
+    const updated = allSelected
+      ? current.filter((c: string) => !groupCodes.includes(c))
+      : Array.from(new Set([...current, ...groupCodes]));
     setFormData({ ...formData, tcodePermissions: updated });
   };
 
@@ -193,25 +197,40 @@ export default function SU02() {
 
             <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-white">
               <div className="bg-[#dae8f5] px-3 py-1 border-b border-[#b5c7de] flex items-center justify-between">
-                <div className="text-[12px] font-semibold text-gray-700 flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-emerald-600" /> Functional Authorization (Grouped)</div>
+                <div className="text-[12px] font-semibold text-gray-700 flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-emerald-600" /> Functional Permissions (Per T-Code)</div>
                 <div className="flex gap-2">
                   <Button onClick={selectAll} variant="ghost" className="h-6 text-[10px] uppercase font-bold">Grant All</Button>
                   <Button onClick={selectNone} variant="ghost" className="h-6 text-[10px] uppercase font-bold">Reset</Button>
                 </div>
               </div>
-              <div className="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-h-[400px] overflow-y-auto no-scrollbar">
-                {primaryTcodes.map(code => (
-                  <div key={code} className="flex items-start space-x-3 p-2 hover:bg-blue-50 rounded border border-gray-100 transition-colors group">
-                    <Checkbox id={`perm-${code}`} checked={formData.tcodePermissions?.includes(code)} onCheckedChange={() => togglePermission(code)} className="h-4 w-4 mt-0.5" />
-                    <label htmlFor={`perm-${code}`} className="flex flex-col cursor-pointer select-none">
-                      <span className="text-[12px] font-black font-mono text-blue-900 group-hover:text-blue-600">{code}</span>
-                      <span className="text-[10px] font-bold text-gray-500 uppercase leading-tight">{TCODE_GROUPS[code].label}</span>
-                    </label>
-                  </div>
-                ))}
+              <div className="p-4 max-h-[400px] overflow-y-auto no-scrollbar space-y-4">
+                {primaryTcodes.map(code => {
+                  const groupCodes = TCODE_GROUPS[code].codes;
+                  const allSelected = groupCodes.every(c => formData.tcodePermissions?.includes(c));
+                  return (
+                    <div key={code} className="border border-gray-200 rounded">
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-[#e7ebf1] border-b border-gray-200">
+                        <Checkbox id={`mod-${code}`} checked={allSelected} onCheckedChange={() => toggleModule(code)} className="h-4 w-4" />
+                        <label htmlFor={`mod-${code}`} className="flex items-center gap-2 cursor-pointer select-none">
+                          <span className="text-[11px] font-black font-mono text-blue-900">{code}</span>
+                          <span className="text-[10px] font-bold text-gray-500 uppercase">{TCODE_GROUPS[code].label}</span>
+                          <span className="text-[9px] text-gray-400 font-bold">({groupCodes.join(", ")})</span>
+                        </label>
+                      </div>
+                      <div className="p-2 grid grid-cols-2 md:grid-cols-3 gap-1">
+                        {groupCodes.map(tcode => (
+                          <div key={tcode} className="flex items-center space-x-2 p-1.5 hover:bg-blue-50 rounded border border-transparent hover:border-blue-100 transition-colors">
+                            <Checkbox id={`perm-${tcode}`} checked={formData.tcodePermissions?.includes(tcode)} onCheckedChange={() => togglePermission(tcode)} className="h-3.5 w-3.5" />
+                            <label htmlFor={`perm-${tcode}`} className="text-[11px] font-mono font-bold text-gray-700 cursor-pointer select-none">{tcode}</label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
               <div className="bg-[#e7ebf1] p-1.5 px-4 text-[9px] font-bold text-gray-400 uppercase italic">
-                Related transactions (Create/Change/Display) are automatically synchronized when a primary functional group is authorized.
+                Each transaction (Create/Change/Display) can be authorized individually. Use the module checkbox to grant or revoke all related T-Codes at once.
               </div>
             </div>
           </div>

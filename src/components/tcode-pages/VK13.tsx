@@ -56,6 +56,7 @@ export default function VK13() {
     const filtered = records.filter(r => 
       r.customerCode?.toLowerCase().includes(search.toLowerCase()) || 
       r.materialCode?.toLowerCase().includes(search.toLowerCase()) ||
+      r.materialName?.toLowerCase().includes(search.toLowerCase()) ||
       r.plantId?.toLowerCase().includes(search.toLowerCase()) ||
       r.documentType?.toLowerCase().includes(search.toLowerCase()) ||
       r.documentCategory?.toLowerCase().includes(search.toLowerCase()) ||
@@ -122,6 +123,7 @@ export default function VK13() {
               <TableHead onClick={() => handleSort('customerCode')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">Customer <SortIcon column="customerCode" /></TableHead>
               <TableHead onClick={() => handleSort('inventoryType')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">Inv. Type <SortIcon column="inventoryType" /></TableHead>
               <TableHead onClick={() => handleSort('materialCode')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">Material <SortIcon column="materialCode" /></TableHead>
+              <TableHead onClick={() => handleSort('materialName')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">Material Name <SortIcon column="materialName" /></TableHead>
               <TableHead onClick={() => handleSort('price')} className="text-[11px] font-bold border-r w-28 text-right cursor-pointer hover:bg-gray-200">Basic Price <SortIcon column="price" /></TableHead>
               <TableHead className="text-[11px] font-bold border-r w-16 text-center">GST %</TableHead>
               <TableHead onClick={() => handleSort('validFrom')} className="text-[11px] font-bold border-r w-28 cursor-pointer hover:bg-gray-200">Valid From <SortIcon column="validFrom" /></TableHead>
@@ -130,9 +132,9 @@ export default function VK13() {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={11} className="text-center py-20 text-[10px] font-bold uppercase tracking-widest animate-pulse">Syncing System Repository...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={13} className="text-center py-20 text-[10px] font-bold uppercase tracking-widest animate-pulse">Syncing System Repository...</TableCell></TableRow>
             ) : sortedData.length === 0 ? (
-               <TableRow><TableCell colSpan={11} className="text-center py-20 text-xs text-red-500 font-bold uppercase">No condition records found matching selection</TableCell></TableRow>
+               <TableRow><TableCell colSpan={13} className="text-center py-20 text-xs text-red-500 font-bold uppercase">No condition records found matching selection</TableCell></TableRow>
             ) : sortedData.map((r, i) => (
               <TableRow key={r.id} className="h-8 hover:bg-blue-50/30 transition-colors border-b border-gray-100 group">
                 <TableCell className="p-0 text-center text-[10px] border-r text-gray-400 group-hover:text-blue-600">{i + 1}</TableCell>
@@ -147,6 +149,7 @@ export default function VK13() {
                 <TableCell className="p-0 px-2 text-[10px] border-r font-mono text-center">{r.customerCode}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r font-mono text-center">{r.inventoryType || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r font-mono font-black text-blue-900">{r.materialCode}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-gray-700">{r.materialName || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-800">INR {Number(r.price).toLocaleString()}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center font-bold text-gray-500">{r.gstRate}%</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{r.validFrom}</TableCell>

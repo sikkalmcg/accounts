@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2, Loader2, Upload, CheckCircle2, Search } from "lucide-react";
+import { Plus, Trash2, Loader2, Upload, CheckCircle2, Search, Lock, AlertTriangle } from "lucide-react";
 import { parseGSTIN } from "@/lib/gst-utils";
 
 type ReceiptType = "Payment Receipt" | "Invoice Receipt" | "Stock Receipt";
@@ -21,7 +21,6 @@ const initialPaymentData = {
   invoiceType: "",
   taxableAmount: 0,
   taxAmount: 0,
-  grossAmount: 0,
   receiptAmount: "",
   tds: "",
   deduction: "",
@@ -37,12 +36,14 @@ const initialPaymentData = {
   paymentAdviceNo: "",
   proofData: "",
   consignorName: "",
-  paymentDate: "", // Mandatory
-  currentOutstandingBalance: 0, // New field to store the actual outstanding balance of the invoice
+  paymentDate: "",
+currentOutstandingBalance: 0, // New field to store the actual outstanding balance of the invoice
   isFullyPaid: false, // New field to indicate if the invoice is fully paid
+  grossAmount: 0, // Added for runtime balance calculation
 };
 
 const LC_BALANCE_TOLERANCE = 10; // Configurable tolerance for small balance write-offs (₹10.00 rule).
+const PAYMENT_BLOCKED_MESSAGE = "Payment Receipt cannot be created. This invoice has already been fully paid.";
 
 export default function MIGO() {
   const db = useDatabase(); // Assuming db is initialized elsewhere
@@ -79,6 +80,7 @@ export default function MIGO() {
   const [consignorName, setConsignorName] = useState(""); // New field
   const [paymentData, setPaymentData] = useState(initialPaymentData);
   const [invoiceDocId, setInvoiceDocId] = useState<string | null>(null); // To store the ID of the fetched invoice
+  const [isPaymentBlocked, setIsPaymentBlocked] = useState(false); // Lock Receipt Details when Balance Amount < ₹10.00
 
   // --- Invoice/Stock Receipt State ---
   const [receiptHeader, setReceiptHeader] = useState({
@@ -99,20 +101,6 @@ export default function MIGO() {
   });
 
   const [items, setItems] = useState<any[]>([{ id: '1', desc: '', matCode: '', hsn: '', qty: '', rate: '', amount: 0 }]);
-
-  // --- Calculations ---
-  // This calculates the remaining balance after the *current* payment attempt, based on the invoice's current outstanding balance.
-  const finalBalanceAfterPayment = useMemo(() => {
-    if (receiptType !== "Payment Receipt") return 0;
-    const currentOutstanding = Number(paymentData.currentOutstandingBalance) || 0;
-    const interest = Number(paymentData.interest) || 0;
-    const receipt = Number(paymentData.receiptAmount) || 0;
-    const tds = Number(paymentData.tds) || 0;
-    const deduction = Number(paymentData.deduction) || 0;
-
-    // Balance Amount = Current Outstanding Balance + Interest - (Receipt Amount + TDS + Deduction)
-    return (currentOutstanding + interest) - (receipt + tds + deduction);
-  }, [paymentData.currentOutstandingBalance, paymentData.interest, paymentData.receiptAmount, paymentData.tds, paymentData.deduction, receiptType]);
 
   // --- Shared Logic ---
 
@@ -142,6 +130,7 @@ export default function MIGO() {
     setPlantId("");
     setPaymentData(initialPaymentData);
     setInvoiceDocId(null);
+    setIsPaymentBlocked(false);
     setReceiptHistory([]);
     setReceiptHeader({
       firmId: "", inventoryType: "", invoiceNo: "", date: "",
@@ -180,8 +169,10 @@ export default function MIGO() {
     let displayString = "";
     if (calculatedRemainingInvoiceBalance > 0 && calculatedRemainingInvoiceBalance < LC_BALANCE_TOLERANCE) {
         displayString = '₹0.00 (Settled)';
-    } else if (calculatedRemainingInvoiceBalance <= 0 && calculatedInterest > 0) {
-        displayString = `+₹${calculatedInterest.toLocaleString(undefined, { minimumFractionDigits: 2 })} (Interest)`;
+    } else if (calculatedRemainingInvoiceBalance <= 0) {
+        // Spec: If Total Received Amount >= Gross Payable Value, Balance Amount = 0.00
+        // (interest/excess is captured in the Interest field instead)
+        displayString = `₹0.00`;
     } else {
         displayString = `₹${calculatedRemainingInvoiceBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
     }
@@ -216,19 +207,58 @@ export default function MIGO() {
 
       if (snap.empty) {
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Invoice ${paymentData.invoiceNo} not found in Plant ${plantId}`, isError: true } }));
-        setPaymentData(p => ({ ...p, date: "", consigneeName: "", consignorName: "", itemDescription: "", billMonth: "", invoiceType: "", taxableAmount: 0, taxAmount: 0, grossAmount: 0, cgst: 0, sgst: 0, igst: 0 })); // Reset new fields
+        setPaymentData(p => ({ ...p, date: "", consigneeName: "", consignorName: "", itemDescription: "", billMonth: "", invoiceType: "", taxableAmount: 0, taxAmount: 0, cgst: 0, sgst: 0, igst: 0 })); // Reset new fields
         return;
       }
 
-      // Requirement 4: Fully Paid Invoice Validation
+      // Requirement: Payment Receipt data source is FB03 (posted) + MBST (cancelled/reversed) payment_receipts.
+      // Balance Amount = Invoice Net Amount (gross) – Total Posted (FB03) + Total Reversed (MBST).
       const inv = snap.docs[0].data();
-      const currentOutstanding = (inv.totals?.grossAmount || 0) - (inv.paidAmount || 0);
-      const isFullyPaid = currentOutstanding <= LC_BALANCE_TOLERANCE; // Requirement 6: Small Balance Tolerance
+      const grossAmount = inv.totals?.grossAmount || 0;
+
+      // Fetch all Payment Receipts for this invoice (both posted & reversed) to compute the available Balance Amount.
+      let postedTotal = 0;
+      let reversedTotal = 0;
+      let receiptHistoryData: any[] = [];
+      try {
+        const histQ = query(
+          collection(db, "payment_receipts"),
+          where("plantId", "==", plantId),
+          where("invoiceNo", "==", paymentData.invoiceNo)
+        );
+        const histSnap = await getDocs(histQ);
+        receiptHistoryData = histSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setReceiptHistory(receiptHistoryData);
+
+        postedTotal = receiptHistoryData.reduce((sum, r) => {
+          if (r.status !== "Reversed") {
+            return sum + (Number(r.receiptAmount) || 0) + (Number(r.tds) || 0) + (Number(r.deduction) || 0);
+          }
+          return sum;
+        }, 0);
+        reversedTotal = receiptHistoryData.reduce((sum, r) => {
+          if (r.status === "Reversed") {
+            return sum + (Number(r.receiptAmount) || 0) + (Number(r.tds) || 0) + (Number(r.deduction) || 0);
+          }
+          return sum;
+        }, 0);
+      } catch (e) {
+        // Fall back to zero totals if history fetch fails
+        postedTotal = 0;
+        reversedTotal = 0;
+        setReceiptHistory([]);
+      }
+
+      const currentOutstanding = grossAmount - postedTotal + reversedTotal;
+      const isFullyPaid = currentOutstanding < LC_BALANCE_TOLERANCE; // Balance Amount < ₹10.00 blocks payment
+      const isBlocked = currentOutstanding < LC_BALANCE_TOLERANCE; // Lock Receipt Details
+
+      setIsPaymentBlocked(isBlocked);
 
       if (inv.status === "Cancelled" || isFullyPaid) {
-        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "This invoice has already been fully paid. No further payment can be recorded.", isError: true } }));
-        // Reset payment data fields if invoice is fully paid or cancelled
-        setPaymentData(p => ({ ...p, date: "", consigneeName: "", consignorName: "", itemDescription: "", billMonth: "", invoiceType: "", taxableAmount: 0, taxAmount: 0, grossAmount: 0, cgst: 0, sgst: 0, igst: 0, receiptAmount: "0", tds: "0", deduction: "0", interest: "0", deductionRemark: "", remark: "", paymentMode: "Banking", bankingUtr: "", paymentAdviceNo: "", proofData: "", paymentDate: "", currentOutstandingBalance: 0, isFullyPaid: true }));
+        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: PAYMENT_BLOCKED_MESSAGE, isError: true } }));
+        // Reset payment data fields if invoice is fully paid or cancelled, and lock the form
+        setPaymentData(p => ({ ...p, date: "", consigneeName: "", consignorName: "", itemDescription: "", billMonth: "", invoiceType: "", taxableAmount: 0, taxAmount: 0, grossAmount: 0, cgst: 0, sgst: 0, igst: 0, receiptAmount: "0", tds: "0", deduction: "0", interest: "0", deductionRemark: "", remark: "", paymentMode: "Banking", bankingUtr: "", paymentAdviceNo: "", proofData: "", paymentDate: "", currentOutstandingBalance: currentOutstanding, isFullyPaid: true }));
         return;
       }
 
@@ -248,28 +278,12 @@ export default function MIGO() {
         isFullyPaid: isFullyPaid,
         invoiceType: inv.docType || inv.docCategory || "Tax Invoice",
         taxableAmount: inv.totals?.taxableAmount || 0,
-        taxAmount: totalTax,
-        grossAmount: inv.totals?.grossAmount || 0,
+        grossAmount: grossAmount,
         cgst: inv.totals?.cgst || 0, // New field
         sgst: inv.totals?.sgst || 0, // New field
         igst: inv.totals?.igst || 0, // New field
         currentOutstandingBalance: currentOutstanding,
       }));
-      // Fetch previous Payment Receipt entries for the receipt history footer
-      try {
-        setLoadingReceiptHistory(true);
-        const histQ = query(
-          collection(db, "payment_receipts"),
-          where("plantId", "==", plantId),
-          where("invoiceNo", "==", paymentData.invoiceNo)
-        );
-        const histSnap = await getDocs(histQ);
-        setReceiptHistory(histSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      } catch (e) {
-        setReceiptHistory([]);
-      } finally {
-        setLoadingReceiptHistory(false);
-      }
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Details for Invoice ${paymentData.invoiceNo} fetched successfully`, isError: false } }));
     } catch (e) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "System Error: Failed to fetch invoice details", isError: true } }));
@@ -338,8 +352,8 @@ export default function MIGO() {
     }
 
     if (receiptType === "Payment Receipt") {
-      if (paymentData.isFullyPaid) { // Requirement 4 & 5: Fully Paid Invoice Validation & Locked Payment Record
-        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "This invoice has already been fully paid. No further payment can be recorded.", isError: true } }));
+      if (paymentData.isFullyPaid || isPaymentBlocked) { // Requirement: Balance Amount < ₹10.00 locks the Receipt Details & disables payment processing
+        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: PAYMENT_BLOCKED_MESSAGE, isError: true } }));
         return;
       }
       if (!paymentData.paymentDate) {
@@ -391,7 +405,7 @@ export default function MIGO() {
 
     window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `${receiptType} saved successfully`, isError: false } }));
     resetAll(); // Reset form after successful execution
-  }, [db, plantId, receiptType, inventoryType, paymentData, receiptHeader, items, totals, finalBalanceAfterPayment, resetAll, invoiceDocId]); // resetAll is stable due to useCallback
+  }, [db, plantId, receiptType, inventoryType, paymentData, receiptHeader, items, totals, resetAll, invoiceDocId, isPaymentBlocked]); // resetAll is stable due to useCallback
 
   useEffect(() => {
     const onExec = () => handleExecute();
@@ -499,7 +513,7 @@ export default function MIGO() {
                 <div className="sap-selection-row"><label className="sap-label">Invoice Type</label><Input value={paymentData.invoiceType} readOnly className="bg-gray-100 uppercase" /></div>
                 <div className="sap-selection-row"><label className="sap-label">Taxable Amount</label><Input value={paymentData.taxableAmount.toLocaleString()} readOnly className="bg-gray-100 text-right font-mono" /></div>
                 {/* Conditional GST Columns */}
-                {paymentData.cgst > 0 && paymentData.sgst > 0 && (
+                {paymentData.cgst > 0 && (
                   <>
                     <div className="sap-selection-row"><label className="sap-label">CGST</label><Input value={paymentData.cgst.toLocaleString()} readOnly className="bg-gray-100 text-right font-mono" /></div>
                     <div className="sap-selection-row"><label className="sap-label">SGST</label><Input value={paymentData.sgst.toLocaleString()} readOnly className="bg-gray-100 text-right font-mono" /></div>
@@ -509,17 +523,32 @@ export default function MIGO() {
                   <div className="sap-selection-row"><label className="sap-label">IGST</label><Input value={paymentData.igst.toLocaleString()} readOnly className="bg-gray-100 text-right font-mono" /></div>
                 )}
                 {/* Removed Tax Amount */}
-                <div className="sap-selection-row"><label className="sap-label font-bold text-blue-800">Gross Payable Value</label><Input value={paymentData.grossAmount.toLocaleString()} readOnly className="bg-gray-200 text-right font-black text-blue-900 border-blue-300" /></div>
               </div>
             </div>
 
             <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
-              <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">Receipt Details</div>
+              <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700 flex justify-between items-center">
+                <span>Receipt Details</span>
+                {isPaymentBlocked ? (
+                  <span className="text-[10px] text-red-700 font-bold uppercase italic flex items-center gap-1"><Lock className="h-3 w-3" /> Locked - Balance below ₹10.00</span>
+                ) : (
+                  <span className="text-[10px] text-emerald-700 font-bold uppercase italic">Editable</span>
+                )}
+              </div>
+
+              {/* Balance Amount < ₹10.00 Validation Banner */}
+              {isPaymentBlocked && (
+                <div className="px-3 py-2 bg-red-50 border-b border-red-200 flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+                  <span className="text-[11px] font-bold text-red-700">{PAYMENT_BLOCKED_MESSAGE}</span>
+                </div>
+              )}
+
               <div className="p-2 grid grid-cols-2 gap-x-8 gap-y-1">
                 <div className="sap-selection-row">
                   <label className="sap-label">Payment Mode</label>
                   <div className="sap-input-wrapper max-w-[200px]">
-                    <Select value={paymentData.paymentMode} onValueChange={v => setPaymentData({...paymentData, paymentMode: v})} disabled={paymentData.isFullyPaid || !paymentData.invoiceNo}>
+                    <Select value={paymentData.paymentMode} onValueChange={v => setPaymentData({...paymentData, paymentMode: v})} disabled={paymentData.isFullyPaid || isPaymentBlocked || !paymentData.invoiceNo}>
                       <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
                         <SelectValue placeholder="" />
                       </SelectTrigger>
@@ -530,42 +559,42 @@ export default function MIGO() {
                     </Select>
                   </div>
                 </div>
-                <div className="sap-selection-row"><label className="sap-label">Receipt Amount</label><Input type="number" value={paymentData.receiptAmount} onChange={e => setPaymentData({...paymentData, receiptAmount: e.target.value})} className="font-bold text-emerald-700" disabled={paymentData.isFullyPaid || !paymentData.invoiceNo} /></div>
-                <div className="sap-selection-row"><label className="sap-label">TDS</label><Input type="number" value={paymentData.tds} onChange={e => setPaymentData({...paymentData, tds: e.target.value})} disabled={paymentData.isFullyPaid || !paymentData.invoiceNo} /></div>
-                <div className="sap-selection-row"><label className="sap-label">Deduction</label><Input type="number" value={paymentData.deduction} onChange={e => setPaymentData({...paymentData, deduction: e.target.value})} disabled={paymentData.isFullyPaid || !paymentData.invoiceNo} /></div>
+                <div className="sap-selection-row"><label className="sap-label font-bold text-blue-800">Gross Payable Value</label><Input value={`₹${(paymentData.grossAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`} readOnly className="bg-gray-200 text-right font-black text-blue-900 border-blue-300" /></div>
+                <div className="sap-selection-row"><label className="sap-label">Receipt Amount</label><Input type="number" value={paymentData.receiptAmount} onChange={e => setPaymentData({...paymentData, receiptAmount: e.target.value})} className="font-bold text-emerald-700" disabled={paymentData.isFullyPaid || isPaymentBlocked || !paymentData.invoiceNo} /></div>
+                <div className="sap-selection-row"><label className="sap-label">TDS</label><Input type="number" value={paymentData.tds} onChange={e => setPaymentData({...paymentData, tds: e.target.value})} disabled={paymentData.isFullyPaid || isPaymentBlocked || !paymentData.invoiceNo} /></div>
+                <div className="sap-selection-row"><label className="sap-label">Deduction</label><Input type="number" value={paymentData.deduction} onChange={e => setPaymentData({...paymentData, deduction: e.target.value})} disabled={paymentData.isFullyPaid || isPaymentBlocked || !paymentData.invoiceNo} /></div>
                 
                 {/* Conditional Deduction Remark */}
                 {Number(paymentData.deduction) > 0 && (
                   <div className="sap-selection-row animate-in fade-in duration-200">
                     <label className="sap-label">Deduction Remark *</label>
-                    <Input value={paymentData.deductionRemark} onChange={e => setPaymentData({...paymentData, deductionRemark: e.target.value})} placeholder="Reason for deduction..." disabled={paymentData.isFullyPaid || !paymentData.invoiceNo} />
+                    <Input value={paymentData.deductionRemark} onChange={e => setPaymentData({...paymentData, deductionRemark: e.target.value})} placeholder="Reason for deduction..." disabled={paymentData.isFullyPaid || isPaymentBlocked || !paymentData.invoiceNo} />
                   </div>
                 )}
 
                 <div className="sap-selection-row">
                   <label className="sap-label">Interest</label>
-                  <Input type="number" value={actualInterest.toLocaleString(undefined, { minimumFractionDigits: 2 })} readOnly className="bg-gray-100 text-orange-700 font-bold" />
+                  <Input value={`₹${actualInterest.toLocaleString(undefined, { minimumFractionDigits: 2 })}`} readOnly className="bg-gray-100 text-orange-700 font-bold text-right" />
                 </div>
-                <div className="sap-selection-row"><label className="sap-label font-bold text-red-700">Current Outstanding</label><Input value={paymentData.currentOutstandingBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })} readOnly className="bg-gray-100 text-right font-black text-red-900 border-red-200" /></div>
-                <div className="sap-selection-row"><label className="sap-label font-bold text-blue-800">Remaining Balance</label><Input value={balanceDisplayString} readOnly className="bg-gray-100 text-right font-black text-blue-900 border-blue-300" /></div>
+                <div className="sap-selection-row"><label className="sap-label font-bold text-blue-800">Balance Amount</label><Input value={balanceDisplayString} readOnly className="bg-gray-100 text-right font-black text-blue-900 border-blue-300" /></div>
                 
                 {/* Logic: Show Remark only if Remaining Balance > LC_BALANCE_TOLERANCE */}
                 {remainingInvoiceBalance > LC_BALANCE_TOLERANCE && (
                   <div className="sap-selection-row animate-in fade-in duration-200">
                     <label className="sap-label">Remark *</label>
-                    <Input value={paymentData.remark} onChange={e => setPaymentData({...paymentData, remark: e.target.value})} placeholder="Reason for high balance..." disabled={paymentData.isFullyPaid} />
+                    <Input value={paymentData.remark} onChange={e => setPaymentData({...paymentData, remark: e.target.value})} placeholder="Reason for high balance..." disabled={paymentData.isFullyPaid || isPaymentBlocked} />
                   </div>
                 )}
 
                 {/* Conditional Banking Fields */}
                 {paymentData.paymentMode === "Banking" && (
                   <>
-                    <div className="sap-selection-row"><label className="sap-label">Banking UTR</label><Input value={paymentData.bankingUtr} onChange={e => setPaymentData({...paymentData, bankingUtr: e.target.value})} className="font-mono uppercase" disabled={paymentData.isFullyPaid} /></div>
-                    <div className="sap-selection-row"><label className="sap-label">Payment Advice No.</label><Input value={paymentData.paymentAdviceNo} onChange={e => setPaymentData({...paymentData, paymentAdviceNo: e.target.value})} disabled={paymentData.isFullyPaid} /></div>
+                    <div className="sap-selection-row"><label className="sap-label">Banking UTR</label><Input value={paymentData.bankingUtr} onChange={e => setPaymentData({...paymentData, bankingUtr: e.target.value})} className="font-mono uppercase" disabled={paymentData.isFullyPaid || isPaymentBlocked} /></div>
+                    <div className="sap-selection-row"><label className="sap-label">Payment Advice No.</label><Input value={paymentData.paymentAdviceNo} onChange={e => setPaymentData({...paymentData, paymentAdviceNo: e.target.value})} disabled={paymentData.isFullyPaid || isPaymentBlocked} /></div>
                     <div className="sap-selection-row">
                       <label className="sap-label">Payment Proof</label>
                       <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" className="h-7 rounded-none" onClick={() => fileRef.current?.click()} disabled={paymentData.isFullyPaid || !paymentData.invoiceNo}><Upload className="h-4 w-4 mr-2" /> Select File</Button>
+                        <Button variant="outline" size="sm" className="h-7 rounded-none" onClick={() => fileRef.current?.click()} disabled={paymentData.isFullyPaid || isPaymentBlocked || !paymentData.invoiceNo}><Upload className="h-4 w-4 mr-2" /> Select File</Button>
                         <input type="file" ref={fileRef} className="hidden" accept=".pdf,image/*" onChange={handleFileUpload} />
                         {paymentData.proofData && <span className="text-[11px] text-emerald-600 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> File Attached</span>}
                       </div>
@@ -574,7 +603,7 @@ export default function MIGO() {
                 )}
 <div className="sap-selection-row">
                   <label className="sap-label">Payment Date</label>
-                  <Input type="date" value={paymentData.paymentDate} onChange={e => setPaymentData({...paymentData, paymentDate: e.target.value})} disabled={paymentData.isFullyPaid || !paymentData.invoiceNo} />
+                  <Input type="date" value={paymentData.paymentDate} onChange={e => setPaymentData({...paymentData, paymentDate: e.target.value})} disabled={paymentData.isFullyPaid || isPaymentBlocked || !paymentData.invoiceNo} />
                 </div>
               </div>
             </div>
@@ -596,6 +625,7 @@ export default function MIGO() {
                         <TableHead className="text-[11px] font-bold border-r w-28 text-right">Deduction</TableHead>
                         <TableHead className="text-[11px] font-bold border-r w-28 text-right">Interest</TableHead>
                         <TableHead className="text-[11px] font-bold border-r w-32 text-center">Payment Date</TableHead>
+                        <TableHead className="text-[11px] font-bold border-r w-28 text-center">Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -607,6 +637,13 @@ export default function MIGO() {
                           <TableCell className="p-0 px-2 text-[10px] border-r text-right">₹ {(Number(entry.deduction) || 0).toLocaleString()}</TableCell>
                           <TableCell className="p-0 px-2 text-[10px] border-r text-right text-orange-700">₹ {(Number(entry.interest) || 0).toLocaleString()}</TableCell>
                           <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono">{entry.paymentDate || "-"}</TableCell>
+                          <TableCell className="p-0 px-2 text-[10px] border-r text-center">
+                            {entry.status === "Reversed" ? (
+                              <span className="inline-flex items-center gap-1 font-black text-red-600 uppercase"><Lock className="h-2.5 w-2.5" /> Reversed</span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 font-black text-emerald-600 uppercase"><CheckCircle2 className="h-2.5 w-2.5" /> Posted</span>
+                            )}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -687,12 +724,12 @@ export default function MIGO() {
                       {receiptType === "Invoice Receipt" && ( // Only for Invoice Receipt, not Stock Receipt
                         <TableCell className="p-0 border-r">
                           <Select value={row.matCode} onValueChange={v => {
-                            const m = materials?.find(mat => mat.productName === v);
+                            const m = materials?.find(mat => mat.productName === v || mat.materialCode === v);
                             updateItem(row.id, 'matCode', v);
                             updateItem(row.id, 'desc', m?.productName || '');
                           }}>
                             <SelectTrigger className="h-full border-none bg-transparent text-xs rounded-none px-2 shadow-none focus:bg-[#fff9c4]"><SelectValue placeholder="" /></SelectTrigger>
-                            <SelectContent>{materials?.map(m => <SelectItem key={m.id} value={m.productName}>{m.productName}</SelectItem>)}</SelectContent>
+                            <SelectContent>{materials?.map(m => <SelectItem key={m.id} value={m.materialCode || m.productName}>{m.materialCode || m.productName}</SelectItem>)}</SelectContent>
                           </Select>
                         </TableCell>
                       )}

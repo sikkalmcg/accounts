@@ -55,17 +55,26 @@ export default function FB03() {
     return plants?.filter(p => p.plantId === assignedPlantId) || [];
   }, [plants, isAdmin, assignedPlantId]);
 
-  // Aggregate receipts by Invoice Number
+// Aggregate receipts by Invoice Number (separate posted vs reversed)
   const invoiceReceiptMap = useMemo(() => {
     const map: Record<string, any> = {};
     allReceipts?.forEach(r => {
       const invNo = r.invoiceNo;
       if (!map[invNo]) {
-        map[invNo] = { receiptAmount: 0, tds: 0, deduction: 0, paymentDate: r.paymentDate, paymentAdviceNo: r.paymentAdviceNo, bankingUtr: r.bankingUtr };
+        map[invNo] = { receiptAmount: 0, tds: 0, deduction: 0, reversedAmount: 0, reversedTds: 0, reversedDeduction: 0, paymentDate: r.paymentDate, paymentAdviceNo: r.paymentAdviceNo, bankingUtr: r.bankingUtr };
       }
-      map[invNo].receiptAmount += Number(r.receiptAmount) || 0;
-      map[invNo].tds += Number(r.tds) || 0;
-      map[invNo].deduction += Number(r.deduction) || 0;
+      const amount = Number(r.receiptAmount) || 0;
+      const tds = Number(r.tds) || 0;
+      const deduction = Number(r.deduction) || 0;
+      if (r.status === "Reversed") {
+        map[invNo].reversedAmount += amount;
+        map[invNo].reversedTds += tds;
+        map[invNo].reversedDeduction += deduction;
+      } else {
+        map[invNo].receiptAmount += amount;
+        map[invNo].tds += tds;
+        map[invNo].deduction += deduction;
+      }
     });
     return map;
   }, [allReceipts]);
@@ -81,10 +90,11 @@ export default function FB03() {
       if (filterFY !== "ALL" && inv.billYear !== filterFY) return false;
       return true;
     });
-    return base.map(inv => {
-      const receipt = invoiceReceiptMap[inv.invoiceNumber] || { receiptAmount: 0, tds: 0, deduction: 0 };
+return base.map(inv => {
+      const receipt = invoiceReceiptMap[inv.invoiceNumber] || { receiptAmount: 0, tds: 0, deduction: 0, reversedAmount: 0, reversedTds: 0, reversedDeduction: 0 };
       const gross = inv.totals?.grossAmount || 0;
       const totalCollection = (receipt.receiptAmount || 0) + (receipt.tds || 0) + (receipt.deduction || 0);
+      const totalReversed = (receipt.reversedAmount || 0) + (receipt.reversedTds || 0) + (receipt.reversedDeduction || 0);
       return {
         ...inv,
         receiptAmount: receipt.receiptAmount,
@@ -93,7 +103,7 @@ export default function FB03() {
         paymentDate: receipt.paymentDate,
         paymentAdviceNo: receipt.paymentAdviceNo,
         bankingUtr: receipt.bankingUtr,
-        balanceAmount: gross - totalCollection
+        balanceAmount: gross - totalCollection + totalReversed
       };
     });
   }, [allInvoices, isAdmin, assignedPlantId, filterPlant, filterConsignee, filterFY, invoiceReceiptMap]);

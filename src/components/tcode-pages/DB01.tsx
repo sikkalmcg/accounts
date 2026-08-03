@@ -141,7 +141,7 @@ export default function DB01() {
                 <MenuItem id="vk12" label="Change Condition Record" tcode="VK12" />
                 <MenuItem id="vk13" label="Display Condition Records" tcode="VK13" />
               </MenuItem>
-              <MenuItem id="m-bill-grp" label="Billing Definitions" icon={Tag}>
+<MenuItem id="m-bill-grp" label="Billing Definitions" icon={Tag}>
                 <MenuItem id="vof01" label="Define Billing Types" tcode="VOF01" />
                 <MenuItem id="vof02" label="Edit Billing Types" tcode="VOF02" />
                 <MenuItem id="vof03" label="Display Billing Types" tcode="VOF03" />

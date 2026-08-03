@@ -5,43 +5,73 @@ import { useDatabase, addDocumentNonBlocking, useCollection, useMemoDatabase } f
 import { collection, serverTimestamp, query, where, getDocs } from "@/database/mongo";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Upload, CheckCircle2, FileText, Eye, X, Download, ExternalLink, FileSpreadsheet } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Plus, Trash2, Loader2, Upload, CheckCircle2, FileText, Eye, X, Download, ExternalLink, FileSpreadsheet, AlertCircle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import Image from "next/image";
+import PlantMultiSelect from "./PlantMultiSelect";
 
-const initialData = {
-  conditionType: "PR00",
-  keyCombination: "Customer/Material",
-  plantId: "",
-  customerCode: "",
+type RateRow = {
+  id: string;
+  materialCode: string;
+  materialName: string;
+  hsnSac: string;
+  uom: string;
+  gstRate: string;
+  status: string;
+  price: string;
+};
+
+const newRow = (): RateRow => ({
+  id: Math.random().toString(36).substr(2, 9),
   materialCode: "",
+  materialName: "",
   hsnSac: "",
   uom: "",
-  documentType: "",
-  documentCategory: "",
-  inventoryType: "",
-  price: "",
   gstRate: "",
-  currency: "INR",
-  validFrom: "",
-  validTo: "9999-12-31",
-  approvalFile: "",
-  approvalFileName: "",
+  status: "Active",
+  price: "",
+});
+
+const normalize = (v: string) => (v || "").trim().toUpperCase();
+
+const titleCase = (v: string) =>
+  v.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+
+// De-duplicate case-insensitively while preserving the stored DB value
+const dedupeIgnoreCase = (values: Array<string | undefined>) => {
+  const seen = new Set<string>();
+  return (values.filter(Boolean) as string[]).filter(v => {
+    const key = v.trim().toUpperCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 };
 
 export default function VK11() {
   const db = useDatabase();
-  const [formData, setFormData] = useState(initialData);
+  const [header, setHeader] = useState({
+    plantIds: [] as string[],
+    inventoryType: "",
+    documentType: "",
+    documentCategory: "",
+    customerCode: "",
+    validFrom: "",
+    validTo: "9999-12-31",
+    approvalFile: "",
+    approvalFileName: "",
+  });
+  const [rows, setRows] = useState<RateRow[]>([newRow()]);
+  const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bulkFileInputRef = useRef<HTMLInputElement>(null);
 
   const pdfBlobUrl = useMemo(() => {
-    if (formData.approvalFile?.startsWith('data:application/pdf')) {
+    if (header.approvalFile?.startsWith('data:application/pdf')) {
       try {
-        const parts = formData.approvalFile.split(',');
+        const parts = header.approvalFile.split(',');
         const base64 = parts[1];
         const binary = atob(base64);
         const array = new Uint8Array(binary.length);
@@ -54,13 +84,17 @@ export default function VK11() {
       }
     }
     return null;
-  }, [formData.approvalFile]);
+  }, [header.approvalFile]);
 
   useEffect(() => {
     return () => {
       if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
     };
   }, [pdfBlobUrl]);
+
+  useEffect(() => {
+    setHeader(prev => ({ ...prev, validFrom: new Date().toISOString().split('T')[0] }));
+  }, []);
 
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
   const { data: plants } = useCollection(plantsQuery);
@@ -71,130 +105,217 @@ export default function VK11() {
   const billingTypesQuery = useMemoDatabase(() => collection(db, "billing_types"), [db]);
   const { data: billingTypes } = useCollection(billingTypesQuery);
 
-  // First assigned plant used for UI data filtering
-
-  useEffect(() => {
-    if (formData.materialCode && materials) {
-      const selectedMaterial = materials.find(m => m.productName === formData.materialCode);
-      if (selectedMaterial) {
-        setFormData(prev => ({
-          ...prev,
-          hsnSac: selectedMaterial.hsnSac || "",
-          uom: selectedMaterial.uom || ""
-        }));
-      }
-    } else if (!formData.materialCode) {
-      setFormData(prev => ({ ...prev, hsnSac: "", uom: "" }));
-    }
-  }, [formData.materialCode, materials]);
-
-  useEffect(() => {
-    setFormData(prev => ({ ...prev, validFrom: new Date().toISOString().split('T')[0] }));
-  }, []);
-
   const filteredBillingTypes = useMemo(() => {
-    if (!billingTypes || !formData.plantId) return [];
-    return billingTypes.filter(bt => bt.plantId === formData.plantId);
-  }, [billingTypes, formData.plantId]);
+    if (!billingTypes || header.plantIds.length === 0) return [];
+    return billingTypes.filter(bt => header.plantIds.includes(bt.plantId));
+  }, [billingTypes, header.plantIds]);
 
   const filteredMaterials = useMemo(() => {
-    const primaryPlantId = formData.plantId;
-    return (materials ?? []).filter(m => 
-      m.plantId === primaryPlantId && 
-      (!formData.documentCategory || m.documentCategory === formData.documentCategory) &&
-      (!formData.inventoryType || m.inventoryType === formData.inventoryType)
+    if (header.plantIds.length === 0) return [];
+    return (materials ?? []).filter(m =>
+      header.plantIds.includes(m.plantId) &&
+      (!header.documentCategory || m.documentCategory === header.documentCategory) &&
+      (!header.inventoryType || m.inventoryType === header.inventoryType)
     );
-  }, [materials, formData.plantId, formData.documentCategory]);
+  }, [materials, header.plantIds, header.documentCategory, header.inventoryType]);
 
   const filteredCustomers = useMemo(() => {
-    if (!customers || !formData.plantId) return [];
-    return customers.filter(c => c.assignedPlantIds?.includes(formData.plantId) || c.plantId === formData.plantId);
-  }, [customers, formData.plantId]);
+    if (header.plantIds.length === 0) return customers;
+    return customers?.filter(c => header.plantIds.includes(c.plantId)) || [];
+  }, [customers, header.plantIds]);
+
+  const updateRow = (id: string, field: keyof RateRow, value: string) => {
+    setRows(prev => prev.map(r => {
+      if (r.id !== id) return r;
+      const updated = { ...r, [field]: value };
+      if (field === "materialCode") {
+        const mat = materials?.find(m =>
+          (m.materialCode || "").toUpperCase() === value.toUpperCase() ||
+          (m.productName || "").toUpperCase() === value.toUpperCase()
+        );
+        updated.materialName = mat?.productName || "";
+        updated.hsnSac = mat?.hsnSac || "";
+        updated.uom = mat?.uom || "";
+      }
+      return updated;
+    }));
+  };
+
+  const addRow = () => setRows(prev => [...prev, newRow()]);
+
+  const deleteRow = (id: string) => {
+    setRows(prev => (prev.length > 1 ? prev.filter(r => r.id !== id) : prev));
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // MongoDB document size limit is 1MB per document. Base64 adds ~33% overhead.
-    // 750KB is a safe limit for the raw file.
     if (file.size > 750 * 1024) {
-      window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "Error: File exceeds 750KB limit (Required for system sync)", isError: true } 
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "Error: File exceeds 750KB limit (Required for system sync)", isError: true }
       }));
       return;
     }
 
     const reader = new FileReader();
     reader.onload = (ev) => {
-      setFormData(prev => ({ 
-        ...prev, 
+      setHeader(prev => ({
+        ...prev,
         approvalFile: ev.target?.result as string,
         approvalFileName: file.name
       }));
-      window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "Document ready for upload", isError: false } 
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "Document ready for upload", isError: false }
       }));
     };
     reader.readAsDataURL(file);
   };
 
-  const handleExecute = useCallback(async (dataToSave: any = formData) => {
-    const payload = dataToSave;
-    if (!payload.plantId || !payload.customerCode || !payload.materialCode || !payload.inventoryType || !payload.price || !payload.gstRate || !payload.validFrom || !payload.hsnSac || !payload.uom) {
-      window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "Error: Required fields missing in Condition Data", isError: true } 
+  const validateRows = useCallback(async () => {
+    const newErrors: Record<string, string[]> = {};
+    const seenCodes: Record<string, number> = {};
+
+    for (let idx = 0; idx < rows.length; idx++) {
+      const row = rows[idx];
+      const rowErrors: string[] = [];
+      const code = row.materialCode.trim();
+      const price = row.price.trim();
+
+      if (!code) {
+        rowErrors.push("Material is mandatory");
+      } else {
+        const normalized = normalize(code);
+        if (seenCodes[normalized] !== undefined) {
+          rowErrors.push(`Duplicate Material within document (duplicate of row ${seenCodes[normalized]})`);
+        } else {
+          seenCodes[normalized] = idx + 1;
+        }
+        // Check duplicate pricing record in DB for this combination
+        try {
+          const q = query(
+            collection(db, "pricing"),
+            where("customerCode", "==", header.customerCode),
+            where("materialCode", "==", code),
+            where("inventoryType", "==", header.inventoryType),
+            where("documentType", "==", header.documentType),
+            where("documentCategory", "==", header.documentCategory)
+          );
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            rowErrors.push("Pricing record already exists for this combination");
+          }
+        } catch (e) {
+          // Skip DB check on error; rely on client-side checks
+        }
+      }
+
+      if (!price) {
+        rowErrors.push("Basic Rate (PMT) is mandatory");
+      } else if (isNaN(Number(price))) {
+        rowErrors.push("Basic Rate (PMT) must be numeric");
+      } else if (Number(price) <= 0) {
+        rowErrors.push("Basic Rate (PMT) must be greater than zero");
+      }
+
+      if (rowErrors.length) newErrors[row.id] = rowErrors;
+    }
+
+    return newErrors;
+  }, [rows, header, db]);
+
+  const handleExecute = useCallback(async () => {
+    if (header.plantIds.length === 0 || !header.inventoryType || !header.customerCode || !header.validFrom) {
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "Validation Error: At least one Plant, Inventory Type, Customer and Validity are mandatory", isError: true }
+      }));
+      return false;
+    }
+
+    const validationErrors = await validateRows();
+    setErrors(validationErrors);
+
+    const invalidCount = Object.keys(validationErrors).length;
+    if (invalidCount > 0) {
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: `Validation Error: ${invalidCount} row(s) contain errors. Please correct highlighted rows.`, isError: true }
       }));
       return false;
     }
 
     setLoading(true);
     try {
-      const q = query(
-        collection(db, "pricing"), 
-        where("customerCode", "==", payload.customerCode),
-        where("materialCode", "==", payload.materialCode),
-        where("plantId", "==", payload.plantId),
-        where("inventoryType", "==", payload.inventoryType),
-        where("documentType", "==", payload.documentType), // This might need adjustment based on business logic
-        where("documentCategory", "==", payload.documentCategory)
-      );
-      
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        window.dispatchEvent(new CustomEvent('sap-status', { 
-          detail: { text: `Error: Duplicate pricing record found in repository`, isError: true } 
-        }));
-        return false;
+      const docs: any[] = [];
+      for (const plantId of header.plantIds) {
+        for (const row of rows) {
+          docs.push({
+            conditionType: "PR00",
+            keyCombination: "Customer/Material",
+            plantId,
+            customerCode: header.customerCode,
+            materialCode: row.materialCode.trim(),
+            materialName: row.materialName,
+            hsnSac: row.hsnSac,
+            uom: row.uom,
+            status: row.status,
+            documentType: header.documentType,
+            documentCategory: header.documentCategory,
+            inventoryType: header.inventoryType,
+            price: parseFloat(row.price),
+            gstRate: row.gstRate !== "" ? Number(row.gstRate) : Number((materials?.find(m => (m.materialCode || "").toUpperCase() === row.materialCode.trim().toUpperCase() || (m.productName || "").toUpperCase() === row.materialCode.trim().toUpperCase()))?.gstRate) || 0,
+            currency: "INR",
+            validFrom: header.validFrom,
+            validTo: header.validTo,
+            approvalFile: header.approvalFile,
+            approvalFileName: header.approvalFileName,
+            createdAt: serverTimestamp(),
+          });
+        }
       }
 
-      await addDocumentNonBlocking(collection(db, "pricing"), {
-        ...payload,
-        price: parseFloat(payload.price),
-        gstRate: parseFloat(payload.gstRate),
-        createdAt: serverTimestamp(),
-      });
-      
-      window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: `Condition record committed successfully`, isError: false } 
+      await Promise.all(docs.map(docData => addDocumentNonBlocking(collection(db, "pricing"), docData)));
+
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: `${docs.length} condition record(s) committed successfully across ${header.plantIds.length} plant(s)`, isError: false }
       }));
-      if (dataToSave === formData) {
-        setFormData({ ...initialData, validFrom: new Date().toISOString().split('T')[0] });
-      }
+      setRows([newRow()]);
+      setErrors({});
+      setHeader(prev => ({
+        ...prev,
+        approvalFile: "",
+        approvalFileName: "",
+        validFrom: new Date().toISOString().split('T')[0],
+        validTo: "9999-12-31",
+      }));
       return true;
     } catch (error) {
-      window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "System Error: Failed to reach backend repository", isError: true } 
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "System Error: Failed to reach backend repository", isError: true }
       }));
       return false;
     } finally {
       setLoading(false);
     }
-  }, [formData, db]);
+  }, [header, rows, validateRows, db, materials]);
+
+  useEffect(() => {
+    const onExecute = () => handleExecute();
+    const onCancel = () => {
+      setRows([newRow()]);
+      setErrors({});
+    };
+    window.addEventListener('sap-execute', onExecute);
+    window.addEventListener('sap-cancel', onCancel);
+    return () => {
+      window.removeEventListener('sap-execute', onExecute);
+      window.removeEventListener('sap-cancel', onCancel);
+    };
+  }, [handleExecute]);
 
   const downloadTemplate = () => {
     const headers = [
-      "Plant ID", "Document Type", "Charge Type", "Inventory Type", 
-      "Customer Code", "Material Name", "Basic Rate", "GST Rate (%)", 
+      "Plant ID", "Document Type", "Charge Type", "Inventory Type",
+      "Customer Code", "Material Code", "Material Name", "HSN/SAC Code", "Basic Rate", "GST Rate (%)", "Status",
       "Validity From Date", "Validity To Date"
     ];
     const csvContent = headers.join(",");
@@ -211,90 +332,58 @@ export default function VK11() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setLoading(true);
     const reader = new FileReader();
     reader.onload = async (event) => {
       const text = event.target?.result as string;
-      const rows = text.split('\n').map(line => line.trim()).filter(line => line);
-      const dataRows = rows.slice(1);
+      const rowsFromCsv = text.split('\n').map(line => line.trim()).filter(line => line);
+      const dataRows = rowsFromCsv.slice(1);
 
-      let successCount = 0;
-      let errorCount = 0;
-      let totalCreated = 0;
-      let errors: string[] = [];
+      const parsed: RateRow[] = dataRows.map(line => {
+        const [plantId, docType, docCat, invType, customer, materialCode, materialName, hsnSac, rate, gst, status, validFrom, validTo] = line.split(',').map(v => v.trim());
+        return {
+          id: Math.random().toString(36).substr(2, 9),
+          materialCode: materialCode || "",
+          materialName: materialName || "",
+          hsnSac: hsnSac || "",
+          uom: "",
+          gstRate: gst || "",
+          status: status || "Active",
+          price: rate || "",
+        };
+      }).filter(r => r.materialCode || r.price);
 
-      for (let i = 0; i < dataRows.length; i++) {
-        const row = dataRows[i];
-        const [plantIdStr, docType, docCategory, invType, customer, material, rate, gst, validFrom, validTo] = row.split(',').map(v => v.trim());
-
-        // Basic mandatory field validation
-        if (!plantIdStr || !customer || !material || !invType || !rate || !gst || !validFrom || !validTo) {
-          errors.push(`Row ${i + 2}: Mandatory fields are missing.`);
-          errorCount++;
-          continue;
-        }
-
-        // Date and numeric validation
-        if (new Date(validFrom) > new Date(validTo)) {
-          errors.push(`Row ${i + 2}: Validity From Date cannot be after Validity To Date.`);
-          errorCount++;
-          continue;
-        }
-        if (isNaN(parseFloat(rate)) || isNaN(parseFloat(gst))) {
-          errors.push(`Row ${i + 2}: Basic Rate and GST Rate must be numeric.`);
-          errorCount++;
-          continue;
-        }
-
-        const plantIds = Array.from(new Set(plantIdStr.split(',').map(p => p.trim())));
-        const invalidPlants = plantIds.filter(pId => !plants?.some(p => p.plantId === pId));
-
-        if (invalidPlants.length > 0) {
-          errors.push(`Row ${i + 2}: Invalid Plant ID(s) found: ${invalidPlants.join(', ')}.`);
-          errorCount++;
-          continue;
-        }
-
-        let rowSuccess = true;
-        for (const plantId of plantIds) {
-          const recordData = {
-            plantId, customerCode: customer, materialCode: material, documentType: docType, documentCategory: docCategory,
-            inventoryType: invType, price: parseFloat(rate), gstRate: parseFloat(gst), validFrom, validTo,
-            conditionType: "PR00", keyCombination: "Customer/Material", currency: "INR", approvalFile: "", approvalFileName: "",
-          };
-
-          const success = await handleExecute(recordData);
-          if (success) {
-            totalCreated++;
-          } else {
-            rowSuccess = false;
-            errors.push(`Row ${i + 2} (Plant: ${plantId}): Failed to create record. It might be a duplicate.`);
-          }
-        }
-
-        if (rowSuccess) successCount++;
-        else errorCount++;
+      if (parsed.length) {
+        const first = dataRows[0]?.split(',').map(v => v.trim()) || [];
+        setHeader(prev => ({
+          ...prev,
+          plantIds: first[0] ? [first[0]] : prev.plantIds,
+          documentType: prev.documentType || first[1] || "",
+          documentCategory: prev.documentCategory || first[2] || "",
+          inventoryType: prev.inventoryType || first[3] || "",
+          customerCode: prev.customerCode || first[4] || "",
+          validFrom: prev.validFrom || first[11] || new Date().toISOString().split('T')[0],
+          validTo: prev.validTo || first[12] || "9999-12-31",
+        }));
+        setRows(parsed);
+        setErrors({});
+        window.dispatchEvent(new CustomEvent('sap-status', {
+          detail: { text: `Loaded ${parsed.length} row(s) from CSV. Review and Save.`, isError: false }
+        }));
+      } else {
+        window.dispatchEvent(new CustomEvent('sap-status', {
+          detail: { text: "No valid rows found in CSV file", isError: true }
+        }));
       }
-
-      const summary = `Bulk Upload Finished. Total Rows: ${dataRows.length}, Successful Rows: ${successCount}, Failed Rows: ${errorCount}, Total VK11 Records Created: ${totalCreated}.`;
-      const errorDetails = errors.length > 0 ? `\n\nErrors:\n${errors.join('\n')}` : "";
-      
-      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: summary + errorDetails, isError: errorCount > 0 } }));
       if (bulkFileInputRef.current) bulkFileInputRef.current.value = "";
-      setLoading(false);
     };
     reader.readAsText(file);
   };
 
-  useEffect(() => {
-    const onExecute = () => handleExecute();
-    window.addEventListener('sap-execute', onExecute);
-    return () => window.removeEventListener('sap-execute', onExecute);
-  }, [handleExecute]);
-
   const openPdfInNewTab = () => {
     if (pdfBlobUrl) window.open(pdfBlobUrl, '_blank');
   };
+
+  const totalInvalidRows = Object.keys(errors).length;
 
   return (
     <div className="w-full flex flex-col bg-white min-h-full">
@@ -310,12 +399,12 @@ export default function VK11() {
             <Button variant="ghost" size="sm" onClick={() => bulkFileInputRef.current?.click()} className="h-6 text-[11px] font-bold text-emerald-700 hover:bg-emerald-50 border border-emerald-200 rounded-none gap-1">
               <Upload className="h-3 w-3" /> Bulk Upload
             </Button>
-            <input 
-              type="file" 
-              ref={bulkFileInputRef} 
-              onChange={handleBulkUpload} 
-              accept=".csv" 
-              className="hidden" 
+            <input
+              type="file"
+              ref={bulkFileInputRef}
+              onChange={handleBulkUpload}
+              accept=".csv"
+              className="hidden"
             />
           </div>
         </div>
@@ -326,20 +415,23 @@ export default function VK11() {
           <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">
             Selection & Organizational Data
           </div>
-          <div className="p-2 space-y-1">
+          <div className="p-2 grid grid-cols-2 gap-x-8 gap-y-1">
             <div className="sap-selection-row">
-              <label className="sap-label">Plant ID *</label>
-              <div className="sap-input-wrapper max-w-[200px]">
-                <Select value={formData.plantId} onValueChange={(val) => setFormData({...formData, plantId: val, documentType: "", documentCategory: "", materialCode: "", customerCode: ""})}>
-                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
-                  <SelectContent>{plants?.map(p => <SelectItem key={p.id} value={p.plantId}>{p.plantId} - {p.name}</SelectItem>)}</SelectContent>
-                </Select>
+              <label className="sap-label">Plant ID(s) *</label>
+              <div className="sap-input-wrapper max-w-[280px]">
+                <PlantMultiSelect
+                  plants={plants}
+                  selected={header.plantIds}
+                  onChange={(ids) => setHeader({ ...header, plantIds: ids, documentType: "", documentCategory: "", customerCode: "" })}
+                  isLoading={!plants}
+                  placeholder="Select Plant(s)..."
+                />
               </div>
             </div>
             <div className="sap-selection-row">
               <label className="sap-label">Inventory Type *</label>
               <div className="sap-input-wrapper max-w-[200px]">
-                <Select value={formData.inventoryType} onValueChange={(val) => setFormData({...formData, inventoryType: val, materialCode: ""})} disabled={!formData.plantId}>
+                <Select value={header.inventoryType} onValueChange={(val) => setHeader({ ...header, inventoryType: val })} disabled={header.plantIds.length === 0}>
                   <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Service Invoice">Service Invoice</SelectItem>
@@ -351,82 +443,175 @@ export default function VK11() {
             <div className="sap-selection-row">
               <label className="sap-label">Doc. Type</label>
               <div className="sap-input-wrapper max-w-[200px]">
-                <Select value={formData.documentType} onValueChange={(val) => setFormData({...formData, documentType: val})} disabled={!formData.plantId}>
+                <Select value={header.documentType} onValueChange={(val) => setHeader({ ...header, documentType: val })} disabled={header.plantIds.length === 0}>
                   <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
-                  <SelectContent>{Array.from(new Set(filteredBillingTypes.filter(b => b.documentType).map(b => b.documentType))).map(type => (<SelectItem key={type} value={type!}>{type}</SelectItem>))}</SelectContent>
+                  <SelectContent>{dedupeIgnoreCase(filteredBillingTypes.map(b => b.documentType)).map(type => (<SelectItem key={type} value={type}>{titleCase(type)}</SelectItem>))}</SelectContent>
                 </Select>
               </div>
             </div>
             <div className="sap-selection-row">
               <label className="sap-label">Charge Type</label>
               <div className="sap-input-wrapper max-w-[200px]">
-                <Select value={formData.documentCategory} onValueChange={(val) => setFormData({...formData, documentCategory: val, materialCode: ""})} disabled={!formData.plantId}>
+                <Select value={header.documentCategory} onValueChange={(val) => setHeader({ ...header, documentCategory: val })} disabled={header.plantIds.length === 0}>
                   <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
-                  <SelectContent>{Array.from(new Set(filteredBillingTypes.filter(b => b.documentCategory).map(b => b.documentCategory))).map(cat => (<SelectItem key={cat} value={cat!}>{cat}</SelectItem>))}</SelectContent>
+                  <SelectContent>{dedupeIgnoreCase(filteredBillingTypes.map(b => b.documentCategory)).map(cat => (<SelectItem key={cat} value={cat}>{titleCase(cat)}</SelectItem>))}</SelectContent>
                 </Select>
               </div>
             </div>
-          </div>
-        </div>
-
-        <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
-          <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">
-            Price & Validity Data
-          </div>
-          <div className="p-2 space-y-1">
             <div className="sap-selection-row">
               <label className="sap-label">Customer *</label>
               <div className="sap-input-wrapper max-w-[200px]">
-                <Select value={formData.customerCode} onValueChange={(val) => setFormData({...formData, customerCode: val})} disabled={!formData.plantId}>
+                <Select value={header.customerCode} onValueChange={(val) => setHeader({ ...header, customerCode: val })} disabled={header.plantIds.length === 0}>
                   <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
-                  <SelectContent>{customers?.filter(c => !formData.plantId || c.plantId === formData.plantId).map(c => <SelectItem key={c.id} value={c.customerId}>{c.customerId} - {c.name}</SelectItem>)}</SelectContent>
+                  <SelectContent>{filteredCustomers?.map(c => <SelectItem key={c.id} value={c.customerId}>{c.customerId} - {c.name}</SelectItem>)}</SelectContent>
                 </Select>
-              </div>
-            </div>
-            <div className="sap-selection-row">
-              <label className="sap-label">MATERIAL *</label>
-              <div className="sap-input-wrapper max-w-[200px]">
-                <Select value={formData.materialCode} onValueChange={(val) => setFormData({...formData, materialCode: val})} disabled={!formData.plantId || !formData.inventoryType}>
-                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
-                  <SelectContent>{filteredMaterials.map(m => <SelectItem key={m.id} value={m.productName}>{m.productName}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="sap-selection-row">
-              <label className="sap-label">HSN/SAC Code</label>
-              <div className="sap-input-wrapper max-w-[200px]">
-                <Input value={formData.hsnSac} readOnly className="bg-gray-100 font-mono" />
-              </div>
-            </div>
-            <div className="sap-selection-row">
-              <label className="sap-label">UOM</label>
-              <div className="sap-input-wrapper max-w-[100px]">
-                <Input value={formData.uom} readOnly className="bg-gray-100 font-mono text-center" />
-              </div>
-            </div>
-            <div className="sap-selection-row">
-              <label className="sap-label">Basic Rate *</label>
-              <div className="sap-input-wrapper max-w-[200px] gap-2">
-                <Input type="number" value={formData.price} onChange={(e) => setFormData({...formData, price: e.target.value})} />
-                <span className="text-[10px] font-bold text-gray-400">{formData.currency}</span>
-              </div>
-            </div>
-            <div className="sap-selection-row">
-              <label className="sap-label">GST Rate (%) *</label>
-              <div className="sap-input-wrapper max-w-[150px]">
-                <Input type="number" value={formData.gstRate} onChange={(e) => setFormData({...formData, gstRate: e.target.value})} />
               </div>
             </div>
             <div className="sap-selection-row">
               <label className="sap-label">Validity *</label>
               <div className="sap-input-wrapper gap-2 max-w-md">
-                <Input type="date" value={formData.validFrom} onChange={(e) => setFormData({...formData, validFrom: e.target.value})} />
+                <Input type="date" value={header.validFrom} onChange={(e) => setHeader({ ...header, validFrom: e.target.value })} />
                 <span className="text-gray-400">to</span>
-                <Input type="date" value={formData.validTo} onChange={(e) => setFormData({...formData, validTo: e.target.value})} />
+                <Input type="date" value={header.validTo} onChange={(e) => setHeader({ ...header, validTo: e.target.value })} />
               </div>
             </div>
           </div>
         </div>
+
+        <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-white">
+          <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] flex items-center justify-between">
+            <span className="text-[12px] font-semibold text-gray-700">Material & Basic Rate (PMT)</span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-5 text-[10px] font-bold text-blue-700 hover:bg-blue-50 gap-1"
+              onClick={addRow}
+            >
+              <Plus className="h-3 w-3" /> Add Row
+            </Button>
+          </div>
+
+          {totalInvalidRows > 0 && (
+            <div className="px-3 py-2 bg-red-50 border-b border-red-200 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
+              <span className="text-[11px] font-bold text-red-700">
+                {totalInvalidRows} row(s) contain validation errors. Correct the highlighted rows before saving.
+              </span>
+            </div>
+          )}
+
+          <div className="overflow-x-auto no-scrollbar">
+            <Table>
+              <TableHeader className="bg-[#e7ebf1]">
+                <TableRow className="h-8">
+                  <TableHead className="text-[11px] font-bold border-r w-10 text-center">#</TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-56">Material Code <span className="text-red-500">*</span></TableHead>
+                  <TableHead className="text-[11px] font-bold border-r">Material Name (auto)</TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-28">HSN/SAC Code</TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-24 text-center">GST Rate (%)</TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-28 text-center">Status</TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-28 text-right">Basic Rate (PMT) <span className="text-red-500">*</span></TableHead>
+                  <TableHead className="w-10"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((row, idx) => {
+                  const rowErrors = errors[row.id] || [];
+                  const isInvalid = rowErrors.length > 0;
+                  return (
+                    <TableRow key={row.id} className={`h-8 hover:bg-blue-50/30 border-b border-gray-100 ${isInvalid ? "bg-red-50" : ""}`}>
+                      <TableCell className={`p-0 text-center text-[10px] border-r ${isInvalid ? "text-red-500 font-black" : "text-gray-400"}`}>{idx + 1}</TableCell>
+                      <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
+                        <Select value={row.materialCode} onValueChange={v => updateRow(row.id, "materialCode", v)} disabled={header.plantIds.length === 0 || !header.inventoryType}>
+                          <SelectTrigger className={`h-7 border-none bg-transparent text-xs rounded-none px-2 shadow-none focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}>
+                            <SelectValue placeholder="" />
+                          </SelectTrigger>
+                          <SelectContent>{filteredMaterials.map(m => <SelectItem key={m.id} value={m.materialCode || m.productName}>{m.materialCode || m.productName}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
+                        <Input
+                          className={`h-full border-none shadow-none rounded-none bg-gray-50 font-medium focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
+                          value={row.materialName}
+                          readOnly
+                          placeholder="Auto-filled from material"
+                        />
+                      </TableCell>
+                      <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
+                        <Input
+                          className={`h-full border-none shadow-none rounded-none bg-gray-50 font-mono text-center text-xs focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
+                          value={row.hsnSac}
+                          readOnly
+                          placeholder="Auto"
+                        />
+                      </TableCell>
+                      <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
+                        <Input
+                          type="number"
+                          className={`h-full border-none shadow-none rounded-none text-center font-bold text-gray-700 focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
+                          value={row.gstRate}
+                          onChange={e => updateRow(row.id, "gstRate", e.target.value)}
+                          placeholder="0"
+                        />
+                      </TableCell>
+                      <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
+                        <Select value={row.status || "Active"} onValueChange={v => updateRow(row.id, "status", v)}>
+                          <SelectTrigger className={`h-7 border-none bg-transparent text-xs rounded-none px-2 shadow-none focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Active">Active</SelectItem>
+                            <SelectItem value="Inactive">Inactive</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
+                        <Input
+                          type="number"
+                          className={`h-full border-none shadow-none rounded-none text-right font-bold text-emerald-700 focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
+                          value={row.price}
+                          onChange={e => updateRow(row.id, "price", e.target.value)}
+                          placeholder="0.00"
+                        />
+                      </TableCell>
+                      <TableCell className="p-0 text-center">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-red-500 hover:bg-red-50"
+                          onClick={() => deleteRow(row.id)}
+                          disabled={rows.length <= 1}
+                          title="Delete Row"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+
+          <div className="bg-[#e7ebf1] p-1 flex justify-between items-center px-4 border-t border-[#b5c7de] text-[11px] font-bold text-gray-600 uppercase">
+            <span>Total Rows: {rows.length}</span>
+            <span>Valid: {rows.length - totalInvalidRows} | Invalid: {totalInvalidRows}</span>
+          </div>
+        </div>
+
+        {totalInvalidRows > 0 && (
+          <div className="border border-red-300 bg-red-50 rounded-sm p-2 space-y-1">
+            {rows.map((row, idx) => {
+              const rowErrors = errors[row.id];
+              if (!rowErrors) return null;
+              return (
+                <div key={row.id} className="text-[11px] font-bold text-red-700">
+                  Row {idx + 1}: {rowErrors.join("; ")}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
           <div className="bg-[#dae8f5] px-3 py-1 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">
@@ -438,11 +623,11 @@ export default function VK11() {
                 <Upload className="h-4 w-4" /> Select Approval (Max 750KB)
               </Button>
               <input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf" onChange={handleFileUpload} />
-              
-              {formData.approvalFile && (
+
+              {header.approvalFile && (
                 <div className="flex items-center gap-3 animate-in slide-in-from-left-2 duration-300">
                   <div className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded border border-emerald-100 flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4" /> {formData.approvalFileName} ready
+                    <CheckCircle2 className="h-4 w-4" /> {header.approvalFileName} ready
                   </div>
                   <Dialog>
                     <DialogTrigger asChild><Button variant="ghost" size="sm" className="h-8 rounded-none text-blue-700 hover:bg-blue-50 font-bold uppercase text-[10px] gap-1.5"><Eye className="h-3.5 w-3.5" /> Preview</Button></DialogTrigger>
@@ -459,12 +644,12 @@ export default function VK11() {
                             <Button onClick={openPdfInNewTab} className="bg-blue-700 hover:bg-blue-800 rounded-none h-10 px-8 font-bold uppercase gap-2"><ExternalLink className="h-4 w-4" /> Open in Secure Viewer</Button>
                           </div>
                         ) : (
-                          <img src={formData.approvalFile} alt="Approval" className="max-w-full max-h-[70vh] object-contain shadow-2xl border-4 border-white" />
+                          <img src={header.approvalFile} alt="Approval" className="max-w-full max-h-[70vh] object-contain shadow-2xl border-4 border-white" />
                         )}
                       </div>
                     </DialogContent>
                   </Dialog>
-                  <Button variant="ghost" size="icon" onClick={() => setFormData({...formData, approvalFile: "", approvalFileName: ""})} className="h-8 w-8 text-red-500"><X className="h-4 w-4" /></Button>
+                  <Button variant="ghost" size="icon" onClick={() => setHeader({ ...header, approvalFile: "", approvalFileName: "" })} className="h-8 w-8 text-red-500"><X className="h-4 w-4" /></Button>
                 </div>
               )}
             </div>

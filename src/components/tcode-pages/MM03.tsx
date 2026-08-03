@@ -26,10 +26,12 @@ export default function MM03() {
   const sortedData = useMemo(() => {
     if (!materials) return [];
     const filtered = materials.filter(m => 
+      m.materialCode?.toLowerCase().includes(search.toLowerCase()) ||
       m.productName?.toLowerCase().includes(search.toLowerCase()) ||
       m.hsnSac?.toLowerCase().includes(search.toLowerCase()) ||
       m.documentCategory?.toLowerCase().includes(search.toLowerCase()) ||
-      m.plantId?.toLowerCase().includes(search.toLowerCase())
+      m.plantId?.toLowerCase().includes(search.toLowerCase()) ||
+      m.status?.toLowerCase().includes(search.toLowerCase())
     );
 
     if (!sortConfig) return filtered;
@@ -67,40 +69,56 @@ export default function MM03() {
           <TableHeader className="sap-alv-header">
             <TableRow className="h-8 border-b-[#b5c7de]">
               <TableHead className="text-[11px] font-bold text-gray-700 border-r w-10 text-center">#</TableHead>
+              <TableHead onClick={() => handleSort('materialCode')} className="text-[11px] font-bold text-gray-700 border-r w-32 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">MATERIAL CODE <SortIcon column="materialCode" /></div>
+              </TableHead>
               <TableHead onClick={() => handleSort('productName')} className="text-[11px] font-bold text-gray-700 border-r w-64 cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center">MATERIAL <SortIcon column="productName" /></div>
-              </TableHead>
-              <TableHead onClick={() => handleSort('documentCategory')} className="text-[11px] font-bold text-gray-700 border-r w-48 cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center">CHARGE TYPE <SortIcon column="documentCategory" /></div>
-              </TableHead>
-              <TableHead onClick={() => handleSort('hsnSac')} className="text-[11px] font-bold text-gray-700 border-r w-32 cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center">HSN/SAC <SortIcon column="hsnSac" /></div>
+                <div className="flex items-center">MATERIAL NAME <SortIcon column="productName" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('uom')} className="text-[11px] font-bold text-gray-700 border-r w-24 cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">UOM <SortIcon column="uom" /></div>
               </TableHead>
-              <TableHead onClick={() => handleSort('inventoryType')} className="text-[11px] font-bold text-gray-700 border-r w-32 cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center">Inv. Type <SortIcon column="inventoryType" /></div>
+              <TableHead onClick={() => handleSort('hsnSac')} className="text-[11px] font-bold text-gray-700 border-r w-32 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">HSN CODE <SortIcon column="hsnSac" /></div>
               </TableHead>
-              <TableHead onClick={() => handleSort('plantId')} className="text-[11px] font-bold text-gray-700 w-24 cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center">Plant <SortIcon column="plantId" /></div>
+              <TableHead onClick={() => handleSort('gstRate')} className="text-[11px] font-bold text-gray-700 border-r w-28 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">GST RATE <SortIcon column="gstRate" /></div>
+              </TableHead>
+              <TableHead onClick={() => handleSort('status')} className="text-[11px] font-bold text-gray-700 border-r w-28 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">STATUS <SortIcon column="status" /></div>
+              </TableHead>
+              <TableHead onClick={() => handleSort('documentCategory')} className="text-[11px] font-bold text-gray-700 border-r w-48 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">CHARGE TYPE <SortIcon column="documentCategory" /></div>
+              </TableHead>
+              <TableHead onClick={() => handleSort('inventoryType')} className="text-[11px] font-bold text-gray-700 w-32 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">Inv. Type <SortIcon column="inventoryType" /></div>
               </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={6} className="text-center py-10 text-xs">RETRIVING DATA...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={9} className="text-center py-10 text-xs">RETRIVING DATA...</TableCell></TableRow>
             ) : sortedData.length === 0 ? (
-              <TableRow><TableCell colSpan={6} className="text-center py-10 text-xs text-red-500 font-bold uppercase">No records found matching criteria</TableCell></TableRow>
+              <TableRow><TableCell colSpan={9} className="text-center py-10 text-xs text-red-500 font-bold uppercase">No records found matching criteria</TableCell></TableRow>
             ) : sortedData.map((m, i) => (
               <TableRow key={m.id} className="h-8 hover:bg-blue-50/20 transition-colors border-b border-gray-100 group">
                 <TableCell className="p-0 text-center text-[10px] border-r text-gray-400 group-hover:text-blue-600">{i + 1}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r font-mono font-bold text-blue-700">{m.materialCode || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r font-bold text-blue-700">{m.productName}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center">{m.uom || "-"}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center">{m.hsnSac || "-"}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center font-bold text-gray-600">
+                  {m.gstRate !== undefined && m.gstRate !== null ? `${m.gstRate}%` : "-"}
+                </TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center">
+                  {m.status ? (
+                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm font-black uppercase text-[9px] ${m.status === "Active" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-600 border border-red-200"}`}>
+                      {m.status}
+                    </span>
+                  ) : "-"}
+                </TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-gray-600">{m.documentCategory || "-"}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r text-center">{m.hsnSac}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r text-center">{m.uom}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r text-center">{m.inventoryType || "-"}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px]">{m.plantId}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] text-center">{m.inventoryType || "-"}</TableCell>
               </TableRow>
             ))}
           </TableBody>

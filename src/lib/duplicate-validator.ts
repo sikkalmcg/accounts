@@ -14,6 +14,7 @@ export const DUPLICATE_ERROR_MESSAGES: Record<string, string> = {
   irnNumber: "IRN Number already exists. Duplicate IRN Numbers are not permitted.",
   ackNo: "ACK Number already exists. Duplicate ACK Numbers are not permitted.",
   productName: "Material Name already exists. Please enter a unique Product Name.",
+  materialCode: "Material Code already exists. Please enter a unique Material Code.",
 };
 
 /**
