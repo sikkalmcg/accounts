@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { format, startOfQuarter, parseISO, isValid } from "date-fns";
+import { format, startOfQuarter } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useDatabase, useCollection, useMemoDatabase } from "@/database";
-import { collection, query, orderBy } from "@/database/mongo";
+import { useCollection, useMemoDatabase } from "@/database";
+import { collection } from "@/database/mongo";
 import { ArrowUpDown, ChevronUp, ChevronDown, Download, Receipt, Wallet, ArrowRight, MinusCircle, PlusCircle, Eye, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -49,8 +49,6 @@ const getInvoiceNumberKey = (invoice: any): string => normalizeKey(invoice?.invo
 const getInvoicePlantKey = (invoice: any): string => normalizeKey(invoice?.plantId || invoice?.plantCode || invoice?.plant || "");
 
 export default function MB03() {
-  const db = useDatabase();
-
   // 1. User Context & Permissions
   const [assignedPlantId, setAssignedPlantId] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
@@ -80,20 +78,17 @@ export default function MB03() {
   }, []);
 
   // 4. Master Data Queries
-  const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
+  const plantsQuery = useMemoDatabase(() => collection(null as any, "plants"), []);
   const { data: plants } = useCollection(plantsQuery);
 
-  const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
+  const customersQuery = useMemoDatabase(() => collection(null as any, "customers"), []);
   const { data: customers } = useCollection(customersQuery);
 
-  const firmsQuery = useMemoDatabase(() => collection(db, "firms"), [db]);
+  const firmsQuery = useMemoDatabase(() => collection(null as any, "firms"), []);
   const { data: firms } = useCollection(firmsQuery);
 
-  const invoicesQuery = useMemoDatabase(() => query(collection(db, "sales_invoices"), orderBy("createdAt", "desc")), [db]);
-  const { data: allInvoices, isLoading: isInvoicesLoading } = useCollection(invoicesQuery);
-
-  const receiptsQuery = useMemoDatabase(() => collection(db, "payment_receipts"), [db]);
-  const { data: allReceipts } = useCollection(receiptsQuery);
+  const [allInvoices, setAllInvoices] = useState<any[]>([]);
+  const [isInvoicesLoading, setIsInvoicesLoading] = useState(false);
 
   // 5. Derived Logic
   const filteredPlants = useMemo(() => {
@@ -137,59 +132,31 @@ export default function MB03() {
     return map;
   }, [firms]);
 
-  const invoiceReceiptMap = useMemo(() => {
-    const map: Record<string, any> = {};
-    const invoiceOnlyMap: Record<string, any> = {};
+  useEffect(() => {
+    const loadCompletedPayments = async () => {
+      setIsInvoicesLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (filterPlant !== 'ALL') params.set('plantId', filterPlant);
+        if (fromDate) params.set('fromDate', fromDate);
+        if (toDate) params.set('toDate', toDate);
+        if (filterBillTo !== 'ALL') params.set('billTo', filterBillTo);
+        if (filterConsignor !== 'ALL') params.set('consignor', filterConsignor);
 
-    allReceipts?.forEach(r => {
-      const plantKey = normalizeKey(r.plantId || r.plantCode || r.plant || "");
-      const invoiceKey = normalizeKey(r.invoiceNo || r.invoiceNumber || r.invoice || "");
-      const plantInvoiceKey = plantKey && invoiceKey ? `${plantKey}_${invoiceKey}` : invoiceKey;
+        const response = await fetch(`/api/payment-complete?${params.toString()}`);
+        if (!response.ok) throw new Error('Unable to load completed-payment data');
+        const data = await response.json();
+        setAllInvoices(Array.isArray(data?.rows) ? data.rows : (Array.isArray(data) ? data : []));
+      } catch (error) {
+        console.error('MB03 fetch failed', error);
+        setAllInvoices([]);
+      } finally {
+        setIsInvoicesLoading(false);
+      }
+    };
 
-      const updateEntry = (target: Record<string, any>, key: string) => {
-        if (!target[key]) {
-          target[key] = {
-            receiptAmount: 0,
-            tds: 0,
-            deduction: 0,
-            reversedAmount: 0,
-            reversedTds: 0,
-            reversedDeduction: 0,
-            deductionRemark: "",
-            paymentDate: "",
-            paymentAdviceNo: "",
-            bankingUtr: "",
-            proofData: null,
-            paymentMode: "",
-          };
-        }
-
-        const amount = Number(r.receiptAmount) || 0;
-        const tds = Number(r.tds) || 0;
-        const deduction = Number(r.deduction) || 0;
-        if (r.status === "Reversed") {
-          target[key].reversedAmount += amount;
-          target[key].reversedTds += tds;
-          target[key].reversedDeduction += deduction;
-        } else {
-          target[key].receiptAmount += amount;
-          target[key].tds += tds;
-          target[key].deduction += deduction;
-        }
-        if (r.deductionRemark) target[key].deductionRemark = r.deductionRemark;
-        if (r.paymentDate) target[key].paymentDate = r.paymentDate;
-        if (r.paymentAdviceNo) target[key].paymentAdviceNo = r.paymentAdviceNo;
-        if (r.bankingUtr) target[key].bankingUtr = r.bankingUtr;
-        if (r.proofData) target[key].proofData = r.proofData;
-        if (r.paymentMode) target[key].paymentMode = r.paymentMode;
-      };
-
-      if (plantInvoiceKey) updateEntry(map, plantInvoiceKey);
-      if (invoiceKey) updateEntry(invoiceOnlyMap, invoiceKey);
-    });
-
-    return { map, invoiceOnlyMap };
-  }, [allReceipts]);
+    loadCompletedPayments();
+  }, [filterPlant, filterBillTo, filterConsignor, fromDate, toDate]);
 
   // Main Processing Logic
   const processedData = useMemo(() => {
@@ -231,16 +198,19 @@ export default function MB03() {
     });
 
     return base.map(inv => {
-      const invoiceNumberKey = getInvoiceNumberKey(inv);
-      const plantKey = getInvoicePlantKey(inv);
-      const key = plantKey && invoiceNumberKey ? `${plantKey}_${invoiceNumberKey}` : invoiceNumberKey;
-      const receipt = invoiceReceiptMap.map[key] || invoiceReceiptMap.invoiceOnlyMap[invoiceNumberKey] || {
-        receiptAmount: 0, tds: 0, deduction: 0, reversedAmount: 0, reversedTds: 0, reversedDeduction: 0, deductionRemark: "",
-        paymentDate: "", paymentAdviceNo: "", bankingUtr: "", proofData: null, paymentMode: "",
+      const receipt = {
+        receiptAmount: inv.receiptAmount || 0,
+        tds: inv.tdsAmount || 0,
+        deduction: inv.deductionAmount || 0,
+        deductionRemark: inv.deductionRemark || "",
+        paymentDate: inv.paymentDate || "",
+        paymentAdviceNo: inv.paymentAdviceNo || "",
+        bankingUtr: inv.bankingUtr || "",
+        proofData: inv.proofData || null,
+        paymentMode: inv.paymentMode || "",
       };
       const gross = inv.totals?.grossAmount || inv.grossAmount || 0;
       const totalCollection = (receipt.receiptAmount || 0) + (receipt.tds || 0) + (receipt.deduction || 0);
-      const totalReversed = (receipt.reversedAmount || 0) + (receipt.reversedTds || 0) + (receipt.reversedDeduction || 0);
       const firm = firmMap[inv.plantId];
       
       const billToCandidates = [
@@ -265,7 +235,7 @@ export default function MB03() {
         bankingUtr: receipt.bankingUtr,
         proofData: receipt.proofData,
         paymentMode: receipt.paymentMode,
-        balanceAmount: gross - totalCollection + totalReversed,
+        balanceAmount: gross - totalCollection,
         consignorName: firm?.name || "N/A",
         consignorGstin: firm?.gstin || "N/A",
         billToCode: consignee?.customerId || consignee?.code || consignee?.id || billToCandidates[0] || "N/A",
@@ -273,7 +243,7 @@ export default function MB03() {
         billToGstin: consignee?.gstin || "N/A",
       };
     });
-  }, [allInvoices, isAdmin, assignedPlantId, filterPlant, filterBillTo, filterConsignor, fromDate, toDate, invoiceReceiptMap, consignorPlantMap, firmMap, customerMap]);
+  }, [allInvoices, isAdmin, assignedPlantId, filterPlant, filterBillTo, filterConsignor, fromDate, toDate, consignorPlantMap, firmMap, customerMap]);
 
   // Summary Calculation
   const summary = useMemo(() => {

@@ -34,6 +34,7 @@ const TCODE_GROUPS: Record<string, { label: string; codes: string[] }> = {
   "VF01": { label: "Billing & Invoicing", codes: ["VF01", "VF02", "VF03", "VF11"] },
   "IRN01": { label: "E-Invoicing", codes: ["IRN01", "IRN02", "IRN03"] },
   "MIGO": { label: "Goods Movement", codes: ["MIGO"] },
+  "MB5B": { label: "Payment Summary Report", codes: ["MB5B"] },
   "FB03": { label: "Account Analysis", codes: ["FB03", "F110"] },
   "MB03": { label: "Payment Records", codes: ["MB03", "MBST"] },
   "F51": { label: "Outgoing Payment", codes: ["F51", "F52", "F53"] },
@@ -279,4 +280,3 @@ export default function SU01() {
     </div>
   );
 }
-

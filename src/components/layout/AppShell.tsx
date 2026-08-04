@@ -239,6 +239,7 @@ export default function AppShell({ children }: AppShellProps) {
   const [isDirty, setIsDirty] = useState(false);
   const [hasSavedDocument, setHasSavedDocument] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const [returnAfterSave, setReturnAfterSave] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   const [findText, setFindText] = useState("");
   const [findCount, setFindCount] = useState(0);
@@ -317,6 +318,8 @@ useEffect(() => {
 
   useEffect(() => {
     const markDirty = (event: Event) => {
+      if (pathname === "/login") return;
+      if (isDisplayModeForPath(pathname)) return;
       const element = event.target as HTMLElement | null;
       if (element?.closest('main') && element.matches('input, textarea, select, button[role="checkbox"]')) {
         setIsDirty(true);
@@ -396,7 +399,7 @@ useEffect(() => {
         window.dispatchEvent(new CustomEvent('sap-toolbar-save'));
       } else if (e.key === 'F3') {
         e.preventDefault();
-        window.dispatchEvent(new CustomEvent('sap-toolbar-back'));
+        window.dispatchEvent(new CustomEvent('sap-toolbar-back', { cancelable: true }));
       } else if (e.key === 'F12') {
         e.preventDefault();
         window.dispatchEvent(new CustomEvent('sap-toolbar-cancel'));
@@ -437,9 +440,10 @@ useEffect(() => {
       }
     };
 
+    if (pathname === "/login") return;
     window.addEventListener('keydown', handleGlobalShortcuts);
     return () => window.removeEventListener('keydown', handleGlobalShortcuts);
-  }, [router, isBlockMode]);
+  }, [router, isBlockMode, pathname]);
 
   useEffect(() => {
     const handleStatus = (e: any) => {
@@ -448,11 +452,19 @@ useEffect(() => {
           text: e.detail.text,
           level: e.detail.isError ? 'error' : (e.detail.level || 'success')
         });
-        if (saveInFlight && !e.detail.isError && e.detail.level !== 'error') {
-          setIsDirty(false);
-          setHasSavedDocument(true);
+        if (saveInFlight) {
+          if (!e.detail.isError && e.detail.level !== 'error') {
+            setIsDirty(false);
+            setHasSavedDocument(true);
+            if (returnAfterSave) {
+              setReturnAfterSave(false);
+              router.back();
+            }
+          } else {
+            setReturnAfterSave(false);
+          }
+          setSaveInFlight(false);
         }
-        if (saveInFlight) setSaveInFlight(false);
         if (e.detail.level !== 'error' && !e.detail.isError) {
           setTimeout(() => setStatusMessage(null), 10000);
         }
@@ -524,6 +536,17 @@ useEffect(() => {
     window.dispatchEvent(new CustomEvent('sap-execute'));
   };
 
+  const saveAndReturn = () => {
+    if (!canSave) {
+      setStatusMessage({ text: 'You are not authorized to save this transaction', level: 'error' });
+      return;
+    }
+    setReturnAfterSave(true);
+    setPendingAction(null);
+    setSaveInFlight(true);
+    window.dispatchEvent(new CustomEvent('sap-execute'));
+  };
+
   const printTransaction = () => {
     if (!canPrint) {
       setStatusMessage({ text: 'You are not authorized to print this transaction', level: 'error' });
@@ -573,6 +596,8 @@ useEffect(() => {
     const cancel = () => leaveTransaction('cancel');
     const print = () => printTransaction();
     const find = () => setFindOpen(true);
+    if (pathname === "/login") return;
+
     window.addEventListener('sap-toolbar-save', save);
     window.addEventListener('sap-toolbar-back', back);
     window.addEventListener('sap-toolbar-cancel', cancel);
@@ -585,7 +610,7 @@ useEffect(() => {
       window.removeEventListener('sap-toolbar-print', print);
       window.removeEventListener('sap-toolbar-find', find);
     };
-  }, [canPrint, canSave, hasSavedDocument, isDirty, router]);
+  }, [canPrint, canSave, hasSavedDocument, isDirty, router, pathname]);
 
   if (pathname === "/login") return <>{children}</>;
 
@@ -807,12 +832,27 @@ useEffect(() => {
               <AlertDialogDescription>
                 {pendingAction === 'cancel'
                   ? 'Are you sure you want to cancel this transaction? All unsaved data will be cleared.'
-                  : 'You have unsaved changes. Do you want to leave this page?'}
+                  : 'You have unsaved changes. Do you want to save before leaving this screen?'}
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>No</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmPendingAction}>Yes</AlertDialogAction>
+            <AlertDialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              {pendingAction === 'cancel' ? (
+                <>
+                  <AlertDialogCancel>No</AlertDialogCancel>
+                  <AlertDialogAction onClick={confirmPendingAction}>Yes</AlertDialogAction>
+                </>
+              ) : (
+                <>
+                  <Button onClick={saveAndReturn} variant="secondary">Save</Button>
+                  <Button onClick={() => {
+                    setPendingAction(null);
+                    setIsDirty(false);
+                    if (pendingAction === 'back') router.back();
+                    if (pendingAction === 'exit') router.push('/tcode/DB01');
+                  }} variant="destructive">Don't Save</Button>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                </>
+              )}
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

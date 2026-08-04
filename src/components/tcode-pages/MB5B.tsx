@@ -1,37 +1,57 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useDatabase, useCollection, useMemoDatabase } from "@/database"; // Assuming useDatabase returns a Firestore instance
-import { collection, query, where, orderBy, getDocs } from "@/database/mongo"; // Added getDocs for fetching documents
-import { Search, ArrowUpDown, ChevronUp, ChevronDown, Filter, Printer, Download, LayoutDashboard, Receipt, Wallet, ArrowRight, FileSpreadsheet, MinusCircle, PlusCircle, X } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useMemo, useState } from "react";
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useCollection, useMemoDatabase } from "@/database";
+import { collection } from "@/database/mongo";
+import { ArrowUpDown, ChevronDown, ChevronUp, Download, Filter, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Keep this for other selects
+import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import PlantMultiSelect from "./PlantMultiSelect";
 
 type SummaryData = {
+  plant: string;
   inventoryType: string;
-  documentType: string;
   chargeType: string;
-  invoiceGrossAmount: number;
-  receiptAmount: number;
+  openingAmount: number;
+  grossAmount: number;
+  receiptsTotal: number;
   tds: number;
   deduction: number;
   balanceAmount: number;
   invoices: any[];
+  openingInvoiceRows: any[];
+  periodInvoiceRows: any[];
+  receiptRows: any[];
+  tdsRows: any[];
+  deductionRows: any[];
+  closingRows: any[];
 };
 
-type PopupType = 'invoice' | 'receipt' | 'deduction' | null;
+type PopupType = 'opening' | 'invoice' | 'receipt' | 'tds' | 'deduction' | 'closing' | null;
 
-// Define a type for the selected plant from MultiSelect
+const parseDate = (value?: string | null) => {
+  if (!value) return null;
+  const trimmed = `${value}`.trim();
+  if (!trimmed) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const normalized = trimmed.split(/[-/]/);
+  if (normalized.length === 3) {
+    const [first, second, third] = normalized;
+    const year = first.length === 4 ? first : `20${third}`;
+    const month = second.length === 1 ? `0${second}` : second;
+    const day = first.length === 4 ? third : first;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+  return null;
+};
+
 export default function MB5B() {
-  const db = useDatabase();
-
   const [filterPlants, setFilterPlants] = useState<string[]>([]);
   const [filterInventoryType, setFilterInventoryType] = useState("ALL");
+  const [filterChargeType, setFilterChargeType] = useState("");
   const [filterConsignor, setFilterConsignor] = useState("ALL");
   const [filterBillTo, setFilterBillTo] = useState("ALL");
   const [filterFromDate, setFilterFromDate] = useState("");
@@ -39,137 +59,285 @@ export default function MB5B() {
   const [showReport, setShowReport] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
-  // 2. Data Fetching
-  const { data: plants } = useCollection(useMemoDatabase(() => collection(db, "plants"), [db]));
-  const { data: customers } = useCollection(useMemoDatabase(() => collection(db, "customers"), [db]));
-  const { data: firms } = useCollection(useMemoDatabase(() => collection(db, "firms"), [db]));
+  const { data: plants } = useCollection(useMemoDatabase(() => collection(null as any, "plants"), []));
+  const { data: customers } = useCollection(useMemoDatabase(() => collection(null as any, "customers"), []));
+  const { data: firms } = useCollection(useMemoDatabase(() => collection(null as any, "firms"), []));
+  const { data: users } = useCollection(useMemoDatabase(() => collection(null as any, "users"), []));
 
   const [invoices, setInvoices] = useState<any[]>([]);
   const [receipts, setReceipts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // 3. Popup State
   const [popupData, setPopupData] = useState<any[]>([]);
   const [popupType, setPopupType] = useState<PopupType>(null);
   const [popupTitle, setPopupTitle] = useState("");
 
+  const userNameMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    users?.forEach((user: any) => {
+      const fullName = [user.name, user.fullName, user.displayName].filter(Boolean)[0] || user.username || user.id || '';
+      const keys = [user.username, user.id, user.employeeId, user.userId, user.email].filter(Boolean);
+      keys.forEach((key: string) => {
+        const normalized = `${key}`.trim().toLowerCase();
+        if (normalized) map[normalized] = fullName;
+      });
+    });
+    return map;
+  }, [users]);
+
+  const getUserFullName = (value?: string | null) => {
+    if (!value) return '';
+    const normalized = `${value}`.trim().toLowerCase();
+    return userNameMap[normalized] || `${value}`.trim();
+  };
+
   const handleExecute = async () => {
     if (filterPlants.length === 0 || !filterFromDate || !filterToDate) {
-      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Please select Plant, From Date, and To Date.", isError: true } }));
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: 'Please select Plant, From Date, and To Date.', isError: true } }));
       return;
     }
+
     setIsLoading(true);
-    setShowReport(true); // This should be set after data is fetched and processed, or conditionally rendered.
+    setShowReport(true);
 
-    // Corrected fetching logic using getDocs
-    const plantIds = filterPlants;
-    const q = query(collection(db, "sales_invoices"), where("plantId", "in", plantIds), where("invoiceDate", ">=", filterFromDate), where("invoiceDate", "<=", filterToDate));
-    const invoiceSnapshot = await getDocs(q);
-    const invoiceData = invoiceSnapshot.docs.map(doc => doc.data());
-
-    let filteredInvoices = invoiceData;
-
-    if (filterInventoryType !== "ALL") {
-      filteredInvoices = filteredInvoices.filter(inv => inv.inventoryType === filterInventoryType);
-    }
-
-    if (filterConsignor !== "ALL") {
-      filteredInvoices = filteredInvoices.filter(inv => {
-        const invoiceConsignorKey = [inv.consignorCode, inv.firmId, inv.consignorId, inv.consignorName]
-          .filter(Boolean)
-          .map((v: any) => String(v).trim().toUpperCase())[0] || "";
-        return invoiceConsignorKey === filterConsignor.toUpperCase();
+    try {
+      const params = new URLSearchParams({
+        fromDate: filterFromDate,
+        toDate: filterToDate,
+        plantIds: filterPlants.join(','),
+        report: 'mb5b',
       });
-    }
+      if (filterInventoryType !== 'ALL') params.set('inventoryType', filterInventoryType);
+      if (filterChargeType.trim()) params.set('chargeType', filterChargeType.trim());
+      if (filterConsignor !== 'ALL') params.set('consignor', filterConsignor);
+      if (filterBillTo !== 'ALL') params.set('billTo', filterBillTo);
 
-    if (filterBillTo !== "ALL") {
-      filteredInvoices = filteredInvoices.filter(inv => {
-        const billToValues = [inv.billTo, inv.customerCode, inv.customerId, inv.billToParty, inv.billToCode]
-          .filter(Boolean)
-          .map((value: any) => String(value).trim().toUpperCase());
-        return billToValues.includes(filterBillTo.toUpperCase());
-      });
-    }
-
-    setInvoices(filteredInvoices);
-
-    const invoiceNumbers = filteredInvoices.map(inv => inv.invoiceNumber);
-    if (invoiceNumbers.length > 0) {
-      const receiptQuery = query(collection(db, "payment_receipts"), where("invoiceNo", "in", invoiceNumbers));
-      const receiptSnapshot = await getDocs(receiptQuery);
-      const receiptData = receiptSnapshot.docs.map(doc => doc.data());
-      setReceipts(receiptData || []);
-    } else {
+      const response = await fetch(`/api/payment-complete?${params.toString()}`);
+      if (!response.ok) throw new Error('Unable to load payment-complete data');
+      const data = await response.json();
+      setInvoices(Array.isArray(data?.rows) ? data.rows : (Array.isArray(data) ? data : []));
+      setReceipts(Array.isArray(data?.receipts) ? data.receipts : []);
+    } catch (error) {
+      console.error('MB5B fetch failed', error);
+      setInvoices([]);
       setReceipts([]);
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: 'Unable to load outstanding-ledger data from backend.', isError: true } }));
+    } finally {
+      setIsLoading(false);
     }
-
-    setIsLoading(false);
   };
 
   const processedData = useMemo<SummaryData[]>(() => {
     const summaryMap: Record<string, SummaryData> = {};
+    const normalizedInventoryFilter = filterInventoryType === 'ALL' ? '' : filterInventoryType.trim().toUpperCase();
+    const normalizedChargeFilter = filterChargeType.trim().toUpperCase();
+
+    const receiptMap = new Map<string, any[]>();
+    receipts.forEach(receipt => {
+      const invoiceNo = `${receipt.invoiceNo || receipt.invoiceNumber || receipt.invoice || ''}`.trim().toUpperCase();
+      if (!invoiceNo) return;
+      if (receipt.status === 'Reversed') return;
+      const bucket = receiptMap.get(invoiceNo) || [];
+      bucket.push(receipt);
+      receiptMap.set(invoiceNo, bucket);
+    });
 
     invoices.forEach(inv => {
-      const inventoryType = inv.inventoryType || 'N/A';
-      const documentType = inv.docType || 'N/A';
-      const chargeType = inv.docCategory || 'N/A';
-      const key = `${inventoryType}-${documentType}-${chargeType}`;
+      const inventoryType = `${inv.inventoryType || 'N/A'}`.trim() || 'N/A';
+      const plant = `${inv.plantId || inv.plantCode || 'N/A'}`.trim() || 'N/A';
+      const chargeType = `${inv.docCategory || inv.chargeType || 'N/A'}`.trim() || 'N/A';
 
+      if (normalizedInventoryFilter && inventoryType.toUpperCase() !== normalizedInventoryFilter) {
+        return;
+      }
+      if (normalizedChargeFilter && chargeType.toUpperCase().indexOf(normalizedChargeFilter) === -1) {
+        return;
+      }
+
+      const key = `${plant}||${inventoryType}||${chargeType}`;
       if (!summaryMap[key]) {
         summaryMap[key] = {
+          plant,
           inventoryType,
-          documentType,
           chargeType,
-          invoiceGrossAmount: 0,
-          receiptAmount: 0,
+          openingAmount: 0,
+          grossAmount: 0,
+          receiptsTotal: 0,
           tds: 0,
           deduction: 0,
           balanceAmount: 0,
           invoices: [],
+          openingInvoiceRows: [],
+          periodInvoiceRows: [],
+          receiptRows: [],
+          tdsRows: [],
+          deductionRows: [],
+          closingRows: [],
         };
       }
 
-      const grossAmount = inv.totals?.grossAmount || 0;
-      summaryMap[key].invoiceGrossAmount += grossAmount;
-      summaryMap[key].invoices.push(inv);
-    });
+      const invoiceDate = parseDate(inv.invoiceDate);
+      const grossAmount = Number(inv.totals?.grossAmount || inv.grossAmount || 0);
+      const invoiceNo = `${inv.invoiceNumber || inv.invoiceNo || inv.invoice || ''}`.trim().toUpperCase();
+      const relevantReceipts = invoiceNo ? (receiptMap.get(invoiceNo) || []) : [];
 
-    receipts.forEach(r => {
-      const inv = invoices.find(i => i.invoiceNumber === r.invoiceNo);
-      if (inv) {
-        const inventoryType = inv.inventoryType || 'N/A';
-        const documentType = inv.docType || 'N/A';
-        const chargeType = inv.docCategory || 'N/A';
-        const key = `${inventoryType}-${documentType}-${chargeType}`;
+      let openingGross = 0;
+      let openingReceiptAmount = 0;
+      let openingTds = 0;
+      let openingDeduction = 0;
+      let periodGross = 0;
+      let periodReceiptAmount = 0;
+      let periodTds = 0;
+      let periodDeduction = 0;
 
-        if (summaryMap[key]) {
-            const receiptAmount = Number(r.receiptAmount) || 0;
-            const tds = Number(r.tds) || 0;
-            const deduction = Number(r.deduction) || 0;
+      if (invoiceDate && filterFromDate) {
+        const fromDateValue = parseDate(filterFromDate);
+        const toDateValue = parseDate(filterToDate);
 
-            if (r.status !== "Reversed") {
-                summaryMap[key].receiptAmount += receiptAmount;
-                summaryMap[key].tds += tds;
-                summaryMap[key].deduction += deduction;
-            }
+        if (fromDateValue && invoiceDate < fromDateValue) {
+          openingGross = grossAmount;
         }
-      }
-    });
+        if (fromDateValue && toDateValue && invoiceDate >= fromDateValue && invoiceDate <= toDateValue) {
+          periodGross = grossAmount;
+        }
 
-    Object.values(summaryMap).forEach(summary => {
-      summary.balanceAmount = summary.invoiceGrossAmount - summary.receiptAmount - summary.tds - summary.deduction;
+        relevantReceipts.forEach(receipt => {
+          const receiptDate = parseDate(receipt.paymentDate || receipt.receiptDate || receipt.postingDate || receipt.date || '');
+          if (!receiptDate) return;
+
+          const receiptAmount = Number(receipt.receiptAmount || 0);
+          const receiptTds = Number(receipt.tds || 0);
+          const receiptDeduction = Number(receipt.deduction || 0);
+
+          if (fromDateValue && receiptDate < fromDateValue) {
+            openingReceiptAmount += receiptAmount;
+            openingTds += receiptTds;
+            openingDeduction += receiptDeduction;
+          }
+
+          if (fromDateValue && toDateValue && receiptDate >= fromDateValue && receiptDate <= toDateValue) {
+            periodReceiptAmount += receiptAmount;
+            periodTds += receiptTds;
+            periodDeduction += receiptDeduction;
+          }
+        });
+      }
+
+      const openingBalance = openingGross - openingReceiptAmount - openingTds - openingDeduction;
+      const closingBalance = openingBalance + periodGross - periodReceiptAmount - periodTds - periodDeduction;
+
+      summaryMap[key].openingAmount += openingBalance;
+      summaryMap[key].grossAmount += periodGross;
+      summaryMap[key].receiptsTotal += periodReceiptAmount;
+      summaryMap[key].tds += periodTds;
+      summaryMap[key].deduction += periodDeduction;
+      summaryMap[key].balanceAmount = summaryMap[key].openingAmount + summaryMap[key].grossAmount - summaryMap[key].receiptsTotal - summaryMap[key].tds - summaryMap[key].deduction;
+      summaryMap[key].invoices.push(inv);
+
+      if (openingGross > 0 || openingReceiptAmount > 0 || openingTds > 0 || openingDeduction > 0) {
+        summaryMap[key].openingInvoiceRows.push({
+          plant,
+          inventoryType,
+          chargeType,
+          invoiceNumber: inv.invoiceNumber || inv.invoiceNo || inv.invoice,
+          invoiceDate: inv.invoiceDate,
+          createdBy: getUserFullName(inv.createdBy || inv.createdByUser || inv.updatedBy || inv.updatedByUser || ''),
+          openingGross,
+          openingReceiptAmount,
+          openingTds,
+          openingDeduction,
+          openingBalance,
+        });
+      }
+
+      if (periodGross > 0) {
+        summaryMap[key].periodInvoiceRows.push({
+          plant,
+          inventoryType,
+          chargeType,
+          invoiceNumber: inv.invoiceNumber || inv.invoiceNo || inv.invoice,
+          invoiceDate: inv.invoiceDate,
+          periodGross,
+        });
+      }
+
+      relevantReceipts.forEach(receipt => {
+        const receiptDate = parseDate(receipt.paymentDate || receipt.receiptDate || receipt.postingDate || receipt.date || '');
+        if (!receiptDate || !filterFromDate || !filterToDate) return;
+        const fromDateValue = parseDate(filterFromDate);
+        const toDateValue = parseDate(filterToDate);
+        if (!fromDateValue || !toDateValue) return;
+        if (receiptDate >= fromDateValue && receiptDate <= toDateValue) {
+          const receiptAmount = Number(receipt.receiptAmount || 0);
+          const receiptTds = Number(receipt.tds || 0);
+          const receiptDeduction = Number(receipt.deduction || 0);
+          summaryMap[key].receiptRows.push({
+            plant,
+            inventoryType,
+            chargeType,
+            invoiceNumber: inv.invoiceNumber || inv.invoiceNo || inv.invoice,
+            paymentDate: receipt.paymentDate,
+            entryBy: getUserFullName(receipt.updatedBy || receipt.createdBy || receipt.entryBy || receipt.userId || receipt.userName || ''),
+            receiptAmount,
+            tds: receiptTds,
+            deduction: receiptDeduction,
+            paymentMode: receipt.paymentMode,
+            bankingUtr: receipt.bankingUtr,
+            paymentAdviceNo: receipt.paymentAdviceNo,
+          });
+          if (receiptTds > 0) {
+            summaryMap[key].tdsRows.push({
+              plant,
+              inventoryType,
+              chargeType,
+              invoiceNumber: inv.invoiceNumber || inv.invoiceNo || inv.invoice,
+              paymentDate: receipt.paymentDate,
+              tds: receiptTds,
+            });
+          }
+          if (receiptDeduction > 0) {
+            summaryMap[key].deductionRows.push({
+              plant,
+              inventoryType,
+              chargeType,
+              invoiceNumber: inv.invoiceNumber || inv.invoiceNo || inv.invoice,
+              paymentDate: receipt.paymentDate,
+              deduction: receiptDeduction,
+              deductionRemark: receipt.deductionRemark || '',
+            });
+          }
+        }
+      });
+
+      summaryMap[key].closingRows.push({
+        plant,
+        inventoryType,
+        chargeType,
+        invoiceNumber: inv.invoiceNumber || inv.invoiceNo || inv.invoice,
+        invoiceDate: inv.invoiceDate,
+        openingBalance,
+        periodGross,
+        periodReceiptAmount,
+        periodTds,
+        periodDeduction,
+        closingBalance,
+      });
     });
 
     return Object.values(summaryMap);
-  }, [invoices, receipts]);
+  }, [filterChargeType, filterFromDate, filterInventoryType, filterToDate, invoices, receipts]);
 
   const sortedData = useMemo(() => {
     if (!sortConfig) return processedData;
     return [...processedData].sort((a, b) => {
       const aVal = a[sortConfig.key as keyof SummaryData];
       const bVal = b[sortConfig.key as keyof SummaryData];
-      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        return sortConfig.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      }
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return sortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
+      }
       return 0;
     });
   }, [processedData, sortConfig]);
@@ -190,70 +358,36 @@ export default function MB5B() {
   const handleDrilldown = (row: SummaryData, type: PopupType) => {
     setPopupType(type);
     let data: any[] = [];
-    const invoiceNumbers = row.invoices.map(i => i.invoiceNumber);
-    const relatedReceipts = receipts.filter(r => invoiceNumbers.includes(r.invoiceNo) && r.status !== "Reversed");
 
     switch (type) {
+      case 'opening':
+        setPopupTitle('Opening Amount Details');
+        data = row.openingInvoiceRows;
+        break;
       case 'invoice':
-        setPopupTitle("Invoice Gross Amount Details");
-        data = row.invoices.map(inv => ({
-          plantId: inv.plantId,
-          invoiceNumber: inv.invoiceNumber,
-          invoiceDate: inv.invoiceDate,
-          chargeType: inv.docCategory,
-          taxableAmount: inv.totals?.taxableAmount || 0,
-          cgst: inv.totals?.cgst || 0,
-          sgst: inv.totals?.sgst || 0,
-          igst: inv.totals?.igst || 0,
-          grossAmount: inv.totals?.grossAmount || 0,
-          createdBy: inv.createdBy, // Assuming this field exists
-        }));
+        setPopupTitle('Invoice Gross Amount Details');
+        data = row.periodInvoiceRows;
         break;
       case 'receipt':
-        setPopupTitle("Receipt Amount Details");
-        data = row.invoices.map(inv => {
-            const invReceipts = relatedReceipts.filter(r => r.invoiceNo === inv.invoiceNumber);
-            const receiptAmount = invReceipts.reduce((sum, r) => sum + Number(r.receiptAmount || 0), 0);
-            const tds = invReceipts.reduce((sum, r) => sum + Number(r.tds || 0), 0);
-            const deduction = invReceipts.reduce((sum, r) => sum + Number(r.deduction || 0), 0);
-            const paymentDate = invReceipts[0]?.paymentDate || '';
-            const paymentEntryBy = invReceipts[0]?.updatedBy || invReceipts[0]?.createdBy || ''; // Logic for last user
-            const balanceAmount = (inv.totals?.grossAmount || 0) - receiptAmount - tds - deduction;
-
-            return {
-                plantId: inv.plantId,
-                invoiceNumber: inv.invoiceNumber,
-                invoiceDate: inv.invoiceDate,
-                chargeType: inv.docCategory,
-                grossAmount: inv.totals?.grossAmount || 0,
-                receiptAmount,
-                tds,
-                deduction,
-                paymentDate,
-                balanceAmount,
-                paymentEntryBy,
-            };
-        });
+        setPopupTitle('Receipt Amount Details');
+        data = row.receiptRows;
+        break;
+      case 'tds':
+        setPopupTitle('TDS Details');
+        data = row.tdsRows;
         break;
       case 'deduction':
-        setPopupTitle("Deduction Details");
-        data = relatedReceipts
-            .filter(r => (Number(r.deduction) || 0) > 0)
-            .map(r => {
-                const inv = row.invoices.find(i => i.invoiceNumber === r.invoiceNo);
-                return {
-                    plantId: inv?.plantId,
-                    invoiceNumber: r.invoiceNo,
-                    invoiceDate: inv?.invoiceDate,
-                    chargeType: inv?.docCategory,
-                    deductionAmount: Number(r.deduction) || 0,
-                    deductionRemark: r.deductionRemark || '',
-                    paymentDate: r.paymentDate,
-                    paymentEntryBy: r.updatedBy || r.createdBy,
-                };
-            });
+        setPopupTitle('Deduction Details');
+        data = row.deductionRows;
         break;
+      case 'closing':
+        setPopupTitle('Closing Balance Details');
+        data = row.closingRows;
+        break;
+      default:
+        data = [];
     }
+
     setPopupData(data);
   };
 
@@ -261,15 +395,15 @@ export default function MB5B() {
     if (data.length === 0) return;
     const headers = Object.keys(data[0]);
     const csvContent = [
-      headers.join(","),
-      ...data.map(row => headers.map(header => `"${row[header] || ''}"`).join(","))
-    ].join("\n");
+      headers.join(','),
+      ...data.map(row => headers.map(header => `"${row[header] || ''}"`).join(',')),
+    ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `${title.replace(/\s/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${title.replace(/\s/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -281,92 +415,99 @@ export default function MB5B() {
     const headers = popupData.length > 0 ? Object.keys(popupData[0]) : [];
 
     return (
-        <Dialog open={!!popupType} onOpenChange={(isOpen) => !isOpen && setPopupType(null)}>
-            <DialogContent className="max-w-7xl h-[80vh] flex flex-col">
-                <DialogHeader className="flex-row items-center justify-between">
-                    <DialogTitle>{popupTitle}</DialogTitle>
-                    <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" onClick={() => handleExport(popupData, popupTitle)}><Download className="h-4 w-4 mr-2" />Export CSV</Button>
-                        <DialogClose asChild>
-                            <Button variant="ghost" size="icon"><X className="h-4 w-4" /></Button>
-                        </DialogClose>
-                    </div>
-                </DialogHeader>
-                <div className="flex-1 overflow-auto">
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                {headers.map(h => <TableHead key={h}>{h.replace(/([A-Z])/g, ' $1').trim()}</TableHead>)}
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {popupData.length === 0 ? (
-                                <TableRow><TableCell colSpan={headers.length} className="text-center">No records found.</TableCell></TableRow>
-                            ) : popupData.map((row, idx) => (
-                                <TableRow key={idx}>
-                                    {headers.map(h => <TableCell key={h}>{typeof row[h] === 'number' ? row[h].toFixed(2) : row[h]}</TableCell>)}
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </div>
-            </DialogContent>
-        </Dialog>
+      <Dialog open={!!popupType} onOpenChange={(isOpen) => !isOpen && setPopupType(null)}>
+        <DialogContent className="max-w-7xl h-[80vh] flex flex-col">
+          <DialogHeader className="flex-row items-center justify-between">
+            <DialogTitle>{popupTitle}</DialogTitle>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => handleExport(popupData, popupTitle)}>
+                <Download className="h-4 w-4 mr-2" />Export CSV
+              </Button>
+              <DialogClose asChild>
+                <Button variant="ghost" size="icon"><X className="h-4 w-4" /></Button>
+              </DialogClose>
+            </div>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  {headers.map(h => <TableHead key={h}>{h.replace(/([A-Z])/g, ' $1').trim()}</TableHead>)}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {popupData.length === 0 ? (
+                  <TableRow><TableCell colSpan={headers.length} className="text-center">No records found.</TableCell></TableRow>
+                ) : popupData.map((row, idx) => (
+                  <TableRow key={idx}>
+                    {headers.map(h => <TableCell key={h}>{typeof row[h] === 'number' ? row[h].toFixed(2) : row[h]}</TableCell>)}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </DialogContent>
+      </Dialog>
     );
   };
 
   if (!showReport) {
     return (
       <div className="w-full flex flex-col bg-white min-h-full select-text">
-        <div className="sap-header-title">MB5B – Payment Summary Report</div>
+        <div className="sap-header-title">MB5B – Outstanding Ledger Report</div>
         <div className="bg-[#e7ebf1] border-b border-[#b5c7de] p-4 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 items-end">
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-gray-500 uppercase">Plant</label>
-            <PlantMultiSelect
-              plants={plants}
-              selected={filterPlants}
-              onChange={setFilterPlants}
-              placeholder="Select Plants"
-            />
+            <PlantMultiSelect plants={plants} selected={filterPlants} onChange={setFilterPlants} placeholder="Select Plants" />
           </div>
+
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-gray-500 uppercase">Inventory Type</label>
             <Select value={filterInventoryType} onValueChange={setFilterInventoryType}>
               <SelectTrigger className="h-8 rounded-none border-gray-400 bg-white text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All</SelectItem>
-            <SelectItem value="Service Invoice">Service Invoice</SelectItem>
-            <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
-            <SelectItem value="Credit Note">Credit Note</SelectItem>
-            <SelectItem value="Debit Note">Debit Note</SelectItem>
-            <SelectItem value="Delivery Challan">Delivery Challan</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="space-y-1">
-        <label className="text-[10px] font-bold text-gray-500 uppercase">Consignor Name</label>
-        <Select value={filterConsignor} onValueChange={setFilterConsignor}>
-          <SelectTrigger className="h-8 rounded-none border-gray-400 bg-white text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All</SelectItem>
-            {firms?.map(f => (
-              <SelectItem key={f.id} value={(f.firmId || f.consignorCode || f.id || "").toString()}>
-                {f.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+                <SelectItem value="Service Invoice">Service Invoice</SelectItem>
+                <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold text-gray-500 uppercase">Charge Type</label>
+            <Input value={filterChargeType} onChange={e => setFilterChargeType(e.target.value)} placeholder="e.g. Warehouse Rent" className="h-8 rounded-none border-gray-400 bg-white text-xs" />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold text-gray-500 uppercase">Consignor Name</label>
+            <Select value={filterConsignor} onValueChange={setFilterConsignor}>
+              <SelectTrigger className="h-8 rounded-none border-gray-400 bg-white text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All</SelectItem>
+                {firms?.map(f => (
+                  <SelectItem key={f.id} value={(f.firmId || f.consignorCode || f.id || '').toString()}>
+                    {(f.consignorCode || f.firmId || f.id || '').toString()} - {f.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-gray-500 uppercase">Bill to Party</label>
             <Select value={filterBillTo} onValueChange={setFilterBillTo}>
               <SelectTrigger className="h-8 rounded-none border-gray-400 bg-white text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All</SelectItem>
-                {customers?.map(c => <SelectItem key={c.id} value={c.customerId}>{c.name}</SelectItem>)}
+                {customers?.map(c => (
+                  <SelectItem key={c.id || c.customerId} value={c.customerId || c.id}>
+                    {(c.customerId || c.id)} - {c.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
+
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-gray-500 uppercase">From Date</label>
             <Input type="date" value={filterFromDate} onChange={e => setFilterFromDate(e.target.value)} className="h-8 rounded-none border-gray-400 bg-white text-xs" />
@@ -375,6 +516,7 @@ export default function MB5B() {
             <label className="text-[10px] font-bold text-gray-500 uppercase">To Date</label>
             <Input type="date" value={filterToDate} onChange={e => setFilterToDate(e.target.value)} className="h-8 rounded-none border-gray-400 bg-white text-xs" />
           </div>
+
           <div className="col-span-full flex justify-end">
             <Button onClick={handleExecute} className="h-8 rounded-none bg-blue-700 hover:bg-blue-800 text-sm font-bold gap-2 shadow-sm">
               <Search className="h-4 w-4" /> Execute
@@ -388,9 +530,9 @@ export default function MB5B() {
   return (
     <div className="w-full flex flex-col bg-white min-h-full select-text">
       <div className="sap-header-title flex justify-between items-center">
-        <span>MB5B – Payment Summary Report</span>
+        <span>MB5B – Outstanding Ledger Report</span>
         <Button onClick={() => setShowReport(false)} variant="outline" size="sm">
-            <Filter className="h-4 w-4 mr-2" /> Change Filters
+          <Filter className="h-4 w-4 mr-2" /> Change Filters
         </Button>
       </div>
 
@@ -403,42 +545,55 @@ export default function MB5B() {
           <Table className="sap-alv-grid">
             <TableHeader className="sap-alv-header">
               <TableRow>
+                <TableHead onClick={() => handleSort('plant')} className="cursor-pointer"><div className="flex items-center">Plant <SortIcon col="plant" /></div></TableHead>
                 <TableHead onClick={() => handleSort('inventoryType')} className="cursor-pointer"><div className="flex items-center">Inventory Type <SortIcon col="inventoryType" /></div></TableHead>
-                <TableHead onClick={() => handleSort('documentType')} className="cursor-pointer"><div className="flex items-center">Document Type <SortIcon col="documentType" /></div></TableHead>
                 <TableHead onClick={() => handleSort('chargeType')} className="cursor-pointer"><div className="flex items-center">Charge Type <SortIcon col="chargeType" /></div></TableHead>
-                <TableHead onClick={() => handleSort('invoiceGrossAmount')} className="cursor-pointer text-right"><div className="flex items-center justify-end">Invoice Gross Amount <SortIcon col="invoiceGrossAmount" /></div></TableHead>
-                <TableHead onClick={() => handleSort('receiptAmount')} className="cursor-pointer text-right"><div className="flex items-center justify-end">Receipt Amount <SortIcon col="receiptAmount" /></div></TableHead>
+                <TableHead onClick={() => handleSort('openingAmount')} className="cursor-pointer text-right"><div className="flex items-center justify-end">Opening Amount <SortIcon col="openingAmount" /></div></TableHead>
+                <TableHead onClick={() => handleSort('grossAmount')} className="cursor-pointer text-right"><div className="flex items-center justify-end">Invoice Gross Amount <SortIcon col="grossAmount" /></div></TableHead>
+                <TableHead onClick={() => handleSort('receiptsTotal')} className="cursor-pointer text-right"><div className="flex items-center justify-end">Receipt Amount <SortIcon col="receiptsTotal" /></div></TableHead>
                 <TableHead onClick={() => handleSort('tds')} className="cursor-pointer text-right"><div className="flex items-center justify-end">TDS <SortIcon col="tds" /></div></TableHead>
                 <TableHead onClick={() => handleSort('deduction')} className="cursor-pointer text-right"><div className="flex items-center justify-end">Deduction <SortIcon col="deduction" /></div></TableHead>
-                <TableHead onClick={() => handleSort('balanceAmount')} className="cursor-pointer text-right"><div className="flex items-center justify-end">Balance Amount <SortIcon col="balanceAmount" /></div></TableHead>
+                <TableHead onClick={() => handleSort('balanceAmount')} className="cursor-pointer text-right"><div className="flex items-center justify-end">Closing Balance <SortIcon col="balanceAmount" /></div></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {sortedData.map((row, idx) => (
                 <TableRow key={idx}>
+                  <TableCell>{row.plant}</TableCell>
                   <TableCell>{row.inventoryType}</TableCell>
-                  <TableCell>{row.documentType}</TableCell>
                   <TableCell>{row.chargeType}</TableCell>
                   <TableCell className="text-right font-mono">
-                    <span className="cursor-pointer text-blue-600 hover:underline" onClick={() => handleDrilldown(row, 'invoice')}>
-                      {row.invoiceGrossAmount.toFixed(2)}
-                    </span>
+                    <span className="cursor-pointer text-blue-600 hover:underline" onClick={() => handleDrilldown(row, 'opening')}>{row.openingAmount.toFixed(2)}</span>
                   </TableCell>
                   <TableCell className="text-right font-mono">
-                     <span className="cursor-pointer text-blue-600 hover:underline" onClick={() => handleDrilldown(row, 'receipt')}>
-                        {row.receiptAmount.toFixed(2)}
-                    </span>
+                    <span className="cursor-pointer text-blue-600 hover:underline" onClick={() => handleDrilldown(row, 'invoice')}>{row.grossAmount.toFixed(2)}</span>
                   </TableCell>
-                  <TableCell className="text-right font-mono">{row.tds.toFixed(2)}</TableCell>
                   <TableCell className="text-right font-mono">
-                    <span className="cursor-pointer text-blue-600 hover:underline" onClick={() => handleDrilldown(row, 'deduction')}>
-                        {row.deduction.toFixed(2)}
-                    </span>
+                    <span className="cursor-pointer text-blue-600 hover:underline" onClick={() => handleDrilldown(row, 'receipt')}>{row.receiptsTotal.toFixed(2)}</span>
                   </TableCell>
-                  <TableCell className="text-right font-mono">{row.balanceAmount.toFixed(2)}</TableCell>
+                  <TableCell className="text-right font-mono">
+                    <span className="cursor-pointer text-blue-600 hover:underline" onClick={() => handleDrilldown(row, 'tds')}>{row.tds.toFixed(2)}</span>
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    <span className="cursor-pointer text-blue-600 hover:underline" onClick={() => handleDrilldown(row, 'deduction')}>{row.deduction.toFixed(2)}</span>
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    <span className="cursor-pointer text-blue-600 hover:underline" onClick={() => handleDrilldown(row, 'closing')}>{row.balanceAmount.toFixed(2)}</span>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
+            <TableFooter>
+              <TableRow className="bg-gray-100 font-bold">
+                <TableCell colSpan={3}>Grand Total</TableCell>
+                <TableCell className="text-right">{sortedData.reduce((sum, row) => sum + row.openingAmount, 0).toFixed(2)}</TableCell>
+                <TableCell className="text-right">{sortedData.reduce((sum, row) => sum + row.grossAmount, 0).toFixed(2)}</TableCell>
+                <TableCell className="text-right">{sortedData.reduce((sum, row) => sum + row.receiptsTotal, 0).toFixed(2)}</TableCell>
+                <TableCell className="text-right">{sortedData.reduce((sum, row) => sum + row.tds, 0).toFixed(2)}</TableCell>
+                <TableCell className="text-right">{sortedData.reduce((sum, row) => sum + row.deduction, 0).toFixed(2)}</TableCell>
+                <TableCell className="text-right">{sortedData.reduce((sum, row) => sum + row.balanceAmount, 0).toFixed(2)}</TableCell>
+              </TableRow>
+            </TableFooter>
           </Table>
         )}
       </div>

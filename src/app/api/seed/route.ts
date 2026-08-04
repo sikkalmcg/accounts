@@ -16,6 +16,7 @@ const ALL_TCODES = [
   'IRN01', 'IRN02', 'IRN03',
   'ZINV',
   'FB03', 'F110',
+  'MB5B',
   'F51', 'F52', 'F53',
   'SU01', 'SU02', 'SU03'
 ];
