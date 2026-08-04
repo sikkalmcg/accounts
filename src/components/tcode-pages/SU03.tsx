@@ -92,7 +92,10 @@ export default function SU03() {
               <TableHead onClick={() => handleSort('role')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Role <SortIcon column="role" /></div>
               </TableHead>
-              <TableHead className="text-[11px] font-bold text-center w-24">T-Codes</TableHead>
+              <TableHead onClick={() => handleSort('updatedAt')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center justify-center">Last Updated <SortIcon column="updatedAt" /></div>
+              </TableHead>
+              <TableHead className="text-[11px] font-bold text-center w-24">Audit</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -107,7 +110,8 @@ export default function SU03() {
                   {u.assignedPlantIds?.length > 0 ? u.assignedPlantIds.join(", ") : (u.assignedPlantId || "-")}
                 </TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r uppercase italic text-gray-600">{u.role}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] text-center font-mono font-black text-gray-400">{u.tcodePermissions?.length || 0}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center">{u.updatedAt ? new Date(u.updatedAt).toLocaleDateString() : '-'}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] text-center font-mono font-black text-gray-400">{(u.editHistory?.length || 0) > 0 ? u.editHistory.length : '-'}</TableCell>
               </TableRow>
             ))}
           </TableBody>

@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useDatabase, useCollection, useMemoDatabase, setDocumentNonBlocking } from "@/database";
-import { collection, query, where, getDocs, doc, serverTimestamp } from "@/database/mongo";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useDatabase, useCollection, useMemoDatabase, setDocumentNonBlocking, updateDocumentNonBlocking } from "@/database";
+import { collection, query, where, getDocs, doc, serverTimestamp, orderBy } from "@/database/mongo";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,6 +16,8 @@ const initialUser = {
   name: "",
   assignedPlantIds: [] as string[],
   role: "user",
+  tcodePermissions: ["DB01"],
+  editHistory: [] as any[],
 };
 
 // Every transaction code in the system, grouped by functional module.
@@ -41,13 +44,20 @@ const TCODE_GROUPS: Record<string, { label: string; codes: string[] }> = {
 const ALL_TCODES = Object.values(TCODE_GROUPS).flatMap(g => g.codes);
 
 export default function SU01() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const db = useDatabase();
   const [formData, setFormData] = useState(initialUser);
   const [permissions, setPermissions] = useState<string[]>(["DB01"]);
   const [loading, setLoading] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editSnapshot, setEditSnapshot] = useState<any>(null);
 
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
   const { data: plants, isLoading: isPlantsLoading } = useCollection(plantsQuery);
+  const usersQuery = useMemoDatabase(() => query(collection(db, "users"), orderBy("createdAt", "desc")), [db]);
+  const { data: users } = useCollection(usersQuery);
 
   const primaryTcodes = Object.keys(TCODE_GROUPS).sort();
 
@@ -83,6 +93,34 @@ export default function SU01() {
   const selectAll = () => setPermissions(ALL_TCODES);
   const selectNone = () => setPermissions(["DB01"]);
 
+  useEffect(() => {
+    const editUserId = searchParams.get("editUser");
+    if (!editUserId || !users) return;
+    const user = users.find(u => u.id === editUserId);
+    if (!user) return;
+
+    setSelectedUserId(editUserId);
+    setIsEditMode(true);
+    setEditSnapshot(user);
+    setFormData({
+      ...initialUser,
+      ...user,
+      assignedPlantIds: user.assignedPlantIds || (user.assignedPlantId ? [user.assignedPlantId] : []),
+      tcodePermissions: user.tcodePermissions || ["DB01"],
+      editHistory: user.editHistory || [],
+    });
+    setPermissions(user.tcodePermissions || ["DB01"]);
+  }, [searchParams, users]);
+
+  const resetForm = () => {
+    setFormData(initialUser);
+    setPermissions(["DB01"]);
+    setSelectedUserId(null);
+    setIsEditMode(false);
+    setEditSnapshot(null);
+    router.replace("/tcode/SU01", { scroll: false });
+  };
+
   const handleExecute = useCallback(async () => {
     if (!formData.username || !formData.password || formData.assignedPlantIds.length === 0) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Mandatory fields missing", isError: true } }));
@@ -92,7 +130,31 @@ export default function SU01() {
     try {
       const q = query(collection(db, "users"), where("username", "==", formData.username));
       const snap = await getDocs(q);
-      if (!snap.empty) throw new Error("Duplicate User");
+      if (!snap.empty && (!isEditMode || snap.docs[0].id !== selectedUserId)) throw new Error("Duplicate User");
+
+      if (isEditMode && selectedUserId) {
+        const userRef = doc(db, "users", selectedUserId);
+        const historyEntry = {
+          timestamp: serverTimestamp(),
+          updatedBy: formData.username,
+          before: editSnapshot,
+          after: {
+            ...formData,
+            tcodePermissions: permissions,
+          },
+        };
+
+        updateDocumentNonBlocking(userRef, {
+          ...formData,
+          tcodePermissions: permissions,
+          updatedAt: serverTimestamp(),
+          editHistory: [...(formData.editHistory || []), historyEntry],
+        });
+
+        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `User ${formData.username} updated`, isError: false } }));
+        resetForm();
+        return;
+      }
 
       const newUserRef = doc(collection(db, "users"));
       setDocumentNonBlocking(newUserRef, {
@@ -100,6 +162,8 @@ export default function SU01() {
         id: newUserRef.id,
         tcodePermissions: permissions,
         createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        editHistory: [],
       });
 
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `User ${formData.username} created`, isError: false } }));
@@ -110,7 +174,7 @@ export default function SU01() {
     } finally {
       setLoading(false);
     }
-  }, [formData, permissions, db]);
+  }, [formData, permissions, db, isEditMode, selectedUserId, editSnapshot, router]);
 
   useEffect(() => {
     window.addEventListener('sap-execute', handleExecute);
@@ -120,7 +184,9 @@ export default function SU01() {
   return (
     <div className="w-full flex flex-col bg-white min-h-full">
       <div className="bg-[#dae8f5] px-4 py-1 border-b border-gray-300">
-        <h2 className="text-[13px] font-bold text-gray-800 uppercase italic tracking-wider">User Maintenance: Create</h2>
+        <h2 className="text-[13px] font-bold text-gray-800 uppercase italic tracking-wider">
+          User Maintenance: {isEditMode ? "Edit" : "Create"}
+        </h2>
       </div>
 
       <div className="p-4 space-y-6 flex-1 overflow-auto">
@@ -155,7 +221,7 @@ export default function SU01() {
               <Button onClick={selectNone} variant="ghost" className="h-6 text-[10px] uppercase font-bold">Reset</Button>
             </div>
           </div>
-          <div className="p-4 space-y-5 max-h-[500px] overflow-y-auto no-scrollbar">
+          <div className="p-4 space-y-5 max-h-[420px] overflow-y-auto no-scrollbar">
             {primaryTcodes.map(code => {
               const groupCodes = TCODE_GROUPS[code].codes;
               const allSelected = groupCodes.every(c => permissions.includes(c));
@@ -184,6 +250,31 @@ export default function SU01() {
             Each page (Create/Change/Display) is assigned individually. Check module header to grant all pages in that module.
           </div>
         </div>
+
+        {isEditMode && (
+          <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-white">
+            <div className="bg-[#dae8f5] px-3 py-1 border-b font-semibold text-[12px] text-gray-700">Audit Trail</div>
+            <div className="p-4 space-y-3 max-h-[260px] overflow-y-auto no-scrollbar text-[11px] text-gray-700">
+              {formData.editHistory?.length > 0 ? (
+                formData.editHistory.map((entry: any, idx: number) => (
+                  <div key={idx} className="rounded-sm border border-gray-200 bg-[#f9fbff] p-3">
+                    <div className="flex items-center justify-between gap-2 text-[10px] uppercase font-bold text-gray-500 mb-2">
+                      <span>Revision {idx + 1}</span>
+                      <span>{new Date(entry.timestamp).toLocaleString()}</span>
+                    </div>
+                    <div className="space-y-1">
+                      <div><span className="font-black">Updated By:</span> {entry.updatedBy || "System"}</div>
+                      <div><span className="font-black">Before:</span> {entry.before?.name || entry.before?.username || "-"}</div>
+                      <div><span className="font-black">After:</span> {entry.after?.name || entry.after?.username || "-"}</div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-[10px] text-gray-500">No audit history recorded for this user yet.</div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

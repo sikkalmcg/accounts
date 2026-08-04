@@ -15,6 +15,7 @@ import XK03 from "@/components/tcode-pages/XK03";
 import VK11 from "@/components/tcode-pages/VK11";
 import VK12 from "@/components/tcode-pages/VK12";
 import VK13 from "@/components/tcode-pages/VK13";
+import MB5B from "@/components/tcode-pages/MB5B";
 
 import VOF01 from "@/components/tcode-pages/VOF01";
 import VOF02 from "@/components/tcode-pages/VOF02";
@@ -95,6 +96,7 @@ export const TCODE_MAP: Record<string, { title: string; component: React.ReactNo
   // Finance
   FB03: { title: "Invoice Payment Status", component: <FB03 />, isDisplayOnly: true },
   MB03: { title: "Payment Record", component: <MB03 />, isDisplayOnly: true },
+  MB5B: { title: "Payment List", component: <MB5B />, isDisplayOnly: true },
   MBST: { title: "Reverse Payment / Modify Payment", component: <MBST /> },
   F110: { title: "Payment Proof Report", component: <F110 />, isDisplayOnly: true },
   F51: { title: "Post Outgoing Payment", component: <F51 /> },

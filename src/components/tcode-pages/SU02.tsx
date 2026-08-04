@@ -2,8 +2,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking } from "@/database";
-import { collection, doc, query, orderBy } from "@/database/mongo";
+import { collection, doc, query, orderBy, serverTimestamp } from "@/database/mongo";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -33,6 +34,7 @@ const TCODE_GROUPS: Record<string, { label: string; codes: string[] }> = {
 };
 
 export default function SU02() {
+  const router = useRouter();
   const db = useDatabase();
   const [selectedUserId, setSelectedUserId] = useState("");
   const [formData, setFormData] = useState<any>(null);
@@ -56,6 +58,7 @@ export default function SU02() {
         tcodePermissions: user.tcodePermissions || ["DB01"]
       });
       setSelectedUserId(id);
+      router.push(`/tcode/SU01?editUser=${encodeURIComponent(id)}`);
     }
   };
 
@@ -93,8 +96,8 @@ export default function SU02() {
 
   const handleExecute = useCallback(async () => {
     if (!formData || !selectedUserId) {
-      window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "Error: No user selected for modification", isError: true } 
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "Error: No user selected for modification", isError: true }
       }));
       return;
     }
@@ -103,13 +106,28 @@ export default function SU02() {
     try {
       const userRef = doc(db, "users", selectedUserId);
       const { id, assignedPlantId, ...dataToUpdate } = formData;
-      updateDocumentNonBlocking(userRef, dataToUpdate);
-      window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: `User ${formData.username} profile updated successfully`, isError: false } 
+      const historyEntry = {
+        timestamp: serverTimestamp(),
+        updatedBy: formData.username,
+        before: formData,
+        after: {
+          ...formData,
+          tcodePermissions: formData.tcodePermissions || ["DB01"],
+        },
+      };
+
+      updateDocumentNonBlocking(userRef, {
+        ...dataToUpdate,
+        updatedAt: serverTimestamp(),
+        editHistory: [...(formData.editHistory || []), historyEntry],
+      });
+
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: `User ${formData.username} profile updated successfully`, isError: false }
       }));
     } catch (e) {
-      window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "System Error: Failed to update user profile", isError: true } 
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "System Error: Failed to update user profile", isError: true }
       }));
     } finally {
       setLoading(false);

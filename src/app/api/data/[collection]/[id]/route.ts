@@ -25,7 +25,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ collection: string; id: string }> }) {
   const { collection, id } = await params;
   if (!valid(collection)) return NextResponse.json({ error: 'Invalid collection' }, { status: 400 });
-  const data = await request.json(); delete data.id; delete data._id;
+  const data = await request.json();
+  delete data.id;
+  delete data._id;
+  delete data.createdAt;
   const filter = idFilter(id);
   let db;
   try {
@@ -34,7 +37,14 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     console.error('MongoDB PUT failed, using fallback DB', err);
     db = getFallbackDb();
   }
-  const result = await (await db).collection(collection).findOneAndUpdate(filter, { $set: { ...data, updatedAt: new Date() }, $setOnInsert: { createdAt: new Date(), ...(filter._id ? {} : { id }) } }, { upsert: true, returnDocument: 'after' });
+  const result = await (await db).collection(collection).findOneAndUpdate(
+    filter,
+    {
+      $set: { ...data, updatedAt: new Date() },
+      $setOnInsert: { createdAt: new Date(), ...(filter._id ? {} : { id }) },
+    },
+    { upsert: true, returnDocument: 'after' }
+  );
   return NextResponse.json({ ...result!, id: result!._id.toString(), _id: undefined });
 }
 

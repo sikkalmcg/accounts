@@ -1,16 +1,52 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
-import { format, startOfQuarter } from "date-fns";
+import { useState, useMemo, useEffect } from "react";
+import { format, startOfQuarter, parseISO, isValid } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDatabase, useCollection, useMemoDatabase } from "@/database";
 import { collection, query, orderBy } from "@/database/mongo";
-import { Search, ArrowUpDown, ChevronUp, ChevronDown, Download, Receipt, Wallet, ArrowRight, MinusCircle, PlusCircle, Eye, X } from "lucide-react";
+import { ArrowUpDown, ChevronUp, ChevronDown, Download, Receipt, Wallet, ArrowRight, MinusCircle, PlusCircle, Eye, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import Image from "next/image";
+
+// Helper function to safely normalize invoice dates into YYYY-MM-DD for comparison
+const parseInvoiceDateToISO = (dateStr: string): string | null => {
+  if (!dateStr) return null;
+
+  // Handles YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+    return dateStr.substring(0, 10);
+  }
+
+  // Handles DD-MMM-YYYY (e.g., 01-Jan-2026 or 15-AUG-2026)
+  const monthMap: Record<string, string> = {
+    jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+    jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
+  };
+
+  const parts = dateStr.split(/[-/]/);
+  if (parts.length === 3) {
+    if (parts[0].length === 4) {
+      // YYYY/MM/DD
+      return `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`;
+    }
+    const day = parts[0].padStart(2, "0");
+    const month = monthMap[parts[1].toLowerCase()] || parts[1].padStart(2, "0");
+    const year = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
+    return `${year}-${month}-${day}`;
+  }
+
+  return null;
+};
+
+const normalizeKey = (value: unknown): string => (value ?? "").toString().trim().toUpperCase();
+
+const getInvoiceNumberKey = (invoice: any): string => normalizeKey(invoice?.invoiceNumber || invoice?.invoiceNo || invoice?.invoice || "");
+
+const getInvoicePlantKey = (invoice: any): string => normalizeKey(invoice?.plantId || invoice?.plantCode || invoice?.plant || "");
 
 export default function MB03() {
   const db = useDatabase();
@@ -33,8 +69,7 @@ export default function MB03() {
   const [filterBillTo, setFilterBillTo] = useState("ALL");
   const [filterConsignor, setFilterConsignor] = useState("ALL");
   const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [isExecuted, setIsExecuted] = useState(false);
+  const [toDate, setToDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
   // 3. Default Date Range: First day of current quarter -> Today
@@ -42,7 +77,6 @@ export default function MB03() {
     const now = new Date();
     const quarterStart = startOfQuarter(now);
     setFromDate(format(quarterStart, "yyyy-MM-dd"));
-    setToDate(format(now, "yyyy-MM-dd"));
   }, []);
 
   // 4. Master Data Queries
@@ -69,11 +103,17 @@ export default function MB03() {
 
   const customerMap = useMemo(() => {
     const map: Record<string, any> = {};
-    customers?.forEach(c => { map[c.customerId] = c; });
+    customers?.forEach(c => {
+      const aliases = [c.customerId, c.code, c.id, c.customerCode].filter(Boolean);
+      aliases.forEach(alias => {
+        const key = normalizeKey(alias);
+        if (key) map[key] = c;
+      });
+    });
     return map;
   }, [customers]);
 
-const firmMap = useMemo(() => {
+  const firmMap = useMemo(() => {
     const map: Record<string, any> = {};
     firms?.forEach(f => {
       const ids = Array.isArray(f.assignedPlantIds) && f.assignedPlantIds.length > 0
@@ -84,8 +124,6 @@ const firmMap = useMemo(() => {
     return map;
   }, [firms]);
 
-  // Map a selected Consignor (firm id) to the set of plantIds it is assigned to,
-  // so the filter can match invoices across all plants of that consignor.
   const consignorPlantMap = useMemo(() => {
     const map: Record<string, Set<string>> = {};
     firms?.forEach(f => {
@@ -99,73 +137,91 @@ const firmMap = useMemo(() => {
     return map;
   }, [firms]);
 
-// Aggregate receipts by Plant_InvoiceNo key (separate posted vs reversed)
   const invoiceReceiptMap = useMemo(() => {
     const map: Record<string, any> = {};
+    const invoiceOnlyMap: Record<string, any> = {};
+
     allReceipts?.forEach(r => {
-      const key = `${r.plantId}_${r.invoiceNo}`;
-      if (!map[key]) {
-        map[key] = {
-          receiptAmount: 0,
-          tds: 0,
-          deduction: 0,
-          reversedAmount: 0,
-          reversedTds: 0,
-          reversedDeduction: 0,
-          deductionRemark: "",
-          paymentDate: "",
-          paymentAdviceNo: "",
-          bankingUtr: "",
-          proofData: null,
-          paymentMode: "",
-        };
-      }
-      const amount = Number(r.receiptAmount) || 0;
-      const tds = Number(r.tds) || 0;
-      const deduction = Number(r.deduction) || 0;
-      if (r.status === "Reversed") {
-        map[key].reversedAmount += amount;
-        map[key].reversedTds += tds;
-        map[key].reversedDeduction += deduction;
-      } else {
-        map[key].receiptAmount += amount;
-        map[key].tds += tds;
-        map[key].deduction += deduction;
-      }
-      if (r.deductionRemark) map[key].deductionRemark = r.deductionRemark;
-      if (r.paymentDate) map[key].paymentDate = r.paymentDate;
-      if (r.paymentAdviceNo) map[key].paymentAdviceNo = r.paymentAdviceNo;
-      if (r.bankingUtr) map[key].bankingUtr = r.bankingUtr;
-      if (r.proofData) map[key].proofData = r.proofData;
-      if (r.paymentMode) map[key].paymentMode = r.paymentMode;
+      const plantKey = normalizeKey(r.plantId || r.plantCode || r.plant || "");
+      const invoiceKey = normalizeKey(r.invoiceNo || r.invoiceNumber || r.invoice || "");
+      const plantInvoiceKey = plantKey && invoiceKey ? `${plantKey}_${invoiceKey}` : invoiceKey;
+
+      const updateEntry = (target: Record<string, any>, key: string) => {
+        if (!target[key]) {
+          target[key] = {
+            receiptAmount: 0,
+            tds: 0,
+            deduction: 0,
+            reversedAmount: 0,
+            reversedTds: 0,
+            reversedDeduction: 0,
+            deductionRemark: "",
+            paymentDate: "",
+            paymentAdviceNo: "",
+            bankingUtr: "",
+            proofData: null,
+            paymentMode: "",
+          };
+        }
+
+        const amount = Number(r.receiptAmount) || 0;
+        const tds = Number(r.tds) || 0;
+        const deduction = Number(r.deduction) || 0;
+        if (r.status === "Reversed") {
+          target[key].reversedAmount += amount;
+          target[key].reversedTds += tds;
+          target[key].reversedDeduction += deduction;
+        } else {
+          target[key].receiptAmount += amount;
+          target[key].tds += tds;
+          target[key].deduction += deduction;
+        }
+        if (r.deductionRemark) target[key].deductionRemark = r.deductionRemark;
+        if (r.paymentDate) target[key].paymentDate = r.paymentDate;
+        if (r.paymentAdviceNo) target[key].paymentAdviceNo = r.paymentAdviceNo;
+        if (r.bankingUtr) target[key].bankingUtr = r.bankingUtr;
+        if (r.proofData) target[key].proofData = r.proofData;
+        if (r.paymentMode) target[key].paymentMode = r.paymentMode;
+      };
+
+      if (plantInvoiceKey) updateEntry(map, plantInvoiceKey);
+      if (invoiceKey) updateEntry(invoiceOnlyMap, invoiceKey);
     });
-    return map;
+
+    return { map, invoiceOnlyMap };
   }, [allReceipts]);
 
   // Main Processing Logic
   const processedData = useMemo(() => {
     if (!allInvoices) return [];
 
-    const monthMap: Record<string, string> = {
-      Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06",
-      Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12",
-    };
-
     let base = allInvoices.filter(inv => {
-      if (!isAdmin && inv.plantId !== assignedPlantId) return false;
+      if (!isAdmin && assignedPlantId && inv.plantId !== assignedPlantId) return false;
       if (inv.status === "Cancelled") return false;
       if (filterPlant !== "ALL" && inv.plantId !== filterPlant) return false;
-      if (filterBillTo !== "ALL" && inv.billTo !== filterBillTo) return false;
-if (filterConsignor !== "ALL") {
-        const plantsOfConsignor = consignorPlantMap[filterConsignor];
-        if (!plantsOfConsignor || !plantsOfConsignor.has(inv.plantId)) return false;
+      
+      // Bill-To Filter Fix
+      if (filterBillTo !== "ALL") {
+        const billToValues = [
+          inv.billTo,
+          inv.customerCode,
+          inv.customerId,
+          inv.billToParty,
+          inv.billToCode,
+        ].filter(Boolean).map(value => normalizeKey(value));
+        if (!billToValues.includes(normalizeKey(filterBillTo))) return false;
       }
 
-      // Date range filter (invoiceDate is in DD-MMM-YYYY format)
-      if ((fromDate || toDate) && inv.invoiceDate) {
-        const parts = inv.invoiceDate.split("-");
-        if (parts.length === 3) {
-          const invISO = `${parts[2]}-${monthMap[parts[1]] || "01"}-${parts[0]}`;
+      // Consignor Filter Fix
+      if (filterConsignor !== "ALL") {
+        const plantsOfConsignor = consignorPlantMap[filterConsignor] || new Set();
+        if (!plantsOfConsignor.has(inv.plantId)) return false;
+      }
+
+      // Safe Date Range Filtering
+      if (fromDate || toDate) {
+        const invISO = parseInvoiceDateToISO(inv.invoiceDate);
+        if (invISO) {
           if (fromDate && invISO < fromDate) return false;
           if (toDate && invISO > toDate) return false;
         }
@@ -174,20 +230,32 @@ if (filterConsignor !== "ALL") {
       return true;
     });
 
-return base.map(inv => {
-      const key = `${inv.plantId}_${inv.invoiceNumber}`;
-      const receipt = invoiceReceiptMap[key] || {
+    return base.map(inv => {
+      const invoiceNumberKey = getInvoiceNumberKey(inv);
+      const plantKey = getInvoicePlantKey(inv);
+      const key = plantKey && invoiceNumberKey ? `${plantKey}_${invoiceNumberKey}` : invoiceNumberKey;
+      const receipt = invoiceReceiptMap.map[key] || invoiceReceiptMap.invoiceOnlyMap[invoiceNumberKey] || {
         receiptAmount: 0, tds: 0, deduction: 0, reversedAmount: 0, reversedTds: 0, reversedDeduction: 0, deductionRemark: "",
         paymentDate: "", paymentAdviceNo: "", bankingUtr: "", proofData: null, paymentMode: "",
       };
-      const gross = inv.totals?.grossAmount || 0;
+      const gross = inv.totals?.grossAmount || inv.grossAmount || 0;
       const totalCollection = (receipt.receiptAmount || 0) + (receipt.tds || 0) + (receipt.deduction || 0);
       const totalReversed = (receipt.reversedAmount || 0) + (receipt.reversedTds || 0) + (receipt.reversedDeduction || 0);
       const firm = firmMap[inv.plantId];
-      const consignee = customerMap[inv.billTo];
+      
+      const billToCandidates = [
+        inv.billTo,
+        inv.customerCode,
+        inv.customerId,
+        inv.billToParty,
+        inv.billToCode,
+      ].filter(Boolean);
+      const billToKey = billToCandidates.map(value => normalizeKey(value)).find(Boolean) || "";
+      const consignee = customerMap[billToKey] || customerMap[normalizeKey(inv.customerId)] || customerMap[normalizeKey(inv.customerCode)] || customerMap[normalizeKey(inv.billTo)] || customerMap[normalizeKey(inv.billToParty)];
 
       return {
         ...inv,
+        invoiceNumber: inv.invoiceNumber || inv.invoiceNo,
         receiptAmount: receipt.receiptAmount,
         tdsAmount: receipt.tds,
         deductionAmount: receipt.deduction,
@@ -200,7 +268,8 @@ return base.map(inv => {
         balanceAmount: gross - totalCollection + totalReversed,
         consignorName: firm?.name || "N/A",
         consignorGstin: firm?.gstin || "N/A",
-        billToName: consignee?.name || inv.billTo || "N/A",
+        billToCode: consignee?.customerId || consignee?.code || consignee?.id || billToCandidates[0] || "N/A",
+        billToName: consignee?.name || inv.billToName || inv.customerName || billToCandidates[0] || "N/A",
         billToGstin: consignee?.gstin || "N/A",
       };
     });
@@ -210,7 +279,7 @@ return base.map(inv => {
   const summary = useMemo(() => {
     return processedData.reduce(
       (acc, curr) => ({
-        total: acc.total + (curr.totals?.grossAmount || 0),
+        total: acc.total + (curr.totals?.grossAmount || curr.grossAmount || 0),
         receipt: acc.receipt + (curr.receiptAmount || 0),
         tds: acc.tds + (curr.tdsAmount || 0),
         deduction: acc.deduction + (curr.deductionAmount || 0),
@@ -252,27 +321,12 @@ return base.map(inv => {
     setSortConfig({ key, direction });
   };
 
-  const handleExecute = useCallback(() => {
-    setIsExecuted(true);
-    window.dispatchEvent(
-      new CustomEvent("sap-status", {
-        detail: { text: `Payment records loaded: ${processedData.length} document(s)`, isError: false },
-      })
-    );
-  }, [processedData.length]);
-
-  useEffect(() => {
-    const handler = () => handleExecute();
-    window.addEventListener("sap-execute", handler);
-    return () => window.removeEventListener("sap-execute", handler);
-  }, [handleExecute]);
-
   const handleExport = () => {
     if (sortedData.length === 0) return;
     const csvContent = [
       [
-        "#", "Plant", "Invoice No", "Invoice Date", "Doc Type",
-        "Bill-to Party", "Consignor", "Taxable Amt", "CGST", "SGST", "IGST",
+        "#", "Plant", "Invoice No", "Invoice Date", "Working Month", "Doc Type", "Charge Type",
+        "Bill-to Code", "Bill-to Party Name", "Consignor", "Item Description", "Taxable Amt", "CGST", "SGST", "IGST",
         "Gross Amount", "Receipt Amt", "TDS Amt", "Deduction Amt",
         "Deduction Remark", "Payment Date", "Bank UTR", "Payment Advice", "Balance",
       ].join(","),
@@ -282,14 +336,18 @@ return base.map(inv => {
           row.plantId,
           row.invoiceNumber,
           row.invoiceDate,
+          row.billMonth || "",
           row.docType || "",
+          row.docCategory || "",
+          `"${row.billToCode}"`,
           `"${row.billToName}"`,
           `"${row.consignorName}"`,
+          `"${row.items?.[0]?.desc || ""}"`,
           row.totals?.taxableAmount || 0,
           row.totals?.cgst || 0,
           row.totals?.sgst || 0,
           row.totals?.igst || 0,
-          row.totals?.grossAmount || 0,
+          row.totals?.grossAmount || row.grossAmount || 0,
           row.receiptAmount || 0,
           row.tdsAmount || 0,
           row.deductionAmount || 0,
@@ -310,11 +368,6 @@ return base.map(inv => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    window.dispatchEvent(
-      new CustomEvent("sap-status", {
-        detail: { text: "CSV Export triggered successfully", isError: false },
-      })
-    );
   };
 
   return (
@@ -332,36 +385,42 @@ return base.map(inv => {
             <SelectContent>
               <SelectItem value="ALL">All Plants</SelectItem>
               {filteredPlants.map(p => (
-                <SelectItem key={p.id} value={p.plantId}>
+                <SelectItem key={p.id || p.plantId} value={p.plantId}>
                   {p.plantId} - {p.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
+
+        {/* Bill To Party Dropdown Fix - Customer Code prioritized */}
         <div className="space-y-1">
           <label className="text-[10px] font-bold text-gray-500 uppercase">Bill-to Party</label>
           <Select value={filterBillTo} onValueChange={setFilterBillTo}>
             <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
               <SelectValue />
             </SelectTrigger>
-<SelectContent>
+            <SelectContent>
               <SelectItem value="ALL">All Parties</SelectItem>
-              {customers?.map(c => (
-                <SelectItem key={c.id} value={c.customerId}>
-                  {c.customerId} - {c.name}
-                </SelectItem>
-              ))}
+              {customers?.map(c => {
+                const code = c.customerId || c.code || c.id;
+                return (
+                  <SelectItem key={c.id || code} value={code}>
+                    {code} - {c.name}
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
         </div>
+
         <div className="space-y-1">
           <label className="text-[10px] font-bold text-gray-500 uppercase">Consignor</label>
           <Select value={filterConsignor} onValueChange={setFilterConsignor}>
             <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
               <SelectValue />
             </SelectTrigger>
-<SelectContent>
+            <SelectContent>
               <SelectItem value="ALL">All Consignors</SelectItem>
               {firms?.map(f => (
                 <SelectItem key={f.id} value={f.firmId || f.consignorCode || f.id}>
@@ -371,6 +430,7 @@ return base.map(inv => {
             </SelectContent>
           </Select>
         </div>
+
         <div className="space-y-1">
           <label className="text-[10px] font-bold text-gray-500 uppercase">From Date</label>
           <Input
@@ -380,6 +440,7 @@ return base.map(inv => {
             className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"
           />
         </div>
+
         <div className="space-y-1">
           <label className="text-[10px] font-bold text-gray-500 uppercase">To Date</label>
           <Input
@@ -447,12 +508,6 @@ return base.map(inv => {
         </h3>
         <div className="flex gap-2">
           <Button
-            onClick={handleExecute}
-            className="h-6 rounded-none bg-green-700 hover:bg-green-800 text-[10px] font-bold uppercase gap-1.5 shadow-sm"
-          >
-            <Search className="h-3.5 w-3.5" /> Execute (F8)
-          </Button>
-          <Button
             onClick={handleExport}
             variant="outline"
             className="h-6 rounded-none bg-white border-gray-400 text-emerald-700 text-[10px] font-bold uppercase gap-1.5 shadow-sm hover:bg-emerald-50"
@@ -464,13 +519,13 @@ return base.map(inv => {
 
       {/* ALV Grid */}
       <div className="flex-1 overflow-auto bg-white no-scrollbar">
-        <Table className="min-w-[2200px] sap-alv-grid">
+<Table className="min-w-[3000px] sap-alv-grid">
           <TableHeader className="sap-alv-header">
             <TableRow className="h-8 border-b-[#b5c7de]">
-              <TableHead className="w-12 text-center text-[10px] font-bold border-r border-[#b5c7de]">#</TableHead>
+              <TableHead className="w-10 text-center text-[10px] font-bold border-r border-[#b5c7de]">#</TableHead>
               <TableHead
                 onClick={() => handleSort("plantId")}
-                className="w-20 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"
+                className="w-24 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"
               >
                 <div className="flex items-center">
                   Plant <SortIcon col="plantId" />
@@ -478,7 +533,7 @@ return base.map(inv => {
               </TableHead>
               <TableHead
                 onClick={() => handleSort("invoiceNumber")}
-                className="w-36 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"
+                className="w-40 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"
               >
                 <div className="flex items-center">
                   Invoice No <SortIcon col="invoiceNumber" />
@@ -486,20 +541,42 @@ return base.map(inv => {
               </TableHead>
               <TableHead
                 onClick={() => handleSort("invoiceDate")}
-                className="w-28 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"
+                className="w-32 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"
               >
                 <div className="flex items-center">
                   Inv. Date <SortIcon col="invoiceDate" />
                 </div>
               </TableHead>
-              <TableHead className="w-24 text-[10px] font-bold border-r border-[#b5c7de] text-center">
+              <TableHead
+                onClick={() => handleSort("billMonth")}
+                className="w-32 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"
+              >
+                <div className="flex items-center">
+                  Working Month <SortIcon col="billMonth" />
+                </div>
+              </TableHead>
+              <TableHead className="w-28 text-[10px] font-bold border-r border-[#b5c7de] text-center">
                 Doc Type
               </TableHead>
-              <TableHead className="w-40 text-[10px] font-bold border-r border-[#b5c7de]">
-                Bill-to Party
+              <TableHead
+                onClick={() => handleSort("docCategory")}
+                className="w-36 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"
+              >
+                <div className="flex items-center">
+                  Charge Type <SortIcon col="docCategory" />
+                </div>
               </TableHead>
-              <TableHead className="w-36 text-[10px] font-bold border-r border-[#b5c7de]">
+              <TableHead className="w-28 text-[10px] font-bold border-r border-[#b5c7de]">
+                Bill-to Code
+              </TableHead>
+              <TableHead className="w-52 text-[10px] font-bold border-r border-[#b5c7de]">
+                Bill-to Party Name
+              </TableHead>
+              <TableHead className="w-44 text-[10px] font-bold border-r border-[#b5c7de]">
                 Consignor
+              </TableHead>
+              <TableHead className="w-48 text-[10px] font-bold border-r border-[#b5c7de]">
+                Item Description
               </TableHead>
               <TableHead
                 onClick={() => handleSort("totals.taxableAmount")}
@@ -575,26 +652,17 @@ return base.map(inv => {
           <TableBody>
             {isInvoicesLoading ? (
               <TableRow>
-                <TableCell
-                  colSpan={20}
+<TableCell
+                  colSpan={24}
                   className="text-center py-20 text-[11px] uppercase tracking-widest animate-pulse"
                 >
                   Loading Payment Records...
                 </TableCell>
               </TableRow>
-            ) : !isExecuted ? (
+            ) : sortedData.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={20}
-                  className="text-center py-20 text-[11px] font-bold text-gray-400 uppercase tracking-widest"
-                >
-                  Set filters and Execute (F8) to display records
-                </TableCell>
-              </TableRow>
-            ) : processedData.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={20}
+                  colSpan={24}
                   className="text-center py-20 text-[11px] font-bold text-orange-600 uppercase"
                 >
                   No payment records found for the selected criteria
@@ -603,7 +671,7 @@ return base.map(inv => {
             ) : (
               sortedData.map((row, idx) => (
                 <TableRow
-                  key={`${row.plantId}_${row.invoiceNumber}`}
+                  key={`${row.plantId}_${row.invoiceNumber}_${idx}`}
                   className="h-8 hover:bg-blue-50/30 transition-colors border-b border-gray-100 group"
                 >
                   <TableCell className="p-0 text-center text-[10px] border-r border-gray-100 text-gray-400 group-hover:text-blue-600">
@@ -615,17 +683,36 @@ return base.map(inv => {
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono font-black text-blue-800">
                     {row.invoiceNumber}
                   </TableCell>
-                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">
+<TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">
                     {row.invoiceDate}
+                  </TableCell>
+                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center text-blue-700">
+                    {row.billMonth || "-"}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase text-center">
                     {row.docType || "-"}
                   </TableCell>
-                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 truncate max-w-[150px] font-semibold">
+                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase text-center">
+                    {row.docCategory || "-"}
+                  </TableCell>
+                  
+                  {/* Bill to Code cell */}
+                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-blue-900 font-bold">
+                    {row.billToCode}
+                  </TableCell>
+
+{/* Bill to Party Name cell */}
+                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-semibold whitespace-normal">
                     {row.billToName}
                   </TableCell>
-                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 truncate max-w-[130px]">
+
+                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 whitespace-normal">
                     {row.consignorName}
+                  </TableCell>
+
+                  {/* Item Description cell */}
+                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 whitespace-normal">
+                    {row.items?.[0]?.desc || "-"}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono">
                     {(row.totals?.taxableAmount || 0).toLocaleString()}
@@ -640,7 +727,7 @@ return base.map(inv => {
                     {(row.totals?.igst || 0).toLocaleString()}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-black text-blue-900 bg-blue-50/20">
-                    {(row.totals?.grossAmount || 0).toLocaleString()}
+                    {(row.totals?.grossAmount || row.grossAmount || 0).toLocaleString()}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-emerald-700 bg-emerald-50/20">
                     {(row.receiptAmount || 0).toLocaleString()}
@@ -654,7 +741,7 @@ return base.map(inv => {
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">
                     {row.paymentDate || "-"}
                   </TableCell>
-                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono truncate max-w-[100px]">
+<TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono whitespace-normal">
                     {row.bankingUtr || "-"}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">
@@ -760,4 +847,3 @@ return base.map(inv => {
     </div>
   );
 }
-

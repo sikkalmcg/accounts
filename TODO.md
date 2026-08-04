@@ -1,17 +1,17 @@
-# ERP Change Request - Implementation Todos
+# Fix MB5B "Database connection temporarily unavailable" error
 
-## Page MB03
-- [ ] 1. Bill to Party dropdown: show only Bill to Party Name + Code (no plant link, no plant name)
-- [ ] 2. Consignor dropdown: show only Consignor Name (no plant link, no plant name)
-- [ ] 3. Search logic: All Plants shows all Invoice/Payment records matching selected Bill to Party / Consignor across all plants
+## Root Cause
+`mongoQuery` in `src/database/mongo.ts` produces invalid MongoDB operators:
+- `in` → `$eq` (should be `$in`)
+- `>=` → `$<=` (should be `$gte`)
+- `<=` → `$<=` (should be `$lte`)
+- Multiple filters on the same field (e.g. `invoiceDate` `>=` and `<=`) overwrite each other via `Object.fromEntries`.
 
-## Page VOF02 / VOF03
-- [ ] 4. Store `plantIds` array on billing_types records
-- [ ] 5. VOF02: on save, update/create per-plant records for each selected plant
-- [ ] 6. VOF02: display all selected plants joined in Plant column
-- [ ] 7. VOF03: display all selected plants joined in Plant column
+This causes the API route to throw and return the misleading 503 "Database connection is temporarily unavailable."
 
-## Page FB03
-- [ ] 8. Rename field "Consignee (Bill To)" -> "Bill to Party"
-- [ ] 9. Bill to Party dropdown: show only Name + Code (no plant link, no plant name)
-- [ ] 10. Search records by selected Bill to Party across all applicable plants
+## Steps
+- [x] Diagnose root cause (verified DB connection works; API returns 200 for valid queries)
+- [x] Fix `mongoQuery` operator mapping (`==`→`$eq`, `>`→`$gt`, `>=`→`$gte`, `<`→`$lt`, `<=`→`$lte`, `in`→`$in`)
+- [x] Merge multiple filters on the same field into a single operator object
+- [ ] Run type check (`npx tsc --noEmit`)
+- [ ] Verify MB5B query returns 200

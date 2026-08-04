@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from "@/database";
-import { collection, doc } from "@/database/mongo";
+import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking, deleteDocumentNonBlocking, addDocumentNonBlocking } from "@/database";
+import { collection, doc, query, where, getDocs, serverTimestamp } from "@/database/mongo";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import PlantMultiSelect from "./PlantMultiSelect";
 
 type EditForm = {
   id: string;
+  originalPlantId: string;
   plantIds: string[];
   inventoryType: string;
   documentType: string;
@@ -37,25 +38,45 @@ export default function VOF02() {
   const filteredRecords = useMemo(() => {
     if (!billingTypes) return [];
     let filtered = billingTypes;
+    
+    // Filter records based on selected plant filter
     if (selectedPlants.length > 0) {
-      filtered = filtered.filter(r => selectedPlants.includes(r.plantId));
+      filtered = filtered.filter(r => {
+        const recordPlants = Array.isArray(r.plantIds) && r.plantIds.length > 0 
+          ? r.plantIds 
+          : (r.plantId ? [r.plantId] : []);
+        return recordPlants.some((p: string) => selectedPlants.includes(p));
+      });
     }
+
     const q = search.trim().toLowerCase();
     if (q) {
-      filtered = filtered.filter(r =>
-        r.plantId?.toLowerCase().includes(q) ||
-        r.documentType?.toLowerCase().includes(q) ||
-        r.documentCategory?.toLowerCase().includes(q) ||
-        r.inventoryType?.toLowerCase().includes(q)
-      );
+      filtered = filtered.filter(r => {
+        const plantString = Array.isArray(r.plantIds) ? r.plantIds.join(" ") : (r.plantId || "");
+        return (
+          plantString.toLowerCase().includes(q) ||
+          r.documentType?.toLowerCase().includes(q) ||
+          r.documentCategory?.toLowerCase().includes(q) ||
+          r.inventoryType?.toLowerCase().includes(q)
+        );
+      });
     }
     return filtered;
   }, [billingTypes, search, selectedPlants]);
 
   const openEdit = (record: any) => {
+    // Collect all plant IDs whether stored as array or single plantId string
+    let initialPlantIds: string[] = [];
+    if (Array.isArray(record.plantIds) && record.plantIds.length > 0) {
+      initialPlantIds = record.plantIds;
+    } else if (record.plantId) {
+      initialPlantIds = [record.plantId];
+    }
+
     setEditing({
       id: record.id,
-      plantIds: record.plantId ? [record.plantId] : [],
+      originalPlantId: record.plantId || (initialPlantIds[0] ?? ""),
+      plantIds: initialPlantIds,
       inventoryType: record.inventoryType || "",
       documentType: record.documentType || "",
       documentCategory: record.documentCategory || "",
@@ -74,7 +95,9 @@ export default function VOF02() {
   const validateForm = (): string[] => {
     if (!editing) return [];
     const errs: string[] = [];
-    if (editing.plantIds.length === 0) errs.push("At least one Plant ID is mandatory");
+    if (!editing.plantIds || editing.plantIds.length === 0) {
+      errs.push("At least one Plant ID is mandatory");
+    }
     if (!editing.documentType.trim() && !editing.documentCategory.trim()) {
       errs.push("Provide either Document Type or Charge Type");
     }
@@ -98,19 +121,28 @@ export default function VOF02() {
       const docCat = editing.documentCategory.trim().toUpperCase();
       const invType = editing.inventoryType;
 
-      for (const plantId of editing.plantIds) {
-        const payload = {
-          plantId,
-          inventoryType: invType,
-          documentType: docType,
-          documentCategory: docCat,
-          updatedAt: new Date().toISOString(),
-        };
-        updateDocumentNonBlocking(doc(db, "billing_types", editing.id), payload);
-      }
+      const billingTypesCollection = collection(db, "billing_types");
+      let updatedCount = 0;
+      let createdCount = 0;
+
+      // Update current document with full multi-plant list
+      const primaryPayload = {
+        plantId: editing.plantIds[0] || "",
+        plantIds: editing.plantIds, // Multi-plant array saved directly
+        inventoryType: invType,
+        documentType: docType,
+        documentCategory: docCat,
+        updatedAt: new Date().toISOString(),
+      };
+
+      updateDocumentNonBlocking(doc(db, "billing_types", editing.id), primaryPayload);
+      updatedCount++;
 
       window.dispatchEvent(new CustomEvent('sap-status', {
-        detail: { text: `Billing type updated across ${editing.plantIds.length} plant(s)`, isError: false }
+        detail: {
+          text: `Billing type updated successfully for ${editing.plantIds.length} plant(s)`,
+          isError: false
+        }
       }));
       setEditing(null);
     } catch (error) {
@@ -123,7 +155,7 @@ export default function VOF02() {
   };
 
   const handleDelete = async (id: string, plantId: string, docType: string) => {
-    if (!confirm(`Are you sure you want to delete billing type "${docType || '-'}" for Plant ${plantId}?`)) return;
+    if (!confirm(`Are you sure you want to delete billing type "${docType || '-'}"?`)) return;
     setDeletingId(id);
     try {
       deleteDocumentNonBlocking(doc(db, "billing_types", id));
@@ -185,7 +217,7 @@ export default function VOF02() {
               <TableHeader className="bg-[#e7ebf1]">
                 <TableRow className="h-8">
                   <TableHead className="text-[11px] font-bold border-r w-10 text-center">#</TableHead>
-                  <TableHead className="text-[11px] font-bold border-r w-48">Plant ID</TableHead>
+                  <TableHead className="text-[11px] font-bold border-r min-w-[200px]">Plant ID(s)</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-36">Inventory Type</TableHead>
                   <TableHead className="text-[11px] font-bold border-r">Document Type</TableHead>
                   <TableHead className="text-[11px] font-bold border-r">Charge Type</TableHead>
@@ -195,42 +227,61 @@ export default function VOF02() {
               <TableBody>
                 {isBillingLoading ? (
                   <TableRow><TableCell colSpan={6} className="text-center py-10 text-xs flex items-center justify-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> RETRIVING DATA...
+                    <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> RETRIEVING DATA...
                   </TableCell></TableRow>
                 ) : filteredRecords.length === 0 ? (
                   <TableRow><TableCell colSpan={6} className="text-center py-10 text-xs text-red-500 font-bold uppercase">No records found</TableCell></TableRow>
-                ) : filteredRecords.map((r, idx) => (
-                  <TableRow key={r.id} className="h-8 hover:bg-blue-50/30 border-b border-gray-100">
-                    <TableCell className="p-0 text-center text-[10px] border-r text-gray-400">{idx + 1}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r font-mono font-bold text-blue-700">{r.plantId || "-"}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r text-center">{r.inventoryType || "-"}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r">{r.documentType || "-"}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r">{r.documentCategory || "-"}</TableCell>
-                    <TableCell className="p-0 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-blue-600 hover:bg-blue-50"
-                          onClick={() => openEdit(r)}
-                          title="Edit Billing Type"
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-red-500 hover:bg-red-50"
-                          onClick={() => handleDelete(r.id, r.plantId || "", r.documentType || "")}
-                          disabled={deletingId === r.id}
-                          title="Delete Billing Type"
-                        >
-                          {deletingId === r.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                ) : filteredRecords.map((r, idx) => {
+                  // Render plants cleanly as array badges or comma list
+                  const displayPlants: string[] = Array.isArray(r.plantIds) && r.plantIds.length > 0 
+                    ? r.plantIds 
+                    : (r.plantId ? [r.plantId] : []);
+
+                  return (
+                    <TableRow key={r.id} className="h-8 hover:bg-blue-50/30 border-b border-gray-100">
+                      <TableCell className="p-0 text-center text-[10px] border-r text-gray-400">{idx + 1}</TableCell>
+                      <TableCell className="p-1 px-2 text-[10px] border-r font-mono font-bold text-blue-700">
+                        <div className="flex flex-wrap gap-1 items-center">
+                          {displayPlants.length > 0 ? (
+                            displayPlants.map((pid, pIdx) => (
+                              <span key={pIdx} className="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded text-[10px] border border-blue-200">
+                                {pid}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="p-0 px-2 text-[10px] border-r text-center">{r.inventoryType || "-"}</TableCell>
+                      <TableCell className="p-0 px-2 text-[10px] border-r">{r.documentType || "-"}</TableCell>
+                      <TableCell className="p-0 px-2 text-[10px] border-r">{r.documentCategory || "-"}</TableCell>
+                      <TableCell className="p-0 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-blue-600 hover:bg-blue-50"
+                            onClick={() => openEdit(r)}
+                            title="Edit Billing Type"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-red-500 hover:bg-red-50"
+                            onClick={() => handleDelete(r.id, r.plantId || "", r.documentType || "")}
+                            disabled={deletingId === r.id}
+                            title="Delete Billing Type"
+                          >
+                            {deletingId === r.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
@@ -241,7 +292,7 @@ export default function VOF02() {
         </div>
       </div>
 
-<Dialog open={!!editing} onOpenChange={(open) => { if (!open) setEditing(null); }} modal={false}>
+      <Dialog open={!!editing} onOpenChange={(open) => { if (!open) setEditing(null); }} modal={false}>
         <DialogContent className="max-w-xl rounded-none border-gray-400 p-0 overflow-hidden">
           <DialogHeader className="bg-[#333e4f] px-4 py-2.5 border-b border-gray-300">
             <DialogTitle className="text-[13px] font-black uppercase tracking-wider text-white">

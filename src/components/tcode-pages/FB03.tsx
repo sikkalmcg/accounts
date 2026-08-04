@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
@@ -32,6 +31,7 @@ export default function FB03() {
   const [filterConsignee, setFilterConsignee] = useState("ALL");
   const [filterFY, setFilterYear] = useState(getCurrentFinancialYear());
   const [showDetail, setShowDetail] = useState(false);
+  const [showAllInvoices, setShowAllInvoices] = useState(false); // New state to toggle between pending and all invoices
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
   const financialYears = useMemo(() => getFinancialYears(), []);
@@ -55,7 +55,7 @@ export default function FB03() {
     return plants?.filter(p => p.plantId === assignedPlantId) || [];
   }, [plants, isAdmin, assignedPlantId]);
 
-// Aggregate receipts by Invoice Number (separate posted vs reversed)
+  // Aggregate receipts by Invoice Number (separate posted vs reversed)
   const invoiceReceiptMap = useMemo(() => {
     const map: Record<string, any> = {};
     allReceipts?.forEach(r => {
@@ -90,7 +90,8 @@ export default function FB03() {
       if (filterFY !== "ALL" && inv.billYear !== filterFY) return false;
       return true;
     });
-return base.map(inv => {
+
+    return base.map(inv => {
       const receipt = invoiceReceiptMap[inv.invoiceNumber] || { receiptAmount: 0, tds: 0, deduction: 0, reversedAmount: 0, reversedTds: 0, reversedDeduction: 0 };
       const gross = inv.totals?.grossAmount || 0;
       const totalCollection = (receipt.receiptAmount || 0) + (receipt.tds || 0) + (receipt.deduction || 0);
@@ -108,7 +109,11 @@ return base.map(inv => {
     });
   }, [allInvoices, isAdmin, assignedPlantId, filterPlant, filterConsignee, filterFY, invoiceReceiptMap]);
 
+  // Filter for pending invoices (balance > 1)
   const pendingInvoices = useMemo(() => processedData.filter(i => i.balanceAmount > 1), [processedData]);
+
+  // Determine which data set to display based on showAllInvoices state
+  const displayedData = useMemo(() => showAllInvoices ? processedData : pendingInvoices, [showAllInvoices, processedData, pendingInvoices]);
 
   const summary = useMemo(() => {
     return processedData.reduce((acc, curr) => ({
@@ -118,11 +123,12 @@ return base.map(inv => {
       deduction: acc.deduction + (curr.deductionAmount || 0),
       balance: acc.balance + curr.balanceAmount
     }), { total: 0, receipt: 0, tds: 0, deduction: 0, balance: 0 });
-  }, [processedData]);
+  }, [processedData]); // Summary should always reflect the full processed data, not just displayed.
 
   const sortedData = useMemo(() => {
-    if (!sortConfig) return pendingInvoices;
-    return [...pendingInvoices].sort((a, b) => {
+    const dataToSort = showAllInvoices ? processedData : pendingInvoices;
+    if (!sortConfig) return dataToSort;
+    return [...dataToSort].sort((a, b) => {
       let aVal = a[sortConfig.key];
       let bVal = b[sortConfig.key];
       if (sortConfig.key.includes('totals.')) {
@@ -133,8 +139,8 @@ return base.map(inv => {
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
-    });
-  }, [pendingInvoices, sortConfig]);
+    }); // Add showAllInvoices to dependencies
+  }, [showAllInvoices, processedData, pendingInvoices, sortConfig]);
 
   const hasIgst = useMemo(() => pendingInvoices.some(i => (i.totals?.igst || 0) > 0), [pendingInvoices]);
   const hasCsgst = useMemo(() => pendingInvoices.some(i => (i.totals?.cgst || 0) > 0), [pendingInvoices]);
@@ -225,10 +231,15 @@ return base.map(inv => {
             </SelectContent>
           </Select>
         </div>
-        <Button onClick={() => setShowDetail(!showDetail)} className="h-6 rounded-none bg-blue-700 hover:bg-blue-800 text-[11px] font-bold gap-2 shadow-sm">
-          <LayoutDashboard className="h-3.5 w-3.5" />
-          {showDetail ? "Hide Details" : "View Detail"}
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={() => setShowDetail(!showDetail)} className="h-6 rounded-none bg-blue-700 hover:bg-blue-800 text-[11px] font-bold gap-2 shadow-sm">
+            <LayoutDashboard className="h-3.5 w-3.5" />
+            {showDetail ? "Hide Details" : "View Detail"}
+          </Button>
+          <Button onClick={() => setShowAllInvoices(!showAllInvoices)} className={`h-6 rounded-none text-[11px] font-bold gap-2 shadow-sm ${showAllInvoices ? 'bg-gray-500 hover:bg-gray-600' : 'bg-green-600 hover:bg-green-700'}`}>
+            {showAllInvoices ? "Show Pending" : "Show All Invoices"}
+          </Button>
+        </div>
       </div>
 
       <div className="p-4 grid grid-cols-5 gap-4">
@@ -257,7 +268,7 @@ return base.map(inv => {
       {showDetail && (
         <div className="flex-1 flex flex-col animate-in slide-in-from-bottom-4 duration-500 overflow-hidden">
           <div className="bg-[#dae8f5] px-4 py-1.5 border-y border-gray-300 flex items-center justify-between shadow-sm">
-            <h3 className="text-[11px] font-black text-blue-900 uppercase tracking-widest">Pending Payment Invoice Details (ALV Grid)</h3>
+            <h3 className="text-[11px] font-black text-blue-900 uppercase tracking-widest">{showAllInvoices ? "All Invoice Details" : "Pending Payment Invoice Details"} (ALV Grid)</h3>
             <Button onClick={handleExport} variant="outline" className="h-6 rounded-none bg-white border-gray-400 text-emerald-700 text-[10px] font-bold uppercase gap-1.5 shadow-sm hover:bg-emerald-50">
               <Download className="h-3.5 w-3.5" /> Export Excel
             </Button>
@@ -293,11 +304,11 @@ return base.map(inv => {
               </TableHeader>
               <TableBody>
                 {isInvoicesLoading ? (
-                  <TableRow><TableCell colSpan={14} className="text-center py-20 text-[11px] uppercase tracking-widest animate-pulse">Syncing System Records...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={18} className="text-center py-20 text-[11px] uppercase tracking-widest animate-pulse">Syncing System Records...</TableCell></TableRow>
                 ) : sortedData.length === 0 ? (
-                  <TableRow><TableCell colSpan={14} className="text-center py-20 text-[11px] font-bold text-emerald-600 uppercase">All Invoices in this view are fully settled.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={18} className="text-center py-20 text-[11px] font-bold text-emerald-600 uppercase">{showAllInvoices ? "No records found for the selected filters." : "All Invoices in this view are fully settled."}</TableCell></TableRow>
                 ) : sortedData.map((row, idx) => (
-                  <TableRow key={row.id} className="h-8 hover:bg-blue-50/30 transition-colors border-b border-gray-100 group">
+                  <TableRow key={row.id} className={`h-8 hover:bg-blue-50/30 transition-colors border-b border-gray-100 group ${row.balanceAmount <= 1 && showAllInvoices ? 'bg-gray-50/50 text-gray-500' : ''}`}>
                     <TableCell className="p-0 text-center text-[10px] border-r border-gray-100 text-gray-400 group-hover:text-blue-600">{idx + 1}</TableCell>
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-bold text-center">{row.plantId}</TableCell>
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono font-black text-blue-800">{row.invoiceNumber}</TableCell>
@@ -314,8 +325,13 @@ return base.map(inv => {
                     )}
                     {hasIgst && <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{(row.totals?.igst || 0).toLocaleString()}</TableCell>}
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-black text-blue-900 bg-blue-50/20">{(row.totals?.grossAmount || 0).toLocaleString()}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-emerald-700">{(row.paidAmount || 0).toLocaleString()}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] text-right font-black text-red-700 bg-red-50/10">{(row.balanceAmount || 0).toLocaleString()}</TableCell>
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-emerald-700">{(row.receiptAmount || 0).toLocaleString()}</TableCell>
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-orange-700">{(row.tdsAmount || 0).toLocaleString()}</TableCell>
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-purple-700">{(row.deductionAmount || 0).toLocaleString()}</TableCell>
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-center font-mono">{row.paymentDate || "---"}</TableCell>
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-center font-mono">{row.paymentAdviceNo || "---"}</TableCell>
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-center font-mono">{row.bankingUtr || "---"}</TableCell>
+                    <TableCell className={`p-0 px-2 text-[10px] text-right font-black ${row.balanceAmount <= 1 && showAllInvoices ? 'text-gray-500' : 'text-red-700'} bg-red-50/10`}>{(row.balanceAmount || 0).toLocaleString()}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -323,9 +339,9 @@ return base.map(inv => {
           </div>
           <div className="bg-[#333e4f] p-2 flex justify-between items-center text-white text-[10px] font-bold uppercase tracking-widest shadow-inner sticky bottom-0 z-20">
             <div className="flex items-center gap-6"><span>ALV Grid Status: {sortedData.length} Document(s) Displayed</span></div>
-            <div className="flex items-center gap-10 pr-4">
-              <div className="flex flex-col items-end"><span className="opacity-50 text-[8px]">Net Payable</span><span className="text-[12px] font-black text-blue-300">₹ {sortedData.reduce((s, r) => s + (r.totals?.grossAmount || 0), 0).toLocaleString()}</span></div>
-              <div className="flex flex-col items-end border-l border-white/20 pl-6"><span className="opacity-50 text-[8px]">Outstanding</span><span className="text-[12px] font-black text-red-400">₹ {sortedData.reduce((s, r) => s + (r.balanceAmount || 0), 0).toLocaleString()}</span></div>
+            <div className="flex items-center gap-10 pr-4"> {/* Summary should reflect the currently displayed data */}
+              <div className="flex flex-col items-end"><span className="opacity-50 text-[8px]">Net Payable</span><span className="text-[12px] font-black text-blue-300">₹ {displayedData.reduce((s, r) => s + (r.totals?.grossAmount || 0), 0).toLocaleString()}</span></div>
+              <div className="flex flex-col items-end border-l border-white/20 pl-6"><span className="opacity-50 text-[8px]">Outstanding</span><span className="text-[12px] font-black text-red-400">₹ {displayedData.reduce((s, r) => s + (r.balanceAmount || 0), 0).toLocaleString()}</span></div>
             </div>
           </div>
         </div>
