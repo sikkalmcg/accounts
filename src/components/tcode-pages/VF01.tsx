@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -6,7 +5,7 @@ import { useDatabase, useCollection, useMemoDatabase, addDocumentNonBlocking, up
 import { collection, serverTimestamp, query, where, getDocs, doc, orderBy, limit } from "@/database/mongo";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Trash2, Loader2, Columns, X, ChevronDown, Search, AlertCircle } from "lucide-react";
@@ -43,6 +42,14 @@ interface PricingOption {
   validTo?: string;
 }
 
+// Helper to safely extract array of plant IDs from billing record
+const getRecordPlants = (record: any): string[] => {
+  if (Array.isArray(record.plantIds) && record.plantIds.length > 0) {
+    return record.plantIds;
+  }
+  return record.plantId ? [record.plantId] : [];
+};
+
 export default function VF01() {
   const db = useDatabase();
 
@@ -52,7 +59,7 @@ export default function VF01() {
   const [userName, setUserName] = useState("USER");
   const [plantId, setPlantId] = useState("");
   const [invoiceNo, setInvoiceNo] = useState("");
-  const [invoiceDate, setInvoiceDate] = useState(""); // Renamed from 'date'
+  const [invoiceDate, setInvoiceDate] = useState("");
   
   const [billPeriod, setBillPeriod] = useState(format(new Date(), "MMM-yyyy"));
   const [isPickerOpen, setIsPickerOpen] = useState(false);
@@ -60,7 +67,8 @@ export default function VF01() {
   const [docType, setDocType] = useState("Tax Invoice");
   const [docCategory, setDocCategory] = useState("");
   const [billType, setBillType] = useState("BILL UNDER F.C.M.");
-  const [inventoryType, setInventoryType] = useState("");
+  // Default Inventory Type set to "Service Invoice" (Editable)
+  const [inventoryType, setInventoryType] = useState("Service Invoice");
   const [vehicleNo, setVehicleNo] = useState("");
   const [consignorId, setConsignorId] = useState("");
   const [billTo, setBillTo] = useState(""); // Bill to Party
@@ -69,7 +77,7 @@ export default function VF01() {
   const [termsAndConditions, setTermsAndConditions] = useState("");
   const [note, setNote] = useState("");
   
-const [isFetchingOptions, setIsFetchingOptions] = useState(false);
+  const [isFetchingOptions, setIsFetchingOptions] = useState(false);
   const [isGeneratingNo, setIsGeneratingNo] = useState(false);
   const [availableOptions, setAvailableOptions] = useState<PricingOption[]>([]);
   const [noValidPriceRowMaterial, setNoValidPriceRowMaterial] = useState<string>("");
@@ -84,7 +92,7 @@ const [isFetchingOptions, setIsFetchingOptions] = useState(false);
   const [isColumnDialogOpen, setIsColumnDialogOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
-const [items, setItems] = useState<InvoiceItem[]>([
+  const [items, setItems] = useState<InvoiceItem[]>([
     { id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [] }
   ]);
 
@@ -92,15 +100,17 @@ const [items, setItems] = useState<InvoiceItem[]>([
   useEffect(() => {
     const stored = localStorage.getItem("sikka_user");
     if (stored) {
-      const parsed = JSON.parse(stored);
-      const isSysAdmin = parsed.username === "ajaysomra" || parsed.role === 'admin';
-      setIsAdmin(isSysAdmin);
-      setUserName(parsed.name || parsed.username || "USER");
-      const plants = parsed.assignedPlantIds || (parsed.assignedPlantId ? [parsed.assignedPlantId] : []);
-      setAssignedPlantIds(plants);
-      if (!isSysAdmin && plants.length > 0) {
-        setPlantId(plants[0]);
-      }
+      try {
+        const parsed = JSON.parse(stored);
+        const isSysAdmin = parsed.username === "ajaysomra" || parsed.role === 'admin';
+        setIsAdmin(isSysAdmin);
+        setUserName(parsed.name || parsed.username || "USER");
+        const plants = parsed.assignedPlantIds || (parsed.assignedPlantId ? [parsed.assignedPlantId] : []);
+        setAssignedPlantIds(plants);
+        if (!isSysAdmin && plants.length > 0) {
+          setPlantId(plants[0]);
+        }
+      } catch (e) { /* ignore */ }
     }
   }, []);
 
@@ -118,8 +128,6 @@ const [items, setItems] = useState<InvoiceItem[]>([
   // Derived document type flags
   const isNonTax = docType?.toUpperCase() === "NON-TAX INVOICE";
   const isDeliveryChallan = docType?.toUpperCase() === "DELIVERY CHALLAN";
-  const isDebitNote = docType?.toUpperCase() === "DEBIT NOTE";
-  const isTaxInvoice = docType?.toUpperCase() === "TAX INVOICE";
   const showVehicleNo = inventoryType === "Supply Invoice";
   const isRCM = billType === "BILL UNDER R.C.M.";
 
@@ -127,7 +135,7 @@ const [items, setItems] = useState<InvoiceItem[]>([
   useEffect(() => {
     async function generateNextInvoiceNo() {
       if (!plantId || !docType) {
-        setInvoiceNo(""); // Clear if plant or doctype is not set
+        setInvoiceNo("");
         return;
       }
       setIsGeneratingNo(true);
@@ -135,15 +143,12 @@ const [items, setItems] = useState<InvoiceItem[]>([
         const q = query(
           collection(db, "sales_invoices"),
           where("plantId", "==", plantId),
-          // We query all docTypes for the plant to find the latest number regardless of type,
-          // as per the new requirement for a single sequence per plant.
           orderBy("invoiceNumber", "desc"),
           limit(1)
         );
         const snap = await getDocs(q);
 
         if (snap.empty) {
-          // If no invoices exist for the plant, allow manual entry.
           setInvoiceNo(""); 
         } else {
           const lastNo = snap.docs[0].data().invoiceNumber;
@@ -154,7 +159,6 @@ const [items, setItems] = useState<InvoiceItem[]>([
             const basePrefix = lastNo.substring(0, lastNo.length - match[0].length);
             setInvoiceNo(`${basePrefix}${paddedSeq}`);
           } else {
-            // Fallback for non-numeric ending, allow manual entry.
             setInvoiceNo("");
           }
         }
@@ -167,7 +171,7 @@ const [items, setItems] = useState<InvoiceItem[]>([
     generateNextInvoiceNo();
   }, [plantId, db, docType]);
 
-  // 5. Master Data
+  // 5. Master Data Queries
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
   const { data: plants } = useCollection(plantsQuery);
   const billingQuery = useMemoDatabase(() => collection(db, "billing_types"), [db]);
@@ -179,7 +183,6 @@ const [items, setItems] = useState<InvoiceItem[]>([
   const materialsQuery = useMemoDatabase(() => collection(db, "materials"), [db]);
   const { data: materials } = useCollection(materialsQuery);
 
-  // Auto-fetch Consignor Name from Firm Master when plant changes
   // 6. Reference Fetch Logic
   const handleRefFetch = async () => {
     if (!referenceNo || !plantId) {
@@ -214,10 +217,10 @@ const [items, setItems] = useState<InvoiceItem[]>([
       }
       setDocCategory(inv.docCategory);
       setBillType(inv.billType || "BILL UNDER F.C.M.");
-      setInventoryType(inv.inventoryType || "");
+      setInventoryType(inv.inventoryType || "Service Invoice");
       setCustomHeaders(inv.customHeaders || []);
       setNote(inv.note || "");
-setItems(inv.items.map((i: any) => ({ ...i, id: Math.random().toString(), descName: i.descName || i.desc || "" })));
+      setItems(inv.items.map((i: any) => ({ ...i, id: Math.random().toString(), descName: i.descName || i.desc || "" })));
       setReferenceDocId(snap.docs[0].id);
 
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Reference Invoice data mapped successfully", isError: false } }));
@@ -228,8 +231,8 @@ setItems(inv.items.map((i: any) => ({ ...i, id: Math.random().toString(), descNa
     }
   };
 
-  // 7. Pricing Options
-useEffect(() => {
+  // 7. Pricing Options Fetch
+  useEffect(() => {
     async function fetchOptions() {
       if (!plantId || !docCategory || !billTo) {
         setAvailableOptions([]);
@@ -238,7 +241,6 @@ useEffect(() => {
       setIsFetchingOptions(true);
       
       try {
-        // Fetching from VK13 (pricing collection)
         const q = query(
           collection(db, "pricing"),
           where("plantId", "==", plantId),
@@ -249,18 +251,15 @@ useEffect(() => {
         );
         const snap = await getDocs(q);
 
-        // Apply Validity filtering based on the Invoice Date.
-        // The Invoice Date must fall between validFrom and validTo (VK13).
         const invoiceTs = invoiceDate ? new Date(`${invoiceDate}T00:00:00`).getTime() : null;
         const validDocs = snap.docs.filter(doc => {
           const data = doc.data();
-          if (!invoiceTs) return true; // no invoice date -> include all
+          if (!invoiceTs) return true;
           const from = data.validFrom ? new Date(`${data.validFrom}T00:00:00`).getTime() : -Infinity;
           const to = data.validTo ? new Date(`${data.validTo}T00:00:00`).getTime() : Infinity;
           return invoiceTs >= from && invoiceTs <= to;
         });
 
-        // De-duplicate by material code, keeping the valid record for the invoice date.
         const seen = new Set<string>();
         const options: PricingOption[] = validDocs.map(doc => {
           const data = doc.data();
@@ -292,14 +291,17 @@ useEffect(() => {
     fetchOptions();
   }, [plantId, docCategory, billTo, db, materials, inventoryType, docType, invoiceDate]);
 
-// 8. Calculations
+  // 8. Multi-Plant Billing Types Filter (Fixed to support plantIds array)
   const filteredBillingTypes = useMemo(() => {
     if (!billingTypes || !plantId || !inventoryType) return [];
-    return billingTypes.filter(b =>
-      b.plantId === plantId &&
-      b.inventoryType === inventoryType &&
-      b.status === "Active"
-    );
+    return billingTypes.filter(b => {
+      const recPlants = getRecordPlants(b);
+      const matchesPlant = recPlants.includes(plantId);
+      const matchesInventory = b.inventoryType === inventoryType;
+      const isActive = !b.status || b.status === "Active";
+
+      return matchesPlant && matchesInventory && isActive;
+    });
   }, [billingTypes, plantId, inventoryType]);
 
   const filteredDocumentTypes = useMemo(() => {
@@ -310,9 +312,22 @@ useEffect(() => {
     return Array.from(new Set(filteredBillingTypes.filter(b => b.documentCategory).map(b => b.documentCategory!)));
   }, [filteredBillingTypes]);
 
-const noBillingConfigMessage = "No Document Type and Charge Type configured for the selected Plant and Inventory Type.";
-const noValidPriceMessage = "No valid price condition found for the selected Plant, Inventory Type, Document Type, Charge Type, Material Code and Invoice Date.";
-const filteredCustomers = useMemo(() => customers?.filter(c => getRecordPlantIds(c).includes(plantId)) || [], [customers, plantId]);
+  // Reset docType or docCategory if they are invalid for selected Plant / Inventory Type
+  useEffect(() => {
+    if (filteredDocumentTypes.length > 0 && !filteredDocumentTypes.includes(docType)) {
+      setDocType(filteredDocumentTypes[0]);
+    }
+  }, [filteredDocumentTypes, docType]);
+
+  useEffect(() => {
+    if (filteredBillingCategories.length > 0 && !filteredBillingCategories.includes(docCategory)) {
+      setDocCategory("");
+    }
+  }, [filteredBillingCategories, docCategory]);
+
+  const noBillingConfigMessage = "No Document Type and Charge Type configured for the selected Plant and Inventory Type.";
+  const noValidPriceMessage = "No valid price condition found for the selected Plant, Inventory Type, Document Type, Charge Type, Material Code and Invoice Date.";
+  const filteredCustomers = useMemo(() => customers?.filter(c => getRecordPlantIds(c).includes(plantId)) || [], [customers, plantId]);
   
   const totals = useMemo(() => {
     const taxableAmount = items.reduce((acc, i) => acc + (i.amount || 0), 0);
@@ -322,7 +337,7 @@ const filteredCustomers = useMemo(() => customers?.filter(c => getRecordPlantIds
       return { taxableAmount, totalQty, cgst: 0, sgst: 0, igst: 0, grossAmount: taxableAmount, isInterstate: false, avgGst: 0 };
     }
 
-const selectedFirm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
+    const selectedFirm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
     const selectedCustomer = customers?.find(c => c.customerId === billTo);
     const firmStateCode = selectedFirm?.gstin?.substring(0, 2);
     const custStateCode = selectedCustomer?.gstin?.substring(0, 2);
@@ -356,7 +371,7 @@ const selectedFirm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
           return { ...i, customValues: updatedCustom };
         }
 
-let updated = { ...i, [field]: val };
+        let updated = { ...i, [field]: val };
         if (field === 'desc') {
           const selectedOption = availableOptions.find(opt => opt.materialCode === val);
           if (selectedOption) {
@@ -364,11 +379,9 @@ let updated = { ...i, [field]: val };
             updated.rate = String(selectedOption.price);
             updated.uom = selectedOption.uom;
             updated.gstRate = selectedOption.gstRate;
-            // Description from VK13 materialName (fallback to code)
             updated.descName = selectedOption.materialName || selectedOption.materialCode;
             setNoValidPriceRowMaterial("");
           } else {
-            // No valid price condition found for this material & invoice date
             updated.hsn = "";
             updated.rate = "";
             updated.uom = "";
@@ -394,10 +407,9 @@ let updated = { ...i, [field]: val };
     setIsColumnDialogOpen(false);
   };
 
-  // Amount column label based on document type
   const amountColumnLabel = isNonTax ? "Invoice Amount" : isDeliveryChallan ? "Invoice Amount" : "Taxable Amount";
 
-const handleExecute = useCallback(async () => {
+  const handleExecute = useCallback(async () => {
     if (!plantId || !invoiceNo || !billTo || !inventoryType) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Plant, Invoice Number, Bill to Party and Inventory Type are mandatory", isError: true } }));
       return;
@@ -442,7 +454,7 @@ const handleExecute = useCallback(async () => {
         });
       }
 
-const firm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
+      const firm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
       const consignee = customers?.find(c => c.customerId === billTo);
       const shipToParty = customers?.find(c => c.customerId === (isShipToApplicable ? shipTo : billTo));
 
@@ -487,11 +499,11 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `${docLabels.no} ${invoiceNo} posted successfully`, isError: false } }));
       
       setInvoiceNo("");
-      setInventoryType("");
+      setInventoryType("Service Invoice");
       setReferenceNo("");
       setReferenceDocId(null);
       setNote("");
-setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [] }]);
+      setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [] }]);
     } catch (e) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Document posting failed", isError: true } }));
     } finally {
@@ -524,14 +536,16 @@ setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom
                 </Select>
               </div>
 
-              {/* Inventory Type - First field */}
+              {/* Inventory Type - Editable with default "Service Invoice" */}
               <div className="sap-selection-row">
                 <label className="sap-label">Inventory Type *</label>
                 <Select value={inventoryType} onValueChange={setInventoryType}>
-                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
+                    <SelectValue placeholder="Select" />
+                  </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
                     <SelectItem value="Service Invoice">Service Invoice</SelectItem>
+                    <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -544,7 +558,7 @@ setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom
                 </div>
               )}
 
-              {/* Consignor Name - Auto-fetched from Firm Master */}
+              {/* Consignor Name */}
               <div className="sap-selection-row">
                 <label className="sap-label">Consignor Name *</label>
                 <Select value={consignorId} onValueChange={setConsignorId}>
@@ -552,7 +566,7 @@ setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom
                     <SelectValue placeholder="Select Consignor Firm" />
                   </SelectTrigger>
                   <SelectContent>
-{firms?.filter(f => getRecordPlantIds(f).includes(plantId) && f.status !== 'inactive').map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
+                    {firms?.filter(f => getRecordPlantIds(f).includes(plantId) && f.status !== 'inactive').map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -582,9 +596,8 @@ setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom
                   {isGeneratingNo && <Loader2 className="absolute right-2 h-3 w-3 animate-spin text-blue-600" />}
                 </div>
               </div>
-<div className="sap-selection-row"><label className="sap-label">Invoice Date *</label><Input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} /></div>
+              <div className="sap-selection-row"><label className="sap-label">Invoice Date *</label><Input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} /></div>
               
-              {/* Bill to Party (renamed from Consignee) */}
               <div className="sap-selection-row">
                 <label className="sap-label">Bill to Party</label>
                 <Select value={billTo} onValueChange={v => { setBillTo(v); }}>
@@ -641,11 +654,11 @@ setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom
                 </div>
               </div>
 
-{/* Document Type - Master-driven Dropdown */}
+              {/* Document Type - Master-driven Dropdown */}
               <div className="sap-selection-row">
                 <label className="sap-label">Document Type *</label>
                 <Select value={docType} onValueChange={(v) => { setDocType(v); }}>
-                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select Document Type" /></SelectTrigger>
                   <SelectContent>
                     {filteredDocumentTypes.map(type => (
                       <SelectItem key={type} value={type}>{type}</SelectItem>
@@ -657,6 +670,7 @@ setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom
                 </Select>
               </div>
 
+              {/* Charge Type */}
               <div className="sap-selection-row">
                 <label className="sap-label">Charge Type *</label>
                 <Select value={docCategory} onValueChange={v => { setDocCategory(v); if(!isCreditNote) setItems([]); }}>
@@ -673,6 +687,7 @@ setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom
                   </SelectContent>
                 </Select>
               </div>
+
               <div className="sap-selection-row">
                 <label className="sap-label">Bill Type</label>
                 <Select value={billType} onValueChange={setBillType}>
@@ -713,8 +728,8 @@ setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom
                 </DialogContent>
               </Dialog>
             </div>
-<Button onClick={() => setItems([...items, { id: Math.random().toString(), desc: '', descName: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [] }])} variant="ghost" size="sm" className="h-5 text-[10px]"><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
-</div>
+            <Button onClick={() => setItems([...items, { id: Math.random().toString(), desc: '', descName: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [] }])} variant="ghost" size="sm" className="h-5 text-[10px]"><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
+          </div>
           {noValidPriceRowMaterial && (
             <div className="px-3 py-2 bg-red-50 border-b border-red-200 flex items-center gap-2 animate-in slide-in-from-top-1 duration-200">
               <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
@@ -730,9 +745,9 @@ setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom
                 <TableHead className="text-[11px] font-bold border-r">Description</TableHead>
                 <TableHead className="text-[11px] font-bold border-r w-40">Activity</TableHead>
                 {customHeaders.map((h, idx) => <TableHead key={idx} className="text-[11px] font-bold border-r bg-blue-50/20 text-blue-900 min-w-[100px]">{h}</TableHead>)}
-<TableHead className="text-[11px] font-bold border-r w-20 text-center">HSN/SAC</TableHead>
+                <TableHead className="text-[11px] font-bold border-r w-20 text-center">HSN/SAC</TableHead>
                 <TableHead className="text-[11px] font-bold border-r w-24 text-center">Qty</TableHead>
-<TableHead className="text-[11px] font-bold border-r w-20">UOM</TableHead>
+                <TableHead className="text-[11px] font-bold border-r w-20">UOM</TableHead>
                 <TableHead className="text-[11px] font-bold border-r w-20 text-center">GST Rate %</TableHead>
                 <TableHead className="text-[11px] font-bold border-r w-14 text-center">Rate</TableHead>
                 <TableHead className="text-[11px] font-bold text-right w-40 pr-4">{amountColumnLabel}</TableHead>
@@ -743,7 +758,7 @@ setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom
               {items.map((row, idx) => (
                 <TableRow key={row.id} className="h-7 hover:bg-blue-50/30">
                   <TableCell className="p-0 border-r text-center text-[10px] text-gray-500">{idx + 1}</TableCell>
-<TableCell className="p-0 border-r">
+                  <TableCell className="p-0 border-r">
                     <Select value={row.desc} onValueChange={v => updateItem(row.id, 'desc', v)}>
                       <SelectTrigger className="h-full border-none bg-transparent text-xs rounded-none px-2 focus:bg-[#fff9c4]">
                         <SelectValue placeholder="" />
@@ -771,10 +786,10 @@ setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom
                     </TableCell>
                   ))}
                   <TableCell className="p-0 border-r"><Input className="h-full border-none text-center" value={row.hsn} readOnly /></TableCell>
-<TableCell className="p-0 border-r"><Input type="number" className="h-full border-none text-center font-bold text-emerald-800" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} /></TableCell>
+                  <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none text-center font-bold text-emerald-800" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} /></TableCell>
                   <TableCell className="p-0 border-r text-center text-[10px]"><Input className="h-full border-none text-center bg-gray-50 text-xs" value={row.uom} readOnly /></TableCell>
                   <TableCell className="p-0 border-r text-center font-bold text-[10px] text-purple-700"><Input className="h-full border-none text-center bg-gray-50 text-xs" value={row.gstRate ? `${row.gstRate}%` : "-"} readOnly /></TableCell>
-<TableCell className="p-0 border-r"><Input type="number" className="h-full border-none text-center bg-gray-50 font-bold text-emerald-700 text-xs" value={row.rate} readOnly /></TableCell>
+                  <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none text-center bg-gray-50 font-bold text-emerald-700 text-xs" value={row.rate} readOnly /></TableCell>
                   <TableCell className="p-0 border-r bg-gray-50/50 text-right text-[11px] px-2 font-mono pr-4">{row.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
                   <TableCell className="p-0 text-center"><Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => items.length > 1 && setItems(items.filter(i => i.id !== row.id))}><Trash2 className="h-3 w-3" /></Button></TableCell>
                 </TableRow>
@@ -796,7 +811,7 @@ setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom
           </div>
           <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-white shadow-inner">
             <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700 uppercase">Calculation Summary</div>
-          <div className="p-3 space-y-1 text-[11px]">
+            <div className="p-3 space-y-1 text-[11px]">
               {isNonTax ? (
                 <>
                   <div className="flex justify-between border-b pb-1"><span>Invoice Amount</span><span className="font-mono font-bold">{totals.taxableAmount.toLocaleString()}</span></div>

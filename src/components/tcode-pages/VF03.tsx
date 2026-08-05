@@ -228,12 +228,6 @@ const firm = invoice.snapshotFirm || firms?.find(f => getRecordPlantIds(f).inclu
           Amount in Words: {numberToWords(roundedTotal)}
         </div>
 
-        {invoice.billType && (
-          <div className="border-x border-b-2 border-black p-2 px-3 bg-gray-50/50 text-[10px] font-black text-blue-900 uppercase italic tracking-wider">
-            {invoice.billType}
-          </div>
-        )}
-
         {invoice.note && (
           <div className="border-x border-b-2 border-black p-3 bg-white font-bold italic">
             Note: <span className="font-normal not-italic uppercase">{invoice.note}</span>

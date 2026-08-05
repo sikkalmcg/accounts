@@ -98,6 +98,16 @@ export default function VF02() {
     return { no: "Invoice Number", date: "Date" };
   }, [docType]);
 
+  const isLockedByTime = useMemo(() => {
+    if (!invoiceRecord?.irnUpdatedAt) return false; // No IRN update time, not locked
+    if (isAdmin) return false; // Admins can always edit
+
+    const genTime = new Date(invoiceRecord.irnUpdatedAt).getTime();
+    const now = new Date().getTime();
+    const diffHours = (now - genTime) / (1000 * 60 * 60);
+    return diffHours > 24;
+  }, [invoiceRecord, isAdmin]);
+
   const isIrnGenerated = !!invoiceRecord?.irnNumber;
   const isNonTax = docType?.toUpperCase() === "NON-TAX INVOICE" || docType?.toUpperCase() === "NON TAX INVOICE";
   const isDeliveryChallan = docType?.toUpperCase() === "DELIVERY CHALLAN";
@@ -265,7 +275,7 @@ const selectedFirm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
   }, [items, firms, customers, billTo, plantId, isNonTax]);
 
   const updateItem = (id: string, field: keyof InvoiceItem | number, val: string) => {
-    if (isIrnGenerated) return;
+    if (isLockedByTime) return;
     setItems(prev => prev.map(i => {
       if (i.id === id) {
         if (typeof field === 'number') {
@@ -294,7 +304,12 @@ const selectedFirm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
   };
 
 const handleExecute = useCallback(() => {
-    if (!selectedDocId || isIrnGenerated) return;
+    if (!selectedDocId) return;
+
+    if (isLockedByTime) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Editing is not allowed. The IRN was generated more than 24 hours ago.", isError: true } }));
+      return;
+    }
 
     if (!docType || !docCategory) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Valid Document Type and Charge Type must be selected for the selected Plant and Inventory Type", isError: true } }));
@@ -340,7 +355,7 @@ const handleExecute = useCallback(() => {
     });
 
     window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Document ${invoiceNo} updated successfully`, isError: false } }));
-  }, [db, selectedDocId, isIrnGenerated, invoiceDate, billPeriod, docType, docCategory, billType, billTo, shipTo, isShipToApplicable, items, totals, invoiceNo, customHeaders, note, customers]);
+  }, [db, selectedDocId, isLockedByTime, invoiceDate, billPeriod, docType, docCategory, billType, billTo, shipTo, isShipToApplicable, items, totals, invoiceNo, customHeaders, note, customers]);
 
   useEffect(() => {
     const onExec = () => handleExecute();
@@ -394,11 +409,11 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
         {selectedDocId && (
           <div className="space-y-4 animate-in fade-in duration-300">
             {isIrnGenerated && (
-              <Alert variant="destructive" className="rounded-none border-red-200 bg-red-50 py-2">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertTitle className="text-xs font-black uppercase">Document Locked</AlertTitle>
+              <Alert variant={isLockedByTime ? "destructive" : "default"} className={cn("rounded-none py-2", isLockedByTime ? "border-red-200 bg-red-50" : "border-blue-200 bg-blue-50")}>
+                <AlertTriangle className={cn("h-4 w-4", isLockedByTime ? "text-red-600" : "text-blue-600")} />
+                <AlertTitle className={cn("text-xs font-black uppercase", isLockedByTime ? "text-red-700" : "text-blue-700")}>{isLockedByTime ? "Document Locked" : "Document Secured"}</AlertTitle>
                 <AlertDescription className="text-[11px] font-bold">
-                  Invoice modification is not allowed after IRN generation. Sensitive fields are read-only.
+                  {isLockedByTime ? "Editing is not allowed. The IRN was generated more than 24 hours ago." : "Invoice modification is restricted after IRN generation. Some fields are read-only."}
                 </AlertDescription>
               </Alert>
             )}
@@ -414,7 +429,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                 <div className="space-y-1">
                   {/* Inventory Type - First field */}
                   <div className="sap-selection-row">
-                    <label className="sap-label">Inventory Type</label>
+                    <label className="sap-label">Inventory Type *</label>
                     <Select value={inventoryType} onValueChange={setInventoryType} disabled={isIrnGenerated}>
                       <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
                       <SelectContent>
@@ -439,12 +454,12 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                   </div>
 
                   <div className="sap-selection-row"><label className="sap-label">{docLabels.no}</label><Input value={invoiceNo} disabled className="bg-gray-100" /></div>
-                  <div className="sap-selection-row"><label className="sap-label">Date</label><Input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} disabled={isIrnGenerated} /></div>
+                  <div className="sap-selection-row"><label className="sap-label">Date</label><Input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} disabled={isLockedByTime} /></div>
                   
                   {/* Bill to Party (renamed from Consignee) */}
                   <div className="sap-selection-row">
                     <label className="sap-label">Bill to Party</label>
-                    <Select value={billTo} onValueChange={(v) => { setBillTo(v); }} disabled={isIrnGenerated}>
+                    <Select value={billTo} onValueChange={(v) => { setBillTo(v); }} disabled={isLockedByTime}>
                       <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
                       <SelectContent>{filteredCustomers.map(c => <SelectItem key={c.id} value={c.customerId}>{c.customerId} - {c.name}</SelectItem>)}</SelectContent>
                     </Select>
@@ -455,12 +470,11 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                     <div className="sap-input-wrapper h-6 flex items-center">
                       <Checkbox 
                         checked={isShipToApplicable} 
-                        onCheckedChange={(v) => {
-                          if (isIrnGenerated) return;
+                        onCheckedChange={(v) => {                          
                           setIsShipToApplicable(!!v);
                           if (!v) setShipTo("");
                         }} 
-                        disabled={isIrnGenerated}
+                        disabled={isLockedByTime}
                       />
                       <span className="text-[10px] text-gray-400 ml-2 italic">(Toggle if Ship-to is different from Bill to Party)</span>
                     </div>
@@ -483,7 +497,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                       <Popover open={isPickerOpen} onOpenChange={setIsPickerOpen}>
                         <PopoverTrigger asChild>
                           <button 
-                            disabled={isIrnGenerated}
+                            
                             className="flex h-6 w-full items-center justify-between rounded-none border border-gray-400 bg-white px-1.5 py-1 text-xs shadow-inner focus:bg-[#fff9c4] focus:outline-none hover:bg-gray-50 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
                           >
                             <span className="font-bold text-blue-900">{billPeriod}</span>
@@ -507,7 +521,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                   <div className="sap-selection-row">
                     <label className="sap-label">Document Type</label>
                     <Select value={docType} onValueChange={setDocType} disabled={isIrnGenerated}>
-                      <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]" disabled={isLockedByTime}><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {filteredDocTypes.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
                         {plantId && inventoryType && filteredDocTypes.length === 0 && (
@@ -519,7 +533,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
 
                   <div className="sap-selection-row">
                     <label className="sap-label">Charge Type</label>
-                    <Select value={docCategory} onValueChange={v => { setDocCategory(v); setItems([]); }} disabled={isIrnGenerated}>
+                    <Select value={docCategory} onValueChange={v => { setDocCategory(v); setItems([]); }} >
                       <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {filteredBillingCategories.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
@@ -531,7 +545,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                   </div>
                   <div className="sap-selection-row">
                     <label className="sap-label">Bill Type</label>
-                    <Select value={billType} onValueChange={setBillType} disabled={isIrnGenerated}>
+                    <Select value={billType} onValueChange={setBillType} >
                       <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="BILL UNDER F.C.M.">BILL UNDER F.C.M. (Default)</SelectItem>
@@ -563,7 +577,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                     </div>
                   ))}
                 </div>
-                {!isIrnGenerated && (
+                {!isLockedByTime && (
                   <Button onClick={() => setItems([...items, { id: Math.random().toString(), desc: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [] }])} variant="ghost" size="sm" className="h-5 text-[10px] hover:bg-white/50"><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
                 )}
               </div>
@@ -581,14 +595,14 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                     <TableHead className="text-[11px] font-bold border-r w-20">UOM</TableHead>
                     <TableHead className="text-[11px] font-bold border-r w-14 text-center">Rate</TableHead>
                     <TableHead className="text-[11px] font-bold text-right w-40 pr-4">{isNonTax || isDeliveryChallan ? "Invoice Amount" : "Taxable Amount"}</TableHead>
-                    {!isIrnGenerated && <TableHead className="w-8"></TableHead>}
+                    {!isLockedByTime && <TableHead className="w-8"></TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {items.map((row, idx) => (
                     <TableRow key={row.id} className="h-7 hover:bg-blue-50/30">
                       <TableCell className="p-0 text-center text-[10px] text-gray-400">{idx + 1}</TableCell>
-                      <TableCell className="p-0 border-r">
+                      <TableCell className="p-0 border-r" >
                         <Select value={row.desc} onValueChange={v => updateItem(row.id, 'desc', v)} disabled={isIrnGenerated}>
                           <SelectTrigger className="h-full border-none bg-transparent text-xs rounded-none px-2 shadow-none focus:bg-[#fff9c4]"><SelectValue placeholder="" /></SelectTrigger>
                           <SelectContent>{availableOptions.map(o => <SelectItem key={o.materialCode} value={o.materialCode}>{o.materialCode}</SelectItem>)}</SelectContent>
@@ -599,7 +613,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                           className="h-full border-none shadow-none focus:bg-[#fff9c4]" 
                           value={row.activity} 
                           onChange={e => updateItem(row.id, 'activity', e.target.value)} 
-                          disabled={isIrnGenerated}
+                          
                           placeholder="Enter activity..."
                         />
                       </TableCell>
@@ -609,16 +623,16 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                             className="h-full border-none shadow-none focus:bg-[#fff9c4]" 
                             value={row.customValues?.[hIdx] || ""} 
                             onChange={e => updateItem(row.id, hIdx, e.target.value)} 
-                            disabled={isIrnGenerated}
+                            
                           />
                         </TableCell>
                       ))}
-                      <TableCell className="p-0 border-r"><Input className="h-full border-none shadow-none" value={row.hsn} readOnly /></TableCell>
-                      <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none shadow-none text-center font-bold text-blue-800" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} disabled={isIrnGenerated} /></TableCell>
+                      <TableCell className="p-0 border-r"><Input className="h-full border-none shadow-none bg-gray-100" value={row.hsn} readOnly /></TableCell>
+                      <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none shadow-none text-center font-bold text-blue-800" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} disabled={isLockedByTime} /></TableCell>
                       <TableCell className="p-0 border-r text-center text-[10px] text-gray-500">{row.uom}</TableCell>
-                      <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none shadow-none text-center" value={row.rate} onChange={e => updateItem(row.id, 'rate', e.target.value)} disabled={isIrnGenerated} /></TableCell>
+                      <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none shadow-none text-center bg-gray-100" value={row.rate} readOnly /></TableCell>
                       <TableCell className="p-0 border-r bg-gray-50/50 text-right text-[11px] px-2 font-mono font-bold pr-4">{row.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
-                      {!isIrnGenerated && (
+                      {!isLockedByTime && (
                         <TableCell className="p-0 text-center">
                           <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => items.length > 1 && setItems(items.filter(i => i.id !== row.id))}><Trash2 className="h-3 w-3" /></Button>
                         </TableCell>
@@ -641,8 +655,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                   <div className="text-[11px] font-bold text-gray-600 mb-1 uppercase tracking-tighter">Note</div>
                   <Input 
                     value={note} 
-                    onChange={e => setNote(e.target.value)} 
-                    disabled={isIrnGenerated}
+                    onChange={e => setNote(e.target.value)}                     
                     className="h-7 text-[11px]" 
                     placeholder="Update document note..." 
                   />
@@ -689,5 +702,3 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
     </div>
   );
 }
-
-
