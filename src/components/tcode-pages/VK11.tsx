@@ -21,9 +21,11 @@ type RateRow = {
   gstRate: string;
   status: string;
   price: string;
+  validFrom: string;
+  validTo: string;
 };
 
-const newRow = (): RateRow => ({
+const newRow = (validFrom = "", validTo = "9999-12-31"): RateRow => ({
   id: Math.random().toString(36).substr(2, 9),
   materialCode: "",
   materialName: "",
@@ -32,6 +34,8 @@ const newRow = (): RateRow => ({
   gstRate: "",
   status: "Active",
   price: "",
+  validFrom,
+  validTo,
 });
 
 const normalize = (v: string) => (v || "").trim().toUpperCase();
@@ -144,24 +148,32 @@ export default function VK11() {
     return customers?.filter(c => getRecordPlantIds(c).some(p => header.plantIds.includes(p))) || [];
   }, [customers, header.plantIds]);
 
-  const updateRow = (id: string, field: keyof RateRow, value: string) => {
+const updateRow = (id: string, field: keyof RateRow, value: string) => {
     setRows(prev => prev.map(r => {
       if (r.id !== id) return r;
       const updated = { ...r, [field]: value };
       if (field === "materialCode") {
-        const mat = materials?.find(m =>
+        // Fetch Material Name, HSN/SAC and UOM from MM03 (materials master)
+        // prioritized by the selected Plant(s)
+        const matches = (materials ?? []).filter(m =>
           (m.materialCode || "").toUpperCase() === value.toUpperCase() ||
           (m.productName || "").toUpperCase() === value.toUpperCase()
+          && getRecordPlants(m).some(p => header.plantIds.includes(p)) // Filter by selected plant(s)
         );
+        const mat = matches.find(m => getRecordPlants(m).some(p => header.plantIds.includes(p)))
+          || matches.find(m => !header.plantIds.length)
+          || matches[0];
         updated.materialName = mat?.productName || "";
         updated.hsnSac = mat?.hsnSac || "";
         updated.uom = mat?.uom || "";
+        if (!updated.validFrom) updated.validFrom = header.validFrom;
+        if (!updated.validTo) updated.validTo = header.validTo;
       }
       return updated;
     }));
   };
 
-  const addRow = () => setRows(prev => [...prev, newRow()]);
+const addRow = () => setRows(prev => [...prev, newRow(header.validFrom, header.validTo)]);
 
   const deleteRow = (id: string) => {
     setRows(prev => (prev.length > 1 ? prev.filter(r => r.id !== id) : prev));
@@ -192,57 +204,50 @@ export default function VK11() {
     reader.readAsDataURL(file);
   };
 
-  const validateRows = useCallback(async () => {
+const validateRows = useCallback(async () => {
     const newErrors: Record<string, string[]> = {};
-    const seenCodes: Record<string, number> = {};
+    // Combined-key duplicate rule: Same Material Code + Same UOM + Same Basic Rate = Duplicate
+    const seenCombos: Record<string, number> = {};
+    const seenMaterialCodes: Record<string, number> = {}; // For material code uniqueness within document
 
     for (let idx = 0; idx < rows.length; idx++) {
       const row = rows[idx];
       const rowErrors: string[] = [];
       const code = row.materialCode.trim();
       const price = row.price.trim();
+      const uom = row.uom.trim().toUpperCase();
 
       if (!code) {
         rowErrors.push("Material is mandatory");
       } else {
-        const normalized = normalize(code);
-        if (seenCodes[normalized] !== undefined) {
-          rowErrors.push(`Duplicate Material within document (duplicate of row ${seenCodes[normalized]})`);
+        const comboKey = `${normalize(code)}|${uom}|${price}`;
+        const materialCodeKey = normalize(code);
+        if (seenCombos[comboKey] !== undefined) {
+          rowErrors.push(`Duplicate within document (duplicate of row ${seenCombos[comboKey]}): same Material Code, UOM and Basic Rate`);
         } else {
-          seenCodes[normalized] = idx + 1;
+          seenCombos[comboKey] = idx + 1;
         }
-        // Check duplicate pricing record in DB for this combination
-        try {
-          const q = query(
-            collection(db, "pricing"),
-            where("customerCode", "==", header.customerCode),
-            where("materialCode", "==", code),
-            where("inventoryType", "==", header.inventoryType),
-            where("documentType", "==", header.documentType),
-            where("documentCategory", "==", header.documentCategory)
-          );
-          const snap = await getDocs(q);
-          if (!snap.empty) {
-            rowErrors.push("Pricing record already exists for this combination");
-          }
-        } catch (e) {
-          // Skip DB check on error; rely on client-side checks
+        if (seenMaterialCodes[materialCodeKey] !== undefined) {
+          rowErrors.push(`Duplicate Material Code within document (duplicate of row ${seenMaterialCodes[materialCodeKey]})`);
+        } else {
+          seenMaterialCodes[materialCodeKey] = idx + 1;
         }
+
       }
 
       if (!price) {
-        rowErrors.push("Basic Rate (PMT) is mandatory");
+        rowErrors.push("Basic Rate is mandatory");
       } else if (isNaN(Number(price))) {
-        rowErrors.push("Basic Rate (PMT) must be numeric");
+        rowErrors.push("Basic Rate must be numeric");
       } else if (Number(price) <= 0) {
-        rowErrors.push("Basic Rate (PMT) must be greater than zero");
+        rowErrors.push("Basic Rate must be greater than zero");
       }
 
       if (rowErrors.length) newErrors[row.id] = rowErrors;
     }
 
     return newErrors;
-  }, [rows, header, db]);
+  }, [rows]);
 
   const handleExecute = useCallback(async () => {
     if (header.plantIds.length === 0 || !header.inventoryType || !header.customerCode || !header.validFrom) {
@@ -283,9 +288,9 @@ export default function VK11() {
             inventoryType: header.inventoryType,
             price: parseFloat(row.price),
             gstRate: row.gstRate !== "" ? Number(row.gstRate) : Number((materials?.find(m => (m.materialCode || "").toUpperCase() === row.materialCode.trim().toUpperCase() || (m.productName || "").toUpperCase() === row.materialCode.trim().toUpperCase()))?.gstRate) || 0,
-            currency: "INR",
-            validFrom: header.validFrom,
-            validTo: header.validTo,
+currency: "INR",
+            validFrom: row.validFrom || header.validFrom,
+            validTo: row.validTo || header.validTo,
             approvalFile: header.approvalFile,
             approvalFileName: header.approvalFileName,
             createdAt: serverTimestamp(),
@@ -298,7 +303,7 @@ export default function VK11() {
       window.dispatchEvent(new CustomEvent('sap-status', {
         detail: { text: `${docs.length} condition record(s) committed successfully across ${header.plantIds.length} plant(s)`, isError: false }
       }));
-      setRows([newRow()]);
+setRows([newRow(new Date().toISOString().split('T')[0], "9999-12-31")]);
       setErrors({});
       setHeader(prev => ({
         ...prev,
@@ -320,8 +325,8 @@ export default function VK11() {
 
   useEffect(() => {
     const onExecute = () => handleExecute();
-    const onCancel = () => {
-      setRows([newRow()]);
+const onCancel = () => {
+      setRows([newRow(header.validFrom, header.validTo)]);
       setErrors({});
     };
     window.addEventListener('sap-execute', onExecute);
@@ -366,9 +371,11 @@ export default function VK11() {
           materialName: materialName || "",
           hsnSac: hsnSac || "",
           uom: "",
-          gstRate: gst || "",
+gstRate: gst || "",
           status: status || "Active",
           price: rate || "",
+          validFrom: validFrom || "",
+          validTo: validTo || "9999-12-31",
         };
       }).filter(r => r.materialCode || r.price);
 
@@ -513,7 +520,7 @@ export default function VK11() {
 
         <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-white">
           <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] flex items-center justify-between">
-            <span className="text-[12px] font-semibold text-gray-700">Material & Basic Rate (PMT)</span>
+<span className="text-[12px] font-semibold text-gray-700">Material & Basic Price Condition</span>
             <Button
               size="sm"
               variant="ghost"
@@ -537,13 +544,17 @@ export default function VK11() {
             <Table>
               <TableHeader className="bg-[#e7ebf1]">
                 <TableRow className="h-8">
-                  <TableHead className="text-[11px] font-bold border-r w-10 text-center">#</TableHead>
+<TableHead className="text-[11px] font-bold border-r w-10 text-center">#</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-56">Material Code <span className="text-red-500">*</span></TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-20 text-center">UOM</TableHead>
                   <TableHead className="text-[11px] font-bold border-r">Material Name (auto)</TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-20 text-center">UOM</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-28">HSN/SAC Code</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-24 text-center">GST Rate (%)</TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-28 text-right">Basic Rate <span className="text-red-500">*</span></TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-32">Validity From</TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-32">Validity To</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-28 text-center">Status</TableHead>
-                  <TableHead className="text-[11px] font-bold border-r w-28 text-right">Basic Rate (PMT) <span className="text-red-500">*</span></TableHead>
                   <TableHead className="w-10"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -563,6 +574,14 @@ export default function VK11() {
                         </Select>
                       </TableCell>
                       <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
+                        <Input
+                          className={`h-full border-none shadow-none rounded-none bg-gray-50 font-mono text-center text-xs ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
+                          value={row.uom}
+                          readOnly
+                          placeholder="Auto"
+                        />
+                      </TableCell>
+<TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
                         <Input
                           className={`h-full border-none shadow-none rounded-none bg-gray-50 font-medium focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
                           value={row.materialName}
@@ -598,13 +617,31 @@ export default function VK11() {
                           </SelectContent>
                         </Select>
                       </TableCell>
-                      <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
+<TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
                         <Input
                           type="number"
                           className={`h-full border-none shadow-none rounded-none text-right font-bold text-emerald-700 focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
                           value={row.price}
                           onChange={e => updateRow(row.id, "price", e.target.value)}
                           placeholder="0.00"
+                        />
+                      </TableCell>
+                      <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
+                        <Input
+                          type="date"
+                          className={`h-full border-none shadow-none rounded-none text-xs font-mono focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
+                          value={row.validFrom || ""}
+                          onChange={e => updateRow(row.id, "validFrom", e.target.value)}
+                          placeholder="From"
+                        />
+                      </TableCell>
+                      <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
+                        <Input
+                          type="date"
+                          className={`h-full border-none shadow-none rounded-none text-xs font-mono focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
+                          value={row.validTo || ""}
+                          onChange={e => updateRow(row.id, "validTo", e.target.value)}
+                          placeholder="To"
                         />
                       </TableCell>
                       <TableCell className="p-0 text-center">

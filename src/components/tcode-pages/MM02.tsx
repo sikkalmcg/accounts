@@ -106,10 +106,11 @@ const availableCategories = useMemo(() => {
     setEditing(prev => (prev ? { ...prev, [field]: value } : prev));
   };
 
-  const validateForm = (): string[] => {
+const validateForm = (): string[] => {
     if (!editing) return [];
     const errs: string[] = [];
-    if (!editing.materialCode.trim()) errs.push("Material Code is mandatory");
+    const code = editing.materialCode.trim();
+    if (!code) errs.push("Material Code is mandatory");
     if (!editing.materialName.trim()) errs.push("Material Name is mandatory");
     if (!editing.uom) errs.push("UOM is mandatory");
     if (!editing.hsnSac.trim()) errs.push("HSN Code is mandatory");
@@ -117,6 +118,19 @@ const availableCategories = useMemo(() => {
       errs.push("GST Rate is mandatory");
     } else if (isNaN(Number(editing.gstRate))) {
       errs.push("GST Rate must be numeric");
+    }
+    // Per-plant duplicate check: material code must be unique within the same plant (excluding current record)
+    if (code && editing.plantId) {
+      const existing = (materials || []).find(
+        m =>
+          m.id !== editing.id &&
+          m.plantId === editing.plantId &&
+          (String(m.materialCode || "").trim().toUpperCase() === code.toUpperCase() ||
+           String(m.productName || "").trim().toUpperCase() === code.toUpperCase())
+      );
+      if (existing) {
+        errs.push(`Material Code "${code}" already exists in Plant ${editing.plantId}`);
+      }
     }
     return errs;
   };

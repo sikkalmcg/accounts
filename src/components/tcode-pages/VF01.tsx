@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Trash2, Loader2, Columns, X, ChevronDown, Search } from "lucide-react";
+import { Plus, Trash2, Loader2, Columns, X, ChevronDown, Search, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toSAPDate } from "@/lib/date-utils";
 import { getRecordPlantIds } from "@/lib/plant-master";
@@ -21,6 +21,7 @@ import { MonthYearPicker } from "@/components/ui/month-year-picker";
 interface InvoiceItem {
   id: string;
   desc: string;
+  descName: string;
   activity: string;
   hsn: string;
   qty: string;
@@ -33,10 +34,13 @@ interface InvoiceItem {
 
 interface PricingOption {
   materialCode: string;
+  materialName: string;
   hsn: string;
   uom: string;
   price: number;
   gstRate: number;
+  validFrom?: string;
+  validTo?: string;
 }
 
 export default function VF01() {
@@ -48,7 +52,7 @@ export default function VF01() {
   const [userName, setUserName] = useState("USER");
   const [plantId, setPlantId] = useState("");
   const [invoiceNo, setInvoiceNo] = useState("");
-  const [invoiceDate, setInvoiceDate] = useState("");
+  const [invoiceDate, setInvoiceDate] = useState(""); // Renamed from 'date'
   
   const [billPeriod, setBillPeriod] = useState(format(new Date(), "MMM-yyyy"));
   const [isPickerOpen, setIsPickerOpen] = useState(false);
@@ -65,9 +69,10 @@ export default function VF01() {
   const [termsAndConditions, setTermsAndConditions] = useState("");
   const [note, setNote] = useState("");
   
-  const [isFetchingOptions, setIsFetchingOptions] = useState(false);
+const [isFetchingOptions, setIsFetchingOptions] = useState(false);
   const [isGeneratingNo, setIsGeneratingNo] = useState(false);
   const [availableOptions, setAvailableOptions] = useState<PricingOption[]>([]);
+  const [noValidPriceRowMaterial, setNoValidPriceRowMaterial] = useState<string>("");
   
   // Credit Note Specifics
   const [referenceNo, setReferenceNo] = useState("");
@@ -79,8 +84,8 @@ export default function VF01() {
   const [isColumnDialogOpen, setIsColumnDialogOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const [items, setItems] = useState<InvoiceItem[]>([
-    { id: '1', desc: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [] }
+const [items, setItems] = useState<InvoiceItem[]>([
+    { id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [] }
   ]);
 
   // 2. Auth Context
@@ -212,7 +217,7 @@ export default function VF01() {
       setInventoryType(inv.inventoryType || "");
       setCustomHeaders(inv.customHeaders || []);
       setNote(inv.note || "");
-      setItems(inv.items.map((i: any) => ({ ...i, id: Math.random().toString() })));
+setItems(inv.items.map((i: any) => ({ ...i, id: Math.random().toString(), descName: i.descName || i.desc || "" })));
       setReferenceDocId(snap.docs[0].id);
 
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Reference Invoice data mapped successfully", isError: false } }));
@@ -224,7 +229,7 @@ export default function VF01() {
   };
 
   // 7. Pricing Options
-  useEffect(() => {
+useEffect(() => {
     async function fetchOptions() {
       if (!plantId || !docCategory || !billTo) {
         setAvailableOptions([]);
@@ -243,20 +248,41 @@ export default function VF01() {
           where("documentCategory", "==", docCategory)
         );
         const snap = await getDocs(q);
-        
-        const options: PricingOption[] = snap.docs.map(doc => {
+
+        // Apply Validity filtering based on the Invoice Date.
+        // The Invoice Date must fall between validFrom and validTo (VK13).
+        const invoiceTs = invoiceDate ? new Date(`${invoiceDate}T00:00:00`).getTime() : null;
+        const validDocs = snap.docs.filter(doc => {
           const data = doc.data();
-          // Fetching from MM03 (materials collection)
-          const matMaster = materials?.find(m => m.productName === data.materialCode || m.materialCode === data.materialCode);
-          return { // This is the description from VK13
-            materialCode: data.materialCode || "",
-            hsn: data.hsnSac || matMaster?.hsnSac || "",
-            uom: matMaster?.uom || "PCS",
-            price: data.price || 0,
-            gstRate: Number(data.gstRate) || 0
-          };
+          if (!invoiceTs) return true; // no invoice date -> include all
+          const from = data.validFrom ? new Date(`${data.validFrom}T00:00:00`).getTime() : -Infinity;
+          const to = data.validTo ? new Date(`${data.validTo}T00:00:00`).getTime() : Infinity;
+          return invoiceTs >= from && invoiceTs <= to;
         });
+
+        // De-duplicate by material code, keeping the valid record for the invoice date.
+        const seen = new Set<string>();
+        const options: PricingOption[] = validDocs.map(doc => {
+          const data = doc.data();
+          const matMaster = materials?.find(m => m.productName === data.materialCode || m.materialCode === data.materialCode);
+          const key = String(data.materialCode || "").toUpperCase();
+          const option: PricingOption = {
+            materialCode: data.materialCode || "",
+            materialName: data.materialName || matMaster?.productName || data.materialCode || "",
+            hsn: data.hsnSac || matMaster?.hsnSac || "",
+            uom: matMaster?.uom || data.uom || "PCS",
+            price: data.price || 0,
+            gstRate: Number(data.gstRate) || 0,
+            validFrom: data.validFrom || "",
+            validTo: data.validTo || "",
+          };
+          if (seen.has(key)) return null;
+          seen.add(key);
+          return option;
+        }).filter(Boolean) as PricingOption[];
+
         setAvailableOptions(options);
+        setNoValidPriceRowMaterial("");
       } catch (error) {
         console.error("Pricing fetch failed", error);
       } finally {
@@ -264,7 +290,7 @@ export default function VF01() {
       }
     }
     fetchOptions();
-  }, [plantId, docCategory, billTo, db, materials, inventoryType, docType]);
+  }, [plantId, docCategory, billTo, db, materials, inventoryType, docType, invoiceDate]);
 
 // 8. Calculations
   const filteredBillingTypes = useMemo(() => {
@@ -284,7 +310,8 @@ export default function VF01() {
     return Array.from(new Set(filteredBillingTypes.filter(b => b.documentCategory).map(b => b.documentCategory!)));
   }, [filteredBillingTypes]);
 
-  const noBillingConfigMessage = "No Document Type and Charge Type are configured for the selected Plant and Inventory Type.";
+const noBillingConfigMessage = "No Document Type and Charge Type configured for the selected Plant and Inventory Type.";
+const noValidPriceMessage = "No valid price condition found for the selected Plant, Inventory Type, Document Type, Charge Type, Material Code and Invoice Date.";
 const filteredCustomers = useMemo(() => customers?.filter(c => getRecordPlantIds(c).includes(plantId)) || [], [customers, plantId]);
   
   const totals = useMemo(() => {
@@ -329,7 +356,7 @@ const selectedFirm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
           return { ...i, customValues: updatedCustom };
         }
 
-        let updated = { ...i, [field]: val };
+let updated = { ...i, [field]: val };
         if (field === 'desc') {
           const selectedOption = availableOptions.find(opt => opt.materialCode === val);
           if (selectedOption) {
@@ -337,6 +364,17 @@ const selectedFirm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
             updated.rate = String(selectedOption.price);
             updated.uom = selectedOption.uom;
             updated.gstRate = selectedOption.gstRate;
+            // Description from VK13 materialName (fallback to code)
+            updated.descName = selectedOption.materialName || selectedOption.materialCode;
+            setNoValidPriceRowMaterial("");
+          } else {
+            // No valid price condition found for this material & invoice date
+            updated.hsn = "";
+            updated.rate = "";
+            updated.uom = "";
+            updated.gstRate = 0;
+            updated.descName = val;
+            setNoValidPriceRowMaterial(val);
           }
         }
         if (field === 'qty' || field === 'rate' || field === 'desc') {
@@ -453,7 +491,7 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
       setReferenceNo("");
       setReferenceDocId(null);
       setNote("");
-      setItems([{ id: '1', desc: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [] }]);
+setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [] }]);
     } catch (e) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Document posting failed", isError: true } }));
     } finally {
@@ -544,7 +582,7 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
                   {isGeneratingNo && <Loader2 className="absolute right-2 h-3 w-3 animate-spin text-blue-600" />}
                 </div>
               </div>
-              <div className="sap-selection-row"><label className="sap-label">Date *</label><Input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} /></div>
+<div className="sap-selection-row"><label className="sap-label">Invoice Date *</label><Input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} /></div>
               
               {/* Bill to Party (renamed from Consignee) */}
               <div className="sap-selection-row">
@@ -675,8 +713,16 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
                 </DialogContent>
               </Dialog>
             </div>
-            <Button onClick={() => setItems([...items, { id: Math.random().toString(), desc: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [] }])} variant="ghost" size="sm" className="h-5 text-[10px]"><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
-          </div>
+<Button onClick={() => setItems([...items, { id: Math.random().toString(), desc: '', descName: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [] }])} variant="ghost" size="sm" className="h-5 text-[10px]"><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
+</div>
+          {noValidPriceRowMaterial && (
+            <div className="px-3 py-2 bg-red-50 border-b border-red-200 flex items-center gap-2 animate-in slide-in-from-top-1 duration-200">
+              <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
+              <span className="text-[11px] font-bold text-red-700">
+                Material {noValidPriceRowMaterial}: {noValidPriceMessage}
+              </span>
+            </div>
+          )}
           <Table>
             <TableHeader className="bg-[#e7ebf1]">
               <TableRow className="h-7">
@@ -684,9 +730,10 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
                 <TableHead className="text-[11px] font-bold border-r">Description</TableHead>
                 <TableHead className="text-[11px] font-bold border-r w-40">Activity</TableHead>
                 {customHeaders.map((h, idx) => <TableHead key={idx} className="text-[11px] font-bold border-r bg-blue-50/20 text-blue-900 min-w-[100px]">{h}</TableHead>)}
-                <TableHead className="text-[11px] font-bold border-r w-20 text-center">HSN/SAC</TableHead>
+<TableHead className="text-[11px] font-bold border-r w-20 text-center">HSN/SAC</TableHead>
                 <TableHead className="text-[11px] font-bold border-r w-24 text-center">Qty</TableHead>
-                <TableHead className="text-[11px] font-bold border-r w-20">UOM</TableHead>
+<TableHead className="text-[11px] font-bold border-r w-20">UOM</TableHead>
+                <TableHead className="text-[11px] font-bold border-r w-20 text-center">GST Rate %</TableHead>
                 <TableHead className="text-[11px] font-bold border-r w-14 text-center">Rate</TableHead>
                 <TableHead className="text-[11px] font-bold text-right w-40 pr-4">{amountColumnLabel}</TableHead>
                 <TableHead className="w-8"></TableHead>
@@ -696,11 +743,24 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
               {items.map((row, idx) => (
                 <TableRow key={row.id} className="h-7 hover:bg-blue-50/30">
                   <TableCell className="p-0 border-r text-center text-[10px] text-gray-500">{idx + 1}</TableCell>
-                  <TableCell className="p-0 border-r">
+<TableCell className="p-0 border-r">
                     <Select value={row.desc} onValueChange={v => updateItem(row.id, 'desc', v)}>
-                      <SelectTrigger className="h-full border-none bg-transparent text-xs rounded-none px-2 focus:bg-[#fff9c4]"><SelectValue placeholder="" /></SelectTrigger>
-                      <SelectContent>{availableOptions.map(opt => <SelectItem key={opt.materialCode} value={opt.materialCode}>{opt.materialCode}</SelectItem>)}</SelectContent>
+                      <SelectTrigger className="h-full border-none bg-transparent text-xs rounded-none px-2 focus:bg-[#fff9c4]">
+                        <SelectValue placeholder="" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableOptions.map(opt => (
+                          <SelectItem key={opt.materialCode} value={opt.materialCode}>
+                            {opt.materialName || opt.materialCode}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
                     </Select>
+                    {row.descName && (
+                      <div className="px-2 py-0.5 text-[10px] font-semibold text-gray-700 border-t border-dashed border-gray-200 bg-gray-50">
+                        {row.descName}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell className="p-0 border-r">
                     <Input className="h-full border-none focus:bg-[#fff9c4]" value={row.activity} onChange={e => updateItem(row.id, 'activity', e.target.value)} placeholder="Enter activity..." />
@@ -711,9 +771,10 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
                     </TableCell>
                   ))}
                   <TableCell className="p-0 border-r"><Input className="h-full border-none text-center" value={row.hsn} readOnly /></TableCell>
-                  <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none text-center font-bold text-emerald-800" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} /></TableCell>
-                  <TableCell className="p-0 border-r text-center text-[10px]">{row.uom}</TableCell>
-                  <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none text-center" value={row.rate} onChange={e => updateItem(row.id, 'rate', e.target.value)} /></TableCell>
+<TableCell className="p-0 border-r"><Input type="number" className="h-full border-none text-center font-bold text-emerald-800" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} /></TableCell>
+                  <TableCell className="p-0 border-r text-center text-[10px]"><Input className="h-full border-none text-center bg-gray-50 text-xs" value={row.uom} readOnly /></TableCell>
+                  <TableCell className="p-0 border-r text-center font-bold text-[10px] text-purple-700"><Input className="h-full border-none text-center bg-gray-50 text-xs" value={row.gstRate ? `${row.gstRate}%` : "-"} readOnly /></TableCell>
+<TableCell className="p-0 border-r"><Input type="number" className="h-full border-none text-center bg-gray-50 font-bold text-emerald-700 text-xs" value={row.rate} readOnly /></TableCell>
                   <TableCell className="p-0 border-r bg-gray-50/50 text-right text-[11px] px-2 font-mono pr-4">{row.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
                   <TableCell className="p-0 text-center"><Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => items.length > 1 && setItems(items.filter(i => i.id !== row.id))}><Trash2 className="h-3 w-3" /></Button></TableCell>
                 </TableRow>

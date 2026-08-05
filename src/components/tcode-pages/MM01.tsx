@@ -130,7 +130,7 @@ export default function MM01() {
     setRows(prev => (prev.length > 1 ? prev.filter(r => r.id !== id) : prev));
   };
 
-  const validateRows = useCallback(
+const validateRows = useCallback(
     (rowsToValidate: MaterialRow[]) => {
       const newErrors: Record<string, string[]> = {};
       const seenCodes: Record<string, number> = {};
@@ -154,10 +154,17 @@ export default function MM01() {
           } else {
             seenCodes[normalized] = idx + 1;
           }
-          const existing = (materials || []).find(
-            m => normalize(m.materialCode) === normalized || normalize(m.productName) === normalized
-          );
-          if (existing) rowErrors.push("Material Code already exists in repository");
+          // Per-plant duplicate check: same material code is NOT allowed within the same plant
+          for (const plantId of header.plantIds) {
+            const existing = (materials || []).find(
+              m => m.plantId === plantId &&
+                (normalize(m.materialCode) === normalized || normalize(m.productName) === normalized)
+            );
+            if (existing) {
+              rowErrors.push(`Material Code "${code}" already exists in Plant ${plantId}`);
+              break;
+            }
+          }
         }
 
         if (rowErrors.length) newErrors[row.id] = rowErrors;
@@ -165,7 +172,7 @@ export default function MM01() {
 
       return newErrors;
     },
-    [materials]
+    [materials, header.plantIds]
   );
 
   const handleExecute = useCallback(async () => {
