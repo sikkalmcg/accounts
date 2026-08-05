@@ -1,16 +1,32 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDatabase, useCollection, useMemoDatabase } from "@/database";
 import { collection, query, orderBy } from "@/database/mongo";
 import { Search, ArrowUpDown, ChevronUp, ChevronDown } from "lucide-react";
 import { parseGSTIN } from "@/lib/gst-utils";
+import PlantMultiSelect from "./PlantMultiSelect";
+import { getRecordPlantIds, getCurrentUser, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
 
 export default function XK03() {
   const db = useDatabase();
   const [search, setSearch] = useState("");
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [selectedPlants, setSelectedPlants] = useState<string[]>([]);
+  const [authorizedPlantIds, setAuthorizedPlantIds] = useState<string[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const { assignedPlantIds, isAdmin } = getCurrentUser();
+    setAuthorizedPlantIds(assignedPlantIds);
+    setIsAdmin(isAdmin);
+  }, []);
+
+  const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
+  const { data: plants, isLoading: isPlantsLoading } = useCollection(plantsQuery);
+
+  const allowedPlantIds = isAdmin ? undefined : (authorizedPlantIds.length ? authorizedPlantIds : undefined);
 
   const vendorsQuery = useMemoDatabase(() => query(collection(db, "vendors"), orderBy("createdAt", "desc")), [db]);
   const { data: vendors, isLoading } = useCollection(vendorsQuery);
@@ -42,9 +58,19 @@ export default function XK03() {
     return { state: "-", stateCode: "-" };
   };
 
-  const sortedData = useMemo(() => {
+const sortedData = useMemo(() => {
     if (!vendors) return [];
-    const filtered = vendors.filter(v => {
+
+    // Plant-wise filtering: only show vendors assigned to the selected plant(s)
+    let baseData = vendors;
+    if (selectedPlants.length > 0) {
+      baseData = vendors.filter(v => {
+        const vp = getVendorPlantIds(v);
+        return vp.some(p => selectedPlants.includes(p));
+      });
+    }
+
+    const filtered = baseData.filter(v => {
       const plantCodes = getVendorPlantIds(v).join(", ");
       const vs = getVendorState(v);
       return v.vendorName?.toLowerCase().includes(search.toLowerCase()) || 
@@ -80,7 +106,7 @@ export default function XK03() {
       if (aStr > bStr) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [vendors, search, sortConfig]);
+  }, [vendors, search, sortConfig, selectedPlants]);
 
   const SortIcon = ({ column }: { column: string }) => {
     if (sortConfig?.key !== column) return <ArrowUpDown className="h-3 w-3 ml-1 opacity-30" />;
@@ -91,11 +117,26 @@ export default function XK03() {
     <div className="w-full flex flex-col bg-white min-h-full">
       <div className="sap-header-title">Vendor List: ALV Grid</div>
 
-      <div className="sap-selection-area">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="relative flex items-center bg-white border border-gray-400 h-6 w-80 px-1 group focus-within:border-blue-500">
-             <Search className="h-3.5 w-3.5 text-gray-400 mr-1" />
-             <input value={search} onChange={(e) => setSearch(e.target.value)} className="w-full h-full text-xs outline-none" placeholder="Search Vendors..." />
+<div className="sap-selection-area">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <label className="text-[11px] font-bold text-gray-600 whitespace-nowrap">Plants</label>
+              <div className="w-[240px]">
+                <PlantMultiSelect
+                  plants={plants}
+                  selected={selectedPlants}
+                  onChange={setSelectedPlants}
+                  isLoading={isPlantsLoading}
+                  allowedPlantIds={allowedPlantIds}
+                  placeholder="All Plants..."
+                />
+              </div>
+            </div>
+            <div className="relative flex items-center bg-white border border-gray-400 h-6 w-80 px-1 group focus-within:border-blue-500">
+              <Search className="h-3.5 w-3.5 text-gray-400 mr-1" />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} className="w-full h-full text-xs outline-none" placeholder="Search Vendors..." />
+            </div>
           </div>
           <div className="text-[11px] font-bold text-gray-600 uppercase">Records: {sortedData.length}</div>
         </div>
@@ -129,8 +170,8 @@ export default function XK03() {
           <TableBody>
             {isLoading ? (
               <TableRow><TableCell colSpan={7} className="text-center py-10 text-xs">LOADING...</TableCell></TableRow>
-            ) : sortedData.length === 0 ? (
-              <TableRow><TableCell colSpan={7} className="text-center py-10 text-xs text-red-500 font-bold uppercase">No records found matching Selection</TableCell></TableRow>
+) : sortedData.length === 0 ? (
+              <TableRow><TableCell colSpan={7} className="text-center py-10 text-xs text-red-500 font-bold uppercase">{selectedPlants.length > 0 ? NO_MASTER_RECORDS_MESSAGE : "No records found matching Selection"}</TableCell></TableRow>
             ) : sortedData.map((v, i) => {
               const vs = getVendorState(v);
               return (

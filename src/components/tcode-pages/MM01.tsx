@@ -34,9 +34,35 @@ const newRow = (): MaterialRow => ({
 
 const normalize = (v: string) => (v || "").trim().toUpperCase();
 
+const titleCase = (v: string) =>
+  v.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+
+const dedupeIgnoreCase = (values: Array<string | undefined>) => {
+  const seen = new Set<string>();
+  return (values.filter(Boolean) as string[]).filter(v => {
+    const key = v.trim().toUpperCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+// Helper to safely extract array of plant IDs from billing record
+const getRecordPlants = (record: any): string[] => {
+  if (Array.isArray(record.plantIds) && record.plantIds.length > 0) {
+    return record.plantIds;
+  }
+  return record.plantId ? [record.plantId] : [];
+};
+
 export default function MM01() {
   const db = useDatabase();
-  const [header, setHeader] = useState({ plantIds: [] as string[], documentType: "", documentCategory: "", inventoryType: "" });
+  const [header, setHeader] = useState({
+    plantIds: [] as string[],
+    documentType: "",
+    documentCategory: "",
+    inventoryType: ""
+  });
   const [rows, setRows] = useState<MaterialRow[]>([newRow()]);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(false);
@@ -46,22 +72,53 @@ export default function MM01() {
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
   const { data: plants, isLoading: isPlantsLoading } = useCollection(plantsQuery);
 
-  // Fetch Billing Types for Document Category dropdown
+  // Fetch Billing Types (VOF03 master)
   const billingQuery = useMemoDatabase(() => collection(db, "billing_types"), [db]);
   const { data: billingTypes, isLoading: isBillingLoading } = useCollection(billingQuery);
 
-  // Fetch all existing materials for duplicate code checks
+  // Fetch existing materials
   const materialsQuery = useMemoDatabase(() => collection(db, "materials"), [db]);
   const { data: materials } = useCollection(materialsQuery);
 
-  // Filter unique categories based on selected Plants
-  const availableCategories = useMemo(() => {
+  // Filter billing types based on selected Plants + Inventory Type (Handles both plantIds array & plantId string)
+  const filteredBillingTypes = useMemo(() => {
     if (!billingTypes || header.plantIds.length === 0) return [];
-    const categories = billingTypes
-      .filter(bt => header.plantIds.includes(bt.plantId) && bt.documentCategory)
-      .map(bt => bt.documentCategory as string);
-    return Array.from(new Set(categories));
-  }, [billingTypes, header.plantIds]);
+    return billingTypes.filter(bt => {
+      const recPlants = getRecordPlants(bt);
+      const matchesPlant = recPlants.some(p => header.plantIds.includes(p));
+      const matchesInventory = !header.inventoryType || bt.inventoryType === header.inventoryType;
+      const isActive = !bt.status || bt.status === "Active";
+      
+      return matchesPlant && matchesInventory && isActive;
+    });
+  }, [billingTypes, header.plantIds, header.inventoryType]);
+
+  // Document Types from VOF03
+  const documentTypes = useMemo(
+    () => dedupeIgnoreCase(filteredBillingTypes.map(bt => bt.documentType)),
+    [filteredBillingTypes]
+  );
+
+  // Charge Types (Document Categories) filtered by selected Document Type (if selected) or all matching filtered items
+  const availableCategories = useMemo(() => {
+    const records = header.documentType
+      ? filteredBillingTypes.filter(bt => bt.documentType === header.documentType)
+      : filteredBillingTypes;
+    return dedupeIgnoreCase(records.map(bt => bt.documentCategory));
+  }, [filteredBillingTypes, header.documentType]);
+
+  // Reset documentType and documentCategory if plantIds or inventoryType change and previous values are no longer valid
+  useEffect(() => {
+    if (header.documentType && !documentTypes.includes(header.documentType)) {
+      setHeader(prev => ({ ...prev, documentType: "", documentCategory: "" }));
+    }
+  }, [documentTypes, header.documentType]);
+
+  useEffect(() => {
+    if (header.documentCategory && !availableCategories.includes(header.documentCategory)) {
+      setHeader(prev => ({ ...prev, documentCategory: "" }));
+    }
+  }, [availableCategories, header.documentCategory]);
 
   const updateRow = (id: string, field: keyof MaterialRow, value: string) => {
     setRows(prev => prev.map(r => (r.id === id ? { ...r, [field]: value } : r)));
@@ -83,7 +140,7 @@ export default function MM01() {
         const code = row.materialCode.trim();
         const name = row.materialName.trim();
 
-if (!code) rowErrors.push("Material Code is mandatory");
+        if (!code) rowErrors.push("Material Code is mandatory");
         if (!name) rowErrors.push("Material Name is mandatory");
         if (!row.uom) rowErrors.push("UOM is mandatory");
         if (row.gstRate !== "" && row.gstRate !== null && row.gstRate !== undefined && isNaN(Number(row.gstRate))) {
@@ -112,9 +169,23 @@ if (!code) rowErrors.push("Material Code is mandatory");
   );
 
   const handleExecute = useCallback(async () => {
-    if (header.plantIds.length === 0 || !header.documentType || !header.documentCategory || !header.inventoryType) {
+    if (header.plantIds.length === 0 || !header.documentType || !header.inventoryType || !header.documentCategory) {
       window.dispatchEvent(new CustomEvent('sap-status', {
-        detail: { text: "Validation Error: At least one Plant, Document Type, Charge Type and Inventory Type are mandatory", isError: true }
+        detail: { text: "Validation Error: Plant, Inventory Type, Document Type, and Charge Type are mandatory", isError: true }
+      }));
+      return false;
+    }
+
+    if (!documentTypes.includes(header.documentType)) {
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "Validation Error: Selected Document Type is invalid for the chosen Plant & Inventory Type", isError: true }
+      }));
+      return false;
+    }
+
+    if (!availableCategories.includes(header.documentCategory)) {
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "Validation Error: Selected Charge Type is invalid for the chosen Plant & Inventory Type", isError: true }
       }));
       return false;
     }
@@ -141,7 +212,7 @@ if (!code) rowErrors.push("Material Code is mandatory");
             productName: row.materialName.trim(),
             uom: row.uom,
             hsnSac: row.hsnSac.trim(),
-            gstRate: Number(row.gstRate),
+            gstRate: Number(row.gstRate || 0),
             status: row.status,
             documentType: header.documentType,
             documentCategory: header.documentCategory,
@@ -167,7 +238,7 @@ if (!code) rowErrors.push("Material Code is mandatory");
     } finally {
       setLoading(false);
     }
-  }, [header, rows, validateRows, db]);
+  }, [header, rows, validateRows, availableCategories, documentTypes, db]);
 
   useEffect(() => {
     const onExecute = () => handleExecute();
@@ -184,7 +255,7 @@ if (!code) rowErrors.push("Material Code is mandatory");
   }, [handleExecute]);
 
   const downloadTemplate = () => {
-const headers = ["MaterialCode", "MaterialName", "UOM", "HSN/SAC Code", "GST Rate (%)", "Status"];
+    const headers = ["MaterialCode", "MaterialName", "UOM", "HSN/SAC Code", "GST Rate (%)", "Status"];
     const csvContent = headers.join(",");
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
@@ -204,7 +275,7 @@ const headers = ["MaterialCode", "MaterialName", "UOM", "HSN/SAC Code", "GST Rat
       const text = event.target?.result as string;
       const lines = text.split("\n").map(line => line.trim()).filter(line => line !== "");
       const dataRows = lines.slice(1);
-const parsed: MaterialRow[] = dataRows.map(line => {
+      const parsed: MaterialRow[] = dataRows.map(line => {
         const [materialCode, materialName, uom, hsnSac, gstRate, status] = line.split(",").map(val => val.trim());
         return {
           id: Math.random().toString(36).substr(2, 9),
@@ -274,65 +345,32 @@ const parsed: MaterialRow[] = dataRows.map(line => {
             Organizational Data (applies to all material rows)
           </div>
 
-          <div className="p-2 grid grid-cols-2 gap-x-8 gap-y-1">
+          <div className="p-2 grid grid-cols-2 gap-x-8 gap-y-2">
+            {/* Plant Selector */}
             <div className="sap-selection-row">
               <label className="sap-label">Plant ID(s) <span className="text-red-500">*</span></label>
               <div className="sap-input-wrapper max-w-[280px]">
                 <PlantMultiSelect
                   plants={plants}
                   selected={header.plantIds}
-                  onChange={(ids) => setHeader({ ...header, plantIds: ids, documentCategory: "" })}
+                  onChange={(ids) => setHeader(prev => ({ ...prev, plantIds: ids, documentType: "", documentCategory: "" }))}
                   isLoading={isPlantsLoading}
                   placeholder="Select Plant(s)..."
                 />
               </div>
             </div>
 
-            <div className="sap-selection-row">
-              <label className="sap-label">Document Type <span className="text-red-500">*</span></label>
-              <div className="sap-input-wrapper max-w-[200px]">
-                <Select
-                  value={header.documentType}
-                  onValueChange={(val) => setHeader({ ...header, documentType: val })}
-                >
-                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Tax Invoice">Tax Invoice</SelectItem>
-                    <SelectItem value="Non-Tax Invoice">Non-Tax Invoice</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="sap-selection-row">
-              <label className="sap-label">Charge Type <span className="text-red-500">*</span></label>
-              <div className="sap-input-wrapper max-w-[200px]">
-                <Select
-                  value={header.documentCategory}
-                  onValueChange={(val) => setHeader({ ...header, documentCategory: val })}
-                  disabled={header.plantIds.length === 0}
-                >
-                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableCategories.map(cat => (
-                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {isBillingLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-600 ml-1" />}
-              </div>
-            </div>
-
+            {/* Inventory Type */}
             <div className="sap-selection-row">
               <label className="sap-label">Inventory Type <span className="text-red-500">*</span></label>
               <div className="sap-input-wrapper max-w-[200px]">
                 <Select
                   value={header.inventoryType}
-                  onValueChange={(val) => setHeader({ ...header, inventoryType: val })}
+                  onValueChange={(val) => setHeader(prev => ({ ...prev, inventoryType: val, documentType: "", documentCategory: "" }))}
                 >
-                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
+                    <SelectValue placeholder="Select" />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Service Invoice">Service Invoice</SelectItem>
                     <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
@@ -340,9 +378,64 @@ const parsed: MaterialRow[] = dataRows.map(line => {
                 </Select>
               </div>
             </div>
+
+            {/* Document Type Dropdown */}
+            <div className="sap-selection-row">
+              <label className="sap-label">Document Type <span className="text-red-500">*</span></label>
+              <div className="sap-input-wrapper max-w-[200px]">
+                <Select
+                  value={header.documentType}
+                  onValueChange={(val) => setHeader(prev => ({ ...prev, documentType: val, documentCategory: "" }))}
+                  disabled={header.plantIds.length === 0 || !header.inventoryType}
+                >
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
+                    <SelectValue placeholder="Select Document Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {documentTypes.map(type => (
+                      <SelectItem key={type} value={type}>{titleCase(type)}</SelectItem>
+                    ))}
+                    {header.plantIds.length > 0 && header.inventoryType && documentTypes.length === 0 && (
+                      <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">
+                        No Document Types configured in VOF03 for selected Plant/Inventory Type.
+                      </div>
+                    )}
+                  </SelectContent>
+                </Select>
+                {isBillingLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-600 ml-1" />}
+              </div>
+            </div>
+
+            {/* Charge Type Dropdown */}
+            <div className="sap-selection-row">
+              <label className="sap-label">Charge Type <span className="text-red-500">*</span></label>
+              <div className="sap-input-wrapper max-w-[200px]">
+                <Select
+                  value={header.documentCategory}
+                  onValueChange={(val) => setHeader(prev => ({ ...prev, documentCategory: val }))}
+                  disabled={header.plantIds.length === 0 || !header.inventoryType}
+                >
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
+                    <SelectValue placeholder="Select Charge Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableCategories.map(cat => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                    {header.plantIds.length > 0 && header.inventoryType && availableCategories.length === 0 && (
+                      <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">
+                        No Charge Types configured in VOF03.
+                      </div>
+                    )}
+                  </SelectContent>
+                </Select>
+                {isBillingLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-600 ml-1" />}
+              </div>
+            </div>
           </div>
         </div>
 
+        {/* Material Master Table */}
         <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-white">
           <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] flex items-center justify-between">
             <span className="text-[12px] font-semibold text-gray-700">Material Master Data</span>
@@ -372,7 +465,7 @@ const parsed: MaterialRow[] = dataRows.map(line => {
                   <TableHead className="text-[11px] font-bold border-r w-10 text-center">#</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-44">Material Code <span className="text-red-500">*</span></TableHead>
                   <TableHead className="text-[11px] font-bold border-r">Material Name <span className="text-red-500">*</span></TableHead>
-<TableHead className="text-[11px] font-bold border-r w-32">UOM <span className="text-red-500">*</span></TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-32">UOM <span className="text-red-500">*</span></TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-32">HSN/SAC Code</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-28">GST Rate (%)</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-32">Status</TableHead>
@@ -410,7 +503,7 @@ const parsed: MaterialRow[] = dataRows.map(line => {
                       <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
                         <Select value={row.uom} onValueChange={v => updateRow(row.id, "uom", v)}>
                           <SelectTrigger className={`h-7 border-none bg-transparent text-xs rounded-none px-2 shadow-none focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}>
-                            <SelectValue placeholder="" />
+                            <SelectValue placeholder="Select UOM" />
                           </SelectTrigger>
                           <SelectContent>
                             {UOM_OPTIONS.map(opt => (

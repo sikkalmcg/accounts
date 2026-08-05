@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Search, Loader2, Receipt, Upload, CheckCircle2, X, Download, Save, RotateCcw, Eye, FileImage, Undo2, Lock } from "lucide-react";
 import Image from "next/image";
+import { getRecordPlantIds } from "@/lib/plant-master";
 
 export default function MBST() {
   const db = useDatabase();
@@ -79,9 +80,11 @@ export default function MBST() {
     return map;
   }, [customers]);
 
-  const firmMap = useMemo(() => {
+const firmMap = useMemo(() => {
     const map: Record<string, any> = {};
-    firms?.forEach(f => { map[f.plantId] = f; });
+    firms?.forEach(f => {
+      getRecordPlantIds(f).forEach(pid => { map[pid] = f; });
+    });
     return map;
   }, [firms]);
 

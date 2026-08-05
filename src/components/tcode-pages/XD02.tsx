@@ -34,7 +34,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Loader2, Trash2, Pencil, Users } from "lucide-react";
+import { Loader2, Trash2, Pencil } from "lucide-react";
 
 export default function XD02() {
   const db = useDatabase();
@@ -57,9 +57,11 @@ export default function XD02() {
   useEffect(() => {
     const stored = localStorage.getItem("sikka_user");
     if (stored) {
-      const parsed = JSON.parse(stored);
-      const isSysAdmin = parsed.username === "ajaysomra" || parsed.role === "admin";
-      setCanEdit(isSysAdmin || (parsed.tcodePermissions || []).includes("XD02"));
+      try {
+        const parsed = JSON.parse(stored);
+        const isSysAdmin = parsed.username === "ajaysomra" || parsed.role === "admin";
+        setCanEdit(isSysAdmin || (parsed.tcodePermissions || []).includes("XD02"));
+      } catch (e) { /* ignore */ }
     }
   }, []);
 
@@ -67,6 +69,7 @@ export default function XD02() {
     const plantIds = Array.isArray(customer.assignedPlantIds) && customer.assignedPlantIds.length > 0
       ? customer.assignedPlantIds
       : (customer.plantId ? [customer.plantId] : []);
+
     setSelectedId(customer.id);
     setFormData({
       ...customer,
@@ -148,10 +151,11 @@ export default function XD02() {
 
       const assignedPlantIds = Array.isArray(formData.assignedPlantIds) ? formData.assignedPlantIds : [];
       const { id, ...dataToSave } = formData;
+
       updateDocumentNonBlocking(doc(db, "customers", selectedId), {
         ...dataToSave,
         assignedPlantIds,
-        plantId: assignedPlantIds[0] || "", // backward compatibility with single-plant queries
+        plantId: assignedPlantIds[0] || "", // backward compatibility
         customerId: normalizedCode,
         updatedAt: new Date().toISOString(),
       });
@@ -263,9 +267,13 @@ export default function XD02() {
         </Table>
       </div>
 
-      {/* Edit Modal — all XD01 fields */}
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto rounded-sm p-0">
+      {/* Edit Modal - modal={false} avoids trapping click events from dropdowns */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen} modal={false}>
+        <DialogContent
+          className="max-w-3xl max-h-[90vh] overflow-y-auto rounded-sm p-0 z-50 shadow-2xl border border-gray-400"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader className="bg-[#dae8f5] px-4 py-2 border-b border-[#b5c7de]">
             <DialogTitle className="text-[13px] font-bold text-gray-800 uppercase italic tracking-wider">
               Edit Customer Master
@@ -290,7 +298,12 @@ export default function XD02() {
                         <PlantMultiSelect
                           plants={plants}
                           selected={formData.assignedPlantIds || []}
-                          onChange={(ids) => setFormData((prev: any) => ({ ...prev, assignedPlantIds: ids }))}
+                          onChange={(ids) => {
+                            setFormData((prev: any) => ({
+                              ...prev,
+                              assignedPlantIds: ids,
+                            }));
+                          }}
                           isLoading={isPlantsLoading}
                           placeholder="Select Plant(s)..."
                         />

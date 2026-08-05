@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import Image from "next/image";
+import { getRecordPlantIds } from "@/lib/plant-master";
 
 export default function F110() {
   const db = useDatabase();
@@ -49,9 +50,11 @@ export default function F110() {
     return map;
   }, [customers]);
 
-  const firmMap = useMemo(() => {
+const firmMap = useMemo(() => {
     const map: Record<string, any> = {};
-    firms?.forEach(f => { map[f.plantId] = f; });
+    firms?.forEach(f => {
+      getRecordPlantIds(f).forEach(pid => { map[pid] = f; });
+    });
     return map;
   }, [firms]);
 

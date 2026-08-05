@@ -12,6 +12,7 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 import PlantMultiSelect from "./PlantMultiSelect";
 import { downloadCsv, formatSapDateTime } from "@/lib/csv-export";
+import { getRecordPlantIds } from "@/lib/plant-master";
 
 // Utility to convert number to Indian words
 const numberToWords = (num: number): string => {
@@ -28,7 +29,7 @@ const numberToWords = (num: number): string => {
   return `Rupees ${str.trim()} Only`;
 };
 export const InvoicePreview = ({ invoice, copyLabel, firms, customerMap }: { invoice: any; copyLabel: string, firms: any[] | null, customerMap: Record<string, any> }) => {
-  const firm = invoice.snapshotFirm || firms?.find(f => f.plantId === invoice.plantId) || {};
+const firm = invoice.snapshotFirm || firms?.find(f => getRecordPlantIds(f).includes(invoice.plantId)) || {};
   const billToCust = invoice.snapshotBillTo || customerMap[invoice.billTo] || {};
   const shipToCust = invoice.snapshotShipTo || customerMap[invoice.shipTo] || billToCust || {};
   

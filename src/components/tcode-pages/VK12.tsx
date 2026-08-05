@@ -1,49 +1,313 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking, addDocumentNonBlocking } from "@/database";
-import { collection, query, orderBy, where, getDocs, serverTimestamp, doc } from "@/database/mongo";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from "@/database";
+import { collection, query, orderBy, doc } from "@/database/mongo";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2, Loader2, Upload, CheckCircle2, X, FileText, Save, Eye, Download, ExternalLink, AlertCircle } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Search, Trash2, Loader2, Pencil, ArrowUpDown, ChevronUp, ChevronDown, X, Save, AlertCircle, FileText, Eye, Download, ExternalLink } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import PlantMultiSelect from "./PlantMultiSelect";
+import { getCurrentUser, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
 
-type RateRow = {
+type EditForm = {
   id: string;
-  docId?: string;
+  plantId: string;
+  customerCode: string;
+  customerName: string;
+  inventoryType: string;
+  documentType: string;
+  documentCategory: string;
   materialCode: string;
   materialName: string;
   hsnSac: string;
-  uom: string;
+  gstRate: string;
   price: string;
+  validFrom: string;
+  validTo: string;
+  status: string;
+  approvalFile: string;
+  approvalFileName: string;
+  createdBy: string;
+  createdAt: string;
 };
 
-const newRow = (): RateRow => ({
-  id: Math.random().toString(36).substr(2, 9),
-  materialCode: "",
-  materialName: "",
-  hsnSac: "",
-  uom: "",
-  price: "",
-});
+const getCurrentUserInfo = () => {
+  if (typeof window === "undefined") return { userId: "system", username: "SYSTEM" };
+  try {
+    const parsed = JSON.parse(localStorage.getItem("sikka_user") || "{}");
+    return { userId: parsed.username || parsed.userId || "system", username: parsed.name || parsed.username || "SYSTEM" };
+  } catch {
+    return { userId: "system", username: "SYSTEM" };
+  }
+};
 
-const normalize = (v: string) => (v || "").trim().toUpperCase();
+const postAuditLog = (payload: any) => {
+  fetch('/api/audit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).catch(() => {});
+};
 
 export default function VK12() {
   const db = useDatabase();
-  const [selectedId, setSelectedId] = useState("");
-  const [header, setHeader] = useState<any>(null);
-  const [rows, setRows] = useState<RateRow[]>([]);
-  const [errors, setErrors] = useState<Record<string, string[]>>({});
-  const [loading, setLoading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedPlants, setSelectedPlants] = useState<string[]>([]);
+  const [authorizedPlantIds, setAuthorizedPlantIds] = useState<string[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [search, setSearch] = useState("");
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [editing, setEditing] = useState<EditForm | null>(null);
+  const [formErrors, setFormErrors] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    const { assignedPlantIds, isAdmin } = getCurrentUser();
+    setAuthorizedPlantIds(assignedPlantIds);
+    setIsAdmin(isAdmin);
+  }, []);
+
+  const pricingQuery = useMemoDatabase(() => query(collection(db, "pricing"), orderBy("createdAt", "desc")), [db]);
+  const { data: pricingRecords, isLoading: isPricingLoading } = useCollection(pricingQuery);
+
+  const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
+  const { data: plants, isLoading: isPlantsLoading } = useCollection(plantsQuery);
+
+  const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
+  const { data: customers } = useCollection(customersQuery);
+
+  const materialsQuery = useMemoDatabase(() => collection(db, "materials"), [db]);
+  const { data: materials } = useCollection(materialsQuery);
+
+  const allowedPlantIds = isAdmin ? undefined : (authorizedPlantIds.length ? authorizedPlantIds : undefined);
+
+  const customerMap = useMemo(() => {
+    const map: Record<string, any> = {};
+    customers?.forEach(c => { map[c.customerId] = c; });
+    return map;
+  }, [customers]);
+
+  const materialMap = useMemo(() => {
+    const map: Record<string, any> = {};
+    materials?.forEach(m => {
+      if (m.materialCode) map[m.materialCode?.toUpperCase()] = m;
+      if (m.productName) map[m.productName?.toUpperCase()] = m;
+    });
+    return map;
+  }, [materials]);
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const sortedData = useMemo(() => {
+    if (!pricingRecords) return [];
+
+    let baseData = pricingRecords;
+    // Plant authorization filter
+    if (!isAdmin && authorizedPlantIds.length > 0) {
+      baseData = baseData.filter(r => r.plantId && authorizedPlantIds.includes(r.plantId));
+    }
+    // Selected plant filter
+    if (selectedPlants.length > 0) {
+      baseData = baseData.filter(r => r.plantId && selectedPlants.includes(r.plantId));
+    }
+
+    const q = search.trim().toLowerCase();
+    const filtered = baseData.filter(r => {
+      const customerName = customerMap[r.customerCode]?.name || "";
+      const materialName = r.materialName || materialMap[r.materialCode?.toUpperCase()]?.productName || "";
+      return [
+        r.plantId, r.inventoryType, r.documentType, r.documentCategory,
+        r.customerCode, customerName, r.materialCode, materialName,
+        r.hsnSac, r.gstRate, r.price, r.validFrom, r.validTo, r.status
+      ].some(v => String(v ?? "").toLowerCase().includes(q));
+    });
+
+    if (!sortConfig) return filtered;
+    return [...filtered].sort((a, b) => {
+      // Resolve customer name for sorting
+      const getVal = (r: any) => {
+        if (sortConfig.key === 'customerName') return customerMap[r.customerCode]?.name || "";
+        if (sortConfig.key === 'materialName') return r.materialName || materialMap[r.materialCode?.toUpperCase()]?.productName || "";
+        return r[sortConfig.key];
+      };
+      const aVal = String(getVal(a) ?? "").toLowerCase();
+      const bVal = String(getVal(b) ?? "").toLowerCase();
+      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [pricingRecords, isAdmin, authorizedPlantIds, selectedPlants, search, sortConfig, customerMap, materialMap]);
+
+  const SortIcon = ({ column }: { column: string }) => {
+    if (sortConfig?.key !== column) return <ArrowUpDown className="h-3 w-3 ml-1 opacity-30" />;
+    return sortConfig.direction === 'asc' ? <ChevronUp className="h-3 w-3 ml-1 text-blue-600" /> : <ChevronDown className="h-3 w-3 ml-1 text-blue-600" />;
+  };
+
+  const openEdit = (record: any) => {
+    const mat = materialMap[(record.materialCode || "").toUpperCase()];
+    setEditing({
+      id: record.id,
+      plantId: record.plantId || "",
+      customerCode: record.customerCode || "",
+      customerName: customerMap[record.customerCode]?.name || record.customerName || "",
+      inventoryType: record.inventoryType || "",
+      documentType: record.documentType || "",
+      documentCategory: record.documentCategory || "",
+      materialCode: record.materialCode || "",
+      materialName: record.materialName || mat?.productName || "",
+      hsnSac: record.hsnSac || mat?.hsnSac || "",
+      gstRate: record.gstRate !== undefined ? String(record.gstRate) : (mat?.gstRate !== undefined ? String(mat.gstRate) : ""),
+      price: record.price !== undefined ? String(record.price) : "",
+      validFrom: record.validFrom || "",
+      validTo: record.validTo || "9999-12-31",
+      status: record.status || "Active",
+      approvalFile: record.approvalFile || "",
+      approvalFileName: record.approvalFileName || "",
+      createdBy: record.createdBy || record.createdByName || "",
+      createdAt: record.createdAt || "",
+    });
+    setFormErrors([]);
+  };
+
+  const updateField = (field: keyof EditForm, value: string) => {
+    setEditing(prev => (prev ? { ...prev, [field]: value } : prev));
+  };
+
+  const handleMaterialChange = (code: string) => {
+    if (!editing) return;
+    const mat = materialMap[code?.toUpperCase()];
+    setEditing({
+      ...editing,
+      materialCode: code,
+      materialName: mat?.productName || "",
+      hsnSac: mat?.hsnSac || "",
+      gstRate: mat?.gstRate !== undefined ? String(mat.gstRate) : editing.gstRate,
+    });
+  };
+
+  const validateForm = (): string[] => {
+    if (!editing) return [];
+    const errs: string[] = [];
+    if (!editing.plantId) errs.push("Plant is mandatory");
+    if (!editing.customerCode) errs.push("Customer Code is mandatory");
+    if (!editing.materialCode) errs.push("Material Code is mandatory");
+    if (!editing.price || isNaN(Number(editing.price)) || Number(editing.price) <= 0) errs.push("Basic Rate must be a positive number");
+    if (!editing.validFrom) errs.push("Validity From is mandatory");
+    return errs;
+  };
+
+  const handleSave = async () => {
+    if (!editing) return;
+    const errs = validateForm();
+    setFormErrors(errs);
+    if (errs.length > 0) {
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: `Validation Error: ${errs.length} issue(s) in the edit form`, isError: true }
+      }));
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { id, createdBy, createdAt, ...dataToSave } = editing;
+      const { userId, username } = getCurrentUserInfo();
+
+      // Determine status: if approval workflow enabled, set Pending Approval
+      const approvalWorkflowEnabled = false; // No configuration source found; extend as needed
+      const targetStatus = approvalWorkflowEnabled ? "Pending Approval" : (editing.status || "Active");
+
+      const payload = {
+        ...dataToSave,
+        plantId: editing.plantId,
+        customerCode: editing.customerCode,
+        materialCode: editing.materialCode,
+        materialName: editing.materialName,
+        hsnSac: editing.hsnSac,
+        gstRate: Number(editing.gstRate) || 0,
+        price: parseFloat(editing.price),
+        validFrom: editing.validFrom,
+        validTo: editing.validTo || "9999-12-31",
+        status: targetStatus,
+        approvalFile: editing.approvalFile,
+        approvalFileName: editing.approvalFileName,
+        createdBy: editing.createdBy || username,
+        createdAt: editing.createdAt || new Date().toISOString(),
+        modifiedBy: username,
+        modifiedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      updateDocumentNonBlocking(doc(db, "pricing", id), payload);
+
+      // Audit log
+      postAuditLog({
+        userId,
+        username,
+        action: 'UPDATE_PRICING_RECORD',
+        settingName: `Pricing Rate ${editing.materialCode} for ${editing.customerCode}`,
+        previousValue: JSON.stringify({ price: editing.price, status: editing.status }),
+        newValue: JSON.stringify({ price: payload.price, status: targetStatus }),
+      });
+
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: `Rate record ${editing.materialCode} updated successfully`, isError: false }
+      }));
+      setEditing(null);
+    } catch (error) {
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "Update failed: Database synchronization error", isError: true }
+      }));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const { userId, username } = getCurrentUserInfo();
+      deleteDocumentNonBlocking(doc(db, "pricing", deleteTarget.id));
+
+      // Audit log
+      postAuditLog({
+        userId,
+        username,
+        action: 'DELETE_PRICING_RECORD',
+        settingName: `Pricing Rate ${deleteTarget.materialCode || ''} for ${deleteTarget.customerCode || ''}`,
+        previousValue: JSON.stringify({ id: deleteTarget.id, materialCode: deleteTarget.materialCode, customerCode: deleteTarget.customerCode }),
+        newValue: null,
+      });
+
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "Rate record deleted permanently", isError: false }
+      }));
+      setDeleteTarget(null);
+    } catch (e) {
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "Deletion failed", isError: true }
+      }));
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const pdfBlobUrl = useMemo(() => {
-    if (header?.approvalFile?.startsWith('data:application/pdf')) {
+    const file = editing?.approvalFile;
+    if (file?.startsWith('data:application/pdf')) {
       try {
-        const parts = header.approvalFile.split(',');
+        const parts = file.split(',');
         const base64 = parts[1];
         const binary = atob(base64);
         const array = new Uint8Array(binary.length);
@@ -56,7 +320,7 @@ export default function VK12() {
       }
     }
     return null;
-  }, [header?.approvalFile]);
+  }, [editing?.approvalFile]);
 
   useEffect(() => {
     return () => {
@@ -64,396 +328,302 @@ export default function VK12() {
     };
   }, [pdfBlobUrl]);
 
-  const pricingQuery = useMemoDatabase(() => query(collection(db, "pricing"), orderBy("createdAt", "desc")), [db]);
-  const { data: pricingRecords, isLoading: isPricingLoading } = useCollection(pricingQuery);
-
-  const materialsQuery = useMemoDatabase(() => collection(db, "materials"), [db]);
-  const { data: materials } = useCollection(materialsQuery);
-
-  const handleSelect = (id: string) => {
-    const record = pricingRecords?.find(r => r.id === id);
-    if (!record) return;
-    setSelectedId(id);
-    setHeader({
-      plantId: record.plantId || "",
-      customerCode: record.customerCode || "",
-      documentType: record.documentType || "",
-      documentCategory: record.documentCategory || "",
-      inventoryType: record.inventoryType || "",
-      validFrom: record.validFrom || "",
-      validTo: record.validTo || "9999-12-31",
-      approvalFile: record.approvalFile || "",
-      approvalFileName: record.approvalFileName || "",
-    });
-    setRows([{
-      id: Math.random().toString(36).substr(2, 9),
-      docId: record.id,
-      materialCode: record.materialCode || "",
-      materialName: record.materialName || "",
-      hsnSac: record.hsnSac || "",
-      uom: record.uom || "",
-      price: record.price !== undefined ? String(record.price) : "",
-    }]);
-    setErrors({});
-  };
-
-  const updateRow = (id: string, field: keyof RateRow, value: string) => {
-    setRows(prev => prev.map(r => {
-      if (r.id !== id) return r;
-      const updated = { ...r, [field]: value };
-      if (field === "materialCode") {
-        const mat = materials?.find(m =>
-          (m.materialCode || "").toUpperCase() === value.toUpperCase() ||
-          (m.productName || "").toUpperCase() === value.toUpperCase()
-        );
-        updated.materialName = mat?.productName || "";
-        updated.hsnSac = mat?.hsnSac || "";
-        updated.uom = mat?.uom || "";
-      }
-      return updated;
-    }));
-  };
-
-  const addRow = () => {
-    if (!header) return;
-    setRows(prev => [...prev, newRow()]);
-  };
-
-  const deleteRow = (id: string) => {
-    setRows(prev => (prev.length > 1 ? prev.filter(r => r.id !== id) : prev));
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > 750 * 1024) {
-      window.dispatchEvent(new CustomEvent('sap-status', {
-        detail: { text: "Error: Attachment exceeds 750KB maximum allowed size", isError: true }
-      }));
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      setHeader((prev: any) => ({
-        ...prev,
-        approvalFile: ev.target?.result as string,
-        approvalFileName: file.name
-      }));
-      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Attachment replaced and ready to save", isError: false } }));
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const validateRows = useCallback(async () => {
-    if (!header) return {};
-    const newErrors: Record<string, string[]> = {};
-    const seenCodes: Record<string, number> = {};
-
-    for (let idx = 0; idx < rows.length; idx++) {
-      const row = rows[idx];
-      const rowErrors: string[] = [];
-      const code = row.materialCode.trim();
-      const price = row.price.trim();
-
-      if (!code) {
-        rowErrors.push("Material is mandatory");
-      } else {
-        const normalized = normalize(code);
-        if (seenCodes[normalized] !== undefined) {
-          rowErrors.push(`Duplicate Material within document (duplicate of row ${seenCodes[normalized]})`);
-        } else {
-          seenCodes[normalized] = idx + 1;
-        }
-        try {
-          const q = query(
-            collection(db, "pricing"),
-            where("customerCode", "==", header.customerCode),
-            where("materialCode", "==", code),
-            where("plantId", "==", header.plantId),
-            where("inventoryType", "==", header.inventoryType),
-            where("documentType", "==", header.documentType),
-            where("documentCategory", "==", header.documentCategory)
-          );
-          const snap = await getDocs(q);
-          const isSelf = row.docId && snap.docs.some(d => d.id === row.docId);
-          if (!snap.empty && !isSelf) {
-            rowErrors.push("Pricing record already exists for this combination");
-          }
-        } catch (e) {
-          // Skip DB check on error
-        }
-      }
-
-      if (!price) {
-        rowErrors.push("Basic Rate (PMT) is mandatory");
-      } else if (isNaN(Number(price))) {
-        rowErrors.push("Basic Rate (PMT) must be numeric");
-      } else if (Number(price) <= 0) {
-        rowErrors.push("Basic Rate (PMT) must be greater than zero");
-      }
-
-      if (rowErrors.length) newErrors[row.id] = rowErrors;
-    }
-
-    return newErrors;
-  }, [rows, header, db]);
-
-  const handleExecute = useCallback(async () => {
-    if (!header || !selectedId) {
-      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Selection required for modification", isError: true } }));
-      return;
-    }
-
-    const validationErrors = await validateRows();
-    setErrors(validationErrors);
-
-    const invalidCount = Object.keys(validationErrors).length;
-    if (invalidCount > 0) {
-      window.dispatchEvent(new CustomEvent('sap-status', {
-        detail: { text: `Validation Error: ${invalidCount} row(s) contain errors. Correct highlighted rows.`, isError: true }
-      }));
-      return;
-    }
-
-    setLoading(true);
-    try {
-      for (const row of rows) {
-        const payload = {
-          materialCode: row.materialCode.trim(),
-          materialName: row.materialName,
-          hsnSac: row.hsnSac,
-          uom: row.uom,
-          price: parseFloat(row.price),
-          plantId: header.plantId,
-          customerCode: header.customerCode,
-          documentType: header.documentType,
-          documentCategory: header.documentCategory,
-          inventoryType: header.inventoryType,
-          validFrom: header.validFrom,
-          validTo: header.validTo,
-          approvalFile: header.approvalFile,
-          approvalFileName: header.approvalFileName,
-          updatedAt: new Date().toISOString(),
-        };
-        if (row.docId) {
-          updateDocumentNonBlocking(doc(db, "pricing", row.docId), payload);
-        } else {
-          addDocumentNonBlocking(collection(db, "pricing"), {
-            ...payload,
-            conditionType: "PR00",
-            keyCombination: "Customer/Material",
-            currency: "INR",
-            gstRate: Number(materials?.find(m => (m.materialCode || "").toUpperCase() === row.materialCode.trim().toUpperCase() || (m.productName || "").toUpperCase() === row.materialCode.trim().toUpperCase())?.gstRate) || 0,
-            createdAt: serverTimestamp(),
-          });
-        }
-      }
-
-      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `${rows.length} condition record(s) updated`, isError: false } }));
-    } catch (error) {
-      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Update failed: Authorization or connection error", isError: true } }));
-    } finally {
-      setLoading(false);
-    }
-  }, [header, selectedId, rows, validateRows, db, materials]);
-
-  useEffect(() => {
-    const onExecute = () => handleExecute();
-    window.addEventListener('sap-execute', onExecute);
-    return () => window.removeEventListener('sap-execute', onExecute);
-  }, [handleExecute]);
-
   const openPdfInNewTab = () => {
     if (pdfBlobUrl) window.open(pdfBlobUrl, '_blank');
   };
 
-  const totalInvalidRows = Object.keys(errors).length;
-
   return (
     <div className="w-full flex flex-col bg-white min-h-full">
       <div className="bg-[#dae8f5] px-4 py-1 border-b border-gray-300">
-        <h2 className="text-[13px] font-bold text-gray-800 uppercase italic tracking-wider">
-          Change Condition Record (VK12)
-        </h2>
+        <div className="flex justify-between items-center">
+          <h2 className="text-[13px] font-bold text-gray-800 uppercase italic tracking-wider">
+            Change Condition Record (VK12)
+          </h2>
+          <span className="text-[10px] font-black text-gray-500 uppercase tracking-tighter">Rate Master • {sortedData.length} Entry(s)</span>
+        </div>
       </div>
 
-      <div className="p-4 space-y-4">
-        <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
-          <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">Record Selection</div>
-          <div className="p-2">
-            <div className="sap-selection-row">
-              <label className="sap-label">Retrieve ID</label>
-              <div className="sap-input-wrapper max-md">
-                <Select onValueChange={handleSelect} value={selectedId}>
-                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
-                    <SelectValue placeholder="Select existing record..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {pricingRecords?.map(r => (
-                      <SelectItem key={r.id} value={r.id}>
-                        {r.plantId} | {r.customerCode} | {r.materialCode} | {r.documentCategory || 'N/A'}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {isPricingLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-600 ml-2" />}
-              </div>
+      <div className="bg-[#e7ebf1] border-b border-[#b5c7de] px-4 py-1 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <label className="text-[11px] font-bold text-gray-600 whitespace-nowrap">Plants</label>
+            <div className="w-[240px]">
+              <PlantMultiSelect
+                plants={plants}
+                selected={selectedPlants}
+                onChange={setSelectedPlants}
+                isLoading={isPlantsLoading}
+                allowedPlantIds={allowedPlantIds}
+                placeholder="All Plants..."
+              />
             </div>
           </div>
+          <div className="relative flex items-center bg-white border border-gray-400 h-6 w-72 px-1 group focus-within:border-blue-500">
+             <Search className="h-3.5 w-3.5 text-gray-400 mr-1" />
+             <input value={search} onChange={(e) => setSearch(e.target.value)} className="w-full h-full text-xs outline-none" placeholder="Search rate records..." />
+          </div>
         </div>
+      </div>
 
-        {header && (
-          <div className="space-y-4 animate-in fade-in duration-300">
-            <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
-              <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">Condition Maintenance</div>
-              <div className="p-2 grid grid-cols-2 gap-x-8 gap-y-1">
-                <div className="sap-selection-row"><label className="sap-label">Plant</label><Input value={header.plantId} readOnly className="bg-gray-100 font-mono max-w-[200px]" /></div>
-                <div className="sap-selection-row"><label className="sap-label">Customer</label><Input value={header.customerCode} readOnly className="bg-gray-100 font-mono max-w-[200px]" /></div>
-                <div className="sap-selection-row"><label className="sap-label">Category</label><Input value={header.documentCategory || "GENERAL"} readOnly className="bg-gray-100 max-w-[200px]" /></div>
-                <div className="sap-selection-row"><label className="sap-label">Inventory Type</label><Input value={header.inventoryType || "-"} readOnly className="bg-gray-100 max-w-[200px]" /></div>
-                <div className="sap-selection-row"><label className="sap-label">Valid From/To</label>
-                  <div className="sap-input-wrapper gap-2 max-w-md">
-                    <Input type="date" value={header.validFrom} onChange={e => setHeader({ ...header, validFrom: e.target.value })} />
-                    <span className="text-gray-400">to</span>
-                    <Input type="date" value={header.validTo} onChange={e => setHeader({ ...header, validTo: e.target.value })} />
+      <div className="flex-1 overflow-auto no-scrollbar">
+        {isPricingLoading ? (
+          <div className="text-center py-20 text-[11px] font-bold uppercase tracking-widest animate-pulse text-gray-400">Syncing System Repository...</div>
+        ) : sortedData.length === 0 ? (
+          <div className="text-center py-20 text-[11px] font-bold uppercase text-red-500">{selectedPlants.length > 0 ? NO_MASTER_RECORDS_MESSAGE : "No rate records found"}</div>
+        ) : (
+        <Table className="min-w-[2000px]">
+          <TableHeader className="bg-[#e7ebf1] sticky top-0 z-10 shadow-sm">
+            <TableRow className="h-8 border-b-[#b5c7de]">
+              <TableHead className="text-[11px] font-bold border-r w-10 text-center">#</TableHead>
+              <TableHead onClick={() => handleSort('plantId')} className="text-[11px] font-bold border-r w-20 cursor-pointer hover:bg-gray-200">Plant <SortIcon column="plantId" /></TableHead>
+              <TableHead onClick={() => handleSort('inventoryType')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">Inv. Type <SortIcon column="inventoryType" /></TableHead>
+              <TableHead onClick={() => handleSort('documentType')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">Doc. Type <SortIcon column="documentType" /></TableHead>
+              <TableHead onClick={() => handleSort('documentCategory')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">Charge Type <SortIcon column="documentCategory" /></TableHead>
+              <TableHead onClick={() => handleSort('customerCode')} className="text-[11px] font-bold border-r w-28 cursor-pointer hover:bg-gray-200">Customer Code <SortIcon column="customerCode" /></TableHead>
+              <TableHead onClick={() => handleSort('customerName')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">Customer Name <SortIcon column="customerName" /></TableHead>
+              <TableHead onClick={() => handleSort('materialCode')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">Material Code <SortIcon column="materialCode" /></TableHead>
+              <TableHead onClick={() => handleSort('materialName')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">Material Name <SortIcon column="materialName" /></TableHead>
+              <TableHead onClick={() => handleSort('hsnSac')} className="text-[11px] font-bold border-r w-24 cursor-pointer hover:bg-gray-200">HSN/SAC <SortIcon column="hsnSac" /></TableHead>
+              <TableHead onClick={() => handleSort('gstRate')} className="text-[11px] font-bold border-r w-16 text-center cursor-pointer hover:bg-gray-200">GST % <SortIcon column="gstRate" /></TableHead>
+              <TableHead onClick={() => handleSort('price')} className="text-[11px] font-bold border-r w-24 text-right cursor-pointer hover:bg-gray-200">Basic Rate <SortIcon column="price" /></TableHead>
+              <TableHead onClick={() => handleSort('validFrom')} className="text-[11px] font-bold border-r w-24 cursor-pointer hover:bg-gray-200">Valid From <SortIcon column="validFrom" /></TableHead>
+              <TableHead onClick={() => handleSort('validTo')} className="text-[11px] font-bold border-r w-24 cursor-pointer hover:bg-gray-200">Valid To <SortIcon column="validTo" /></TableHead>
+              <TableHead onClick={() => handleSort('status')} className="text-[11px] font-bold border-r w-24 cursor-pointer hover:bg-gray-200">Status <SortIcon column="status" /></TableHead>
+              <TableHead className="text-[11px] font-bold w-40 text-center">Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sortedData.map((r, i) => {
+              const customerName = customerMap[r.customerCode]?.name || r.customerName || "-";
+              const materialName = r.materialName || materialMap[r.materialCode?.toUpperCase()]?.productName || "-";
+              return (
+              <TableRow key={r.id} className="h-8 hover:bg-blue-50/30 transition-colors border-b border-gray-100 group">
+                <TableCell className="p-0 text-center text-[10px] border-r text-gray-400 group-hover:text-blue-600">{i + 1}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r font-mono font-bold text-gray-600 text-center">{r.plantId}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center uppercase">{r.inventoryType || "-"}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center uppercase">{r.documentType || "-"}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center uppercase">{r.documentCategory || "-"}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r font-mono text-center">{r.customerCode}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-gray-700 truncate max-w-[160px]">{customerName}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r font-mono font-black text-blue-900">{r.materialCode}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-gray-700 truncate max-w-[160px]">{materialName}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r font-mono text-center">{r.hsnSac || "-"}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center font-bold text-gray-500">{r.gstRate}%</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-800">INR {Number(r.price).toLocaleString()}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{r.validFrom}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{r.validTo}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center">
+                  <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] border ${String(r.status).toLowerCase() === 'active' || String(r.status).toLowerCase() === 'approved' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>{r.status || "Active"}</span>
+                </TableCell>
+                <TableCell className="p-0 px-1 text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <Button size="sm" onClick={() => openEdit(r)} className="h-6 rounded-none px-2 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold gap-1">
+                      <Pencil className="h-3 w-3" /> Edit
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={() => setDeleteTarget(r)} className="h-6 rounded-none px-2 text-[10px] font-bold gap-1">
+                      <Trash2 className="h-3 w-3" /> Delete
+                    </Button>
                   </div>
+                </TableCell>
+              </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+        )}
+      </div>
+
+      {/* Edit Dialog */}
+      <Dialog open={!!editing} onOpenChange={(open) => { if (!open) setEditing(null); }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto rounded-none border-gray-400 p-0 overflow-hidden shadow-2xl">
+          <DialogHeader className="bg-[#dae8f5] px-4 py-2 border-b border-[#b5c7de]">
+            <DialogTitle className="text-[13px] font-bold text-gray-800 uppercase italic tracking-wider">
+              Edit Rate Master
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="p-4 space-y-4">
+            {formErrors.length > 0 && (
+              <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-sm flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+                <div className="text-[11px] font-bold text-red-700 space-y-0.5">
+                  {formErrors.map((e, i) => <div key={i}>• {e}</div>)}
                 </div>
-              </div>
-            </div>
-
-            <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-white">
-              <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] flex items-center justify-between">
-                <span className="text-[12px] font-semibold text-gray-700">Material & Basic Rate (PMT)</span>
-                <Button size="sm" variant="ghost" className="h-5 text-[10px] font-bold text-blue-700 hover:bg-blue-50 gap-1" onClick={addRow}>
-                  <Plus className="h-3 w-3" /> Add Row
-                </Button>
-              </div>
-
-              {totalInvalidRows > 0 && (
-                <div className="px-3 py-2 bg-red-50 border-b border-red-200 flex items-center gap-2">
-                  <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
-                  <span className="text-[11px] font-bold text-red-700">
-                    {totalInvalidRows} row(s) contain validation errors. Correct the highlighted rows before saving.
-                  </span>
-                </div>
-              )}
-
-              <div className="overflow-x-auto no-scrollbar">
-                <Table>
-                  <TableHeader className="bg-[#e7ebf1]">
-                    <TableRow className="h-8">
-                      <TableHead className="text-[11px] font-bold border-r w-10 text-center">#</TableHead>
-                      <TableHead className="text-[11px] font-bold border-r w-56">Material Code <span className="text-red-500">*</span></TableHead>
-                      <TableHead className="text-[11px] font-bold border-r">Material Name (auto)</TableHead>
-                      <TableHead className="text-[11px] font-bold border-r w-28 text-right">Basic Rate (PMT) <span className="text-red-500">*</span></TableHead>
-                      <TableHead className="w-10"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {rows.map((row, idx) => {
-                      const rowErrors = errors[row.id] || [];
-                      const isInvalid = rowErrors.length > 0;
-                      return (
-                        <TableRow key={row.id} className={`h-8 hover:bg-blue-50/30 border-b border-gray-100 ${isInvalid ? "bg-red-50" : ""}`}>
-                          <TableCell className={`p-0 text-center text-[10px] border-r ${isInvalid ? "text-red-500 font-black" : "text-gray-400"}`}>{idx + 1}</TableCell>
-                          <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
-                            <Select value={row.materialCode} onValueChange={v => updateRow(row.id, "materialCode", v)}>
-                              <SelectTrigger className={`h-7 border-none bg-transparent text-xs rounded-none px-2 shadow-none focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}>
-                                <SelectValue placeholder="" />
-                              </SelectTrigger>
-                              <SelectContent>{materials?.map(m => <SelectItem key={m.id} value={m.materialCode || m.productName}>{m.materialCode || m.productName}</SelectItem>)}</SelectContent>
-                            </Select>
-                          </TableCell>
-                          <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
-                            <Input
-                              className={`h-full border-none shadow-none rounded-none bg-gray-50 font-medium focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
-                              value={row.materialName}
-                              readOnly
-                              placeholder="Auto-filled from material"
-                            />
-                          </TableCell>
-                          <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
-                            <Input
-                              type="number"
-                              className={`h-full border-none shadow-none rounded-none text-right font-bold text-emerald-700 focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
-                              value={row.price}
-                              onChange={e => updateRow(row.id, "price", e.target.value)}
-                            />
-                          </TableCell>
-                          <TableCell className="p-0 text-center">
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500 hover:bg-red-50" onClick={() => deleteRow(row.id)} disabled={rows.length <= 1} title="Delete Row">
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-
-              <div className="bg-[#e7ebf1] p-1 flex justify-between items-center px-4 border-t border-[#b5c7de] text-[11px] font-bold text-gray-600 uppercase">
-                <span>Total Rows: {rows.length}</span>
-                <span>Valid: {rows.length - totalInvalidRows} | Invalid: {totalInvalidRows}</span>
-              </div>
-            </div>
-
-            {totalInvalidRows > 0 && (
-              <div className="border border-red-300 bg-red-50 rounded-sm p-2 space-y-1">
-                {rows.map((row, idx) => {
-                  const rowErrors = errors[row.id];
-                  if (!rowErrors) return null;
-                  return (
-                    <div key={row.id} className="text-[11px] font-bold text-red-700">
-                      Row {idx + 1}: {rowErrors.join("; ")}
-                    </div>
-                  );
-                })}
               </div>
             )}
 
-            <div className="sap-selection-row pt-4 items-center">
-              <label className="sap-label font-bold text-blue-800">Maintain Attachment</label>
-              <div className="sap-input-wrapper gap-3">
-                <Button variant="outline" size="sm" className="h-8 rounded-none border-gray-400 bg-gray-50 hover:bg-white gap-2" onClick={() => fileInputRef.current?.click()}>
-                  <Upload className="h-4 w-4" /> Replace Document
-                </Button>
-                <input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf" onChange={handleFileUpload} />
-
-                {header.approvalFile && (
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10px] font-bold text-emerald-700 uppercase bg-emerald-50 px-2 py-0.5 border border-emerald-100 rounded-sm">Verified: {header.approvalFileName || "DOC"}</span>
-                    <Dialog>
-                      <DialogTrigger asChild><Button variant="ghost" size="sm" className="h-7 rounded-none text-blue-700 font-bold text-[10px] uppercase gap-1.5"><Eye className="h-3.5 w-3.5" /> View</Button></DialogTrigger>
-                      <DialogContent className="max-w-4xl p-0 rounded-none border-gray-400 overflow-hidden shadow-2xl">
-                        <div className="bg-[#333e4f] text-white p-2 flex justify-between items-center">
-                          <DialogTitle className="text-[11px] font-black uppercase tracking-widest pl-2">Document Verification</DialogTitle>
-                          <DialogTrigger asChild><button className="hover:bg-white/10 p-1"><X className="h-4 w-4" /></button></DialogTrigger>
-                        </div>
-                        <div className="p-10 bg-gray-100 flex items-center justify-center">
-                          {pdfBlobUrl ? (
-                            <div className="text-center space-y-4">
-                              <FileText className="h-20 w-20 text-red-500 mx-auto opacity-30" />
-                              <Button onClick={openPdfInNewTab} className="bg-blue-700 rounded-none h-10 px-8 uppercase font-bold text-[11px]">Open Secure PDF Viewer</Button>
-                            </div>
-                          ) : (
-                            <img src={header.approvalFile} alt="Approval" className="max-w-full max-h-[70vh] object-contain shadow-2xl border-4 border-white" />
-                          )}
-                        </div>
-                      </DialogContent>
-                    </Dialog>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => setHeader({ ...header, approvalFile: "", approvalFileName: "" })}><X className="h-4 w-4" /></Button>
+            {editing && (
+              <>
+              <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
+                <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">Header Data</div>
+                <div className="p-2 grid grid-cols-2 gap-x-8 gap-y-1">
+                  <div className="sap-selection-row"><label className="sap-label">Plant <span className="text-red-500">*</span></label>
+                    <div className="sap-input-wrapper max-w-[200px]">
+                      <Select value={editing.plantId} onValueChange={v => updateField("plantId", v)}>
+                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
+                        <SelectContent>{plants?.filter(p => isAdmin || authorizedPlantIds.includes(p.plantId)).map(p => <SelectItem key={p.id} value={p.plantId}>{p.plantId}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                )}
+                  <div className="sap-selection-row"><label className="sap-label">Inventory Type</label>
+                    <div className="sap-input-wrapper max-w-[200px]">
+                      <Select value={editing.inventoryType} onValueChange={v => updateField("inventoryType", v)}>
+                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Service Invoice">Service Invoice</SelectItem>
+                          <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="sap-selection-row"><label className="sap-label">Document Type</label>
+                    <div className="sap-input-wrapper max-w-[200px]">
+                      <Input value={editing.documentType} onChange={e => updateField("documentType", e.target.value.toUpperCase())} className="h-6 text-xs rounded-none border-gray-400" />
+                    </div>
+                  </div>
+                  <div className="sap-selection-row"><label className="sap-label">Charge Type</label>
+                    <div className="sap-input-wrapper max-w-[200px]">
+                      <Input value={editing.documentCategory} onChange={e => updateField("documentCategory", e.target.value.toUpperCase())} className="h-6 text-xs rounded-none border-gray-400" />
+                    </div>
+                  </div>
+                  <div className="sap-selection-row"><label className="sap-label">Customer Code <span className="text-red-500">*</span></label>
+                    <div className="sap-input-wrapper max-w-[200px]">
+                      <Select value={editing.customerCode} onValueChange={v => updateField("customerCode", v)}>
+                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
+                        <SelectContent>{customers?.map(c => <SelectItem key={c.id} value={c.customerId}>{c.customerId} - {c.name}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="sap-selection-row"><label className="sap-label">Validity From/To</label>
+                    <div className="sap-input-wrapper gap-2 max-w-md">
+                      <Input type="date" value={editing.validFrom} onChange={e => updateField("validFrom", e.target.value)} className="h-6 text-xs rounded-none border-gray-400" />
+                      <span className="text-gray-400">to</span>
+                      <Input type="date" value={editing.validTo} onChange={e => updateField("validTo", e.target.value)} className="h-6 text-xs rounded-none border-gray-400" />
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
+
+              <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
+                <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">Material & Rate</div>
+                <div className="p-2 grid grid-cols-2 gap-x-8 gap-y-1">
+                  <div className="sap-selection-row"><label className="sap-label">Material Code <span className="text-red-500">*</span></label>
+                    <div className="sap-input-wrapper max-w-[200px]">
+                      <Select value={editing.materialCode} onValueChange={handleMaterialChange}>
+                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
+                        <SelectContent>{materials?.map(m => <SelectItem key={m.id} value={m.materialCode || m.productName}>{m.materialCode || m.productName}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="sap-selection-row"><label className="sap-label">Material Name</label>
+                    <div className="sap-input-wrapper max-w-md">
+                      <Input value={editing.materialName} readOnly className="h-6 text-xs rounded-none border-gray-400 bg-gray-100" />
+                    </div>
+                  </div>
+                  <div className="sap-selection-row"><label className="sap-label">HSN/SAC</label>
+                    <div className="sap-input-wrapper max-w-[150px]">
+                      <Input value={editing.hsnSac} readOnly className="h-6 text-xs rounded-none border-gray-400 bg-gray-100 font-mono" />
+                    </div>
+                  </div>
+                  <div className="sap-selection-row"><label className="sap-label">GST Rate (%)</label>
+                    <div className="sap-input-wrapper max-w-[100px]">
+                      <Input type="number" value={editing.gstRate} onChange={e => updateField("gstRate", e.target.value)} className="h-6 text-xs rounded-none border-gray-400 text-center" />
+                    </div>
+                  </div>
+                  <div className="sap-selection-row"><label className="sap-label">Basic Rate <span className="text-red-500">*</span></label>
+                    <div className="sap-input-wrapper max-w-[150px]">
+                      <Input type="number" value={editing.price} onChange={e => updateField("price", e.target.value)} className="h-6 text-xs rounded-none border-gray-400 text-right font-bold text-emerald-700" />
+                    </div>
+                  </div>
+                  <div className="sap-selection-row"><label className="sap-label">Status</label>
+                    <div className="sap-input-wrapper max-w-[150px]">
+                      <Select value={editing.status} onValueChange={v => updateField("status", v)}>
+                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Active">Active</SelectItem>
+                          <SelectItem value="Inactive">Inactive</SelectItem>
+                          <SelectItem value="Approved">Approved</SelectItem>
+                          <SelectItem value="Pending Approval">Pending Approval</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
+                <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">Approval Attachment</div>
+                <div className="p-3">
+                  {editing.approvalFile ? (
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] font-bold text-emerald-700 uppercase bg-emerald-50 px-2 py-0.5 border border-emerald-100 rounded-sm">{editing.approvalFileName || "DOC"}</span>
+                      <Dialog>
+                        <DialogTrigger asChild><Button variant="ghost" size="sm" className="h-7 rounded-none text-blue-700 font-bold text-[10px] uppercase gap-1.5"><Eye className="h-3.5 w-3.5" /> View</Button></DialogTrigger>
+                        <DialogContent className="max-w-4xl p-0 rounded-none border-gray-400 overflow-hidden shadow-2xl">
+                          <div className="bg-[#333e4f] text-white p-2 flex justify-between items-center">
+                            <DialogTitle className="text-[11px] font-black uppercase tracking-widest pl-2">Document Verification</DialogTitle>
+                            <DialogTrigger asChild><button className="hover:bg-white/10 p-1"><X className="h-4 w-4" /></button></DialogTrigger>
+                          </div>
+                          <div className="p-10 bg-gray-100 flex items-center justify-center">
+                            {pdfBlobUrl ? (
+                              <div className="text-center space-y-4">
+                                <FileText className="h-20 w-20 text-red-500 mx-auto opacity-30" />
+                                <Button onClick={openPdfInNewTab} className="bg-blue-700 rounded-none h-10 px-8 uppercase font-bold text-[11px]">Open Secure PDF Viewer</Button>
+                              </div>
+                            ) : (
+                              <img src={editing.approvalFile} alt="Approval" className="max-w-full max-h-[70vh] object-contain shadow-2xl border-4 border-white" />
+                            )}
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => { updateField("approvalFile", ""); updateField("approvalFileName", ""); }}><X className="h-3 w-3" /></Button>
+                    </div>
+                  ) : (
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">No attachment available</span>
+                  )}
+                </div>
+              </div>
+              </>
+            )}
           </div>
-        )}
-      </div>
-      {loading && <div className="fixed bottom-10 right-10 bg-[#333e4f] text-white px-4 py-2 text-xs border border-white/20 animate-pulse z-50 shadow-2xl flex items-center gap-2 font-bold"><Save className="h-4 w-4" /> COMMITING CHANGES...</div>}
+
+          <DialogFooter className="px-4 py-3 border-t border-[#b5c7de] bg-[#f4f6f9]">
+            <Button variant="outline" onClick={() => setEditing(null)} className="h-7 rounded-none text-[11px] font-bold">Cancel</Button>
+            <Button onClick={handleSave} disabled={saving} className="h-7 rounded-none text-[11px] font-bold gap-1.5">
+              {saving && <Loader2 className="h-3 w-3 animate-spin" />}
+              {saving ? "SAVING..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Warning Confirmation Popup */}
+      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent className="max-w-md rounded-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-red-600 flex items-center gap-2">
+              <Trash2 className="h-5 w-5" /> Confirm Rate Master Deletion
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-[12px] leading-relaxed">
+              Are you sure you want to delete this record?
+              <br />
+              <br />
+              <span className="text-gray-500">Material: <b>{deleteTarget?.materialCode || "-"}</b> | Customer: <b>{deleteTarget?.customerCode || "-"}</b> | Plant: <b>{deleteTarget?.plantId || "-"}</b></span>
+              <br />
+              <br />
+              This operation will permanently delete the record from the database.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting} className="h-8 rounded-none text-[11px] font-bold">No</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} disabled={deleting} className="h-8 rounded-none text-[11px] font-bold bg-red-600 hover:bg-red-700">
+              {deleting ? "Deleting..." : "Yes, Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {saving && <div className="fixed bottom-10 right-10 bg-[#333e4f] text-white px-4 py-2 text-xs border border-white/20 animate-pulse z-50 flex items-center gap-2 font-bold"><Save className="h-4 w-4" /> COMMITING CHANGES...</div>}
     </div>
   );
 }
-

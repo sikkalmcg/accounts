@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import { useDatabase, useCollection, useMemoDatabase } from "@/database";
 import { collection, query, where, getDocs } from "@/database/mongo";
+import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
 
 interface OrderItem {
   id: string;
@@ -44,9 +45,9 @@ export default function VA01() {
   const { data: allCustomers } = useCollection(customersQuery);
 
   // Filter customers based on selected Plant ID
-  const filteredCustomers = useMemo(() => {
+const filteredCustomers = useMemo(() => {
     if (!plantId || !allCustomers) return [];
-    return allCustomers.filter(c => c.plantId === plantId);
+    return allCustomers.filter(c => getRecordPlantIds(c).includes(plantId));
   }, [plantId, allCustomers]);
 
   useEffect(() => {
@@ -169,12 +170,15 @@ export default function VA01() {
                     <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
                       <SelectValue placeholder="" />
                     </SelectTrigger>
-                    <SelectContent>
+<SelectContent>
                       {filteredCustomers.map(c => (
                         <SelectItem key={c.id} value={c.customerId}>
                           {c.customerId} - {c.name}
                         </SelectItem>
                       ))}
+                      {plantId && filteredCustomers.length === 0 && (
+                        <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{NO_MASTER_RECORDS_MESSAGE}</div>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -193,6 +197,9 @@ export default function VA01() {
                           {c.customerId} - {c.name}
                         </SelectItem>
                       ))}
+                      {plantId && filteredCustomers.length === 0 && (
+                        <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{NO_MASTER_RECORDS_MESSAGE}</div>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>

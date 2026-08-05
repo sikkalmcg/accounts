@@ -8,6 +8,7 @@ import { Search, ArrowUpDown, ChevronUp, ChevronDown, Download, FileSpreadsheet,
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { getRecordPlantIds } from "@/lib/plant-master";
 
 const FULLY_PAID_TOLERANCE = 10;
 
@@ -60,10 +61,10 @@ export default function F53() {
     return map;
   }, [vendors]);
 
-  const firmMap = useMemo(() => {
+const firmMap = useMemo(() => {
     const map: Record<string, any> = {};
     firms?.forEach(f => {
-      map[f.plantId] = f;
+      getRecordPlantIds(f).forEach(pid => { map[pid] = f; });
       if (f.firmId) map[f.firmId] = f;
     });
     return map;

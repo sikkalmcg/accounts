@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Printer, Download, X, FileText } from "lucide-react";
 import { parse } from "date-fns";
 import { InvoicePreview } from "./VF03";
+import { getRecordPlantIds } from "@/lib/plant-master";
 
 /* ------------------------------------------------------------------ */
 /*  Formatting Helpers                                                 */
@@ -171,10 +172,11 @@ export const IRNResultGrid = ({
   renderAction?: (inv: any) => ReactNode;
   isLoading?: boolean;
 }) => {
-  const firmMap = useMemo(() => {
+const firmMap = useMemo(() => {
     const m: Record<string, any> = {};
     firms?.forEach((f) => {
-      m[f.plantId] = f;
+      const ids = getRecordPlantIds(f);
+      ids.forEach((pid) => { m[pid] = f; });
     });
     return m;
   }, [firms]);

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Image from "next/image";
 import { toSAPDate } from "@/lib/date-utils";
+import { getRecordPlantIds } from "@/lib/plant-master";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { InvoicePreview } from "./VF03";
 
@@ -103,7 +104,7 @@ export default function IRN01() {
     const item1 = selectedInvoice.items?.[0] || {};
     const gstPct = totals.avgGst || 0;
     const isInterstate = totals.isInterstate;
-    const firm = firms?.find(f => f.plantId === selectedInvoice.plantId);
+const firm = firms?.find(f => getRecordPlantIds(f).includes(selectedInvoice.plantId));
 
     const description = selectedInvoice.description || item1.desc || item1.activity || "N/A";
     const totalQuantity = selectedInvoice.totals?.totalQty || 0;

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { getRecordPlantIds } from "@/lib/plant-master";
 
 const FULLY_PAID_TOLERANCE = 10; // ₹10.00 - Balance less than this = Fully Paid
 
@@ -61,10 +62,10 @@ export default function F51() {
     return map;
   }, [vendors]);
 
-  const firmMap = useMemo(() => {
+const firmMap = useMemo(() => {
     const map: Record<string, any> = {};
     firms?.forEach(f => {
-      map[f.plantId] = f;
+      getRecordPlantIds(f).forEach(pid => { map[pid] = f; });
       if (f.firmId) map[f.firmId] = f;
     });
     return map;

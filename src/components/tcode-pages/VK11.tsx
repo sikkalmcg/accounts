@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Trash2, Loader2, Upload, CheckCircle2, FileText, Eye, X, Download, ExternalLink, FileSpreadsheet, AlertCircle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import PlantMultiSelect from "./PlantMultiSelect";
+import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
 
 type RateRow = {
   id: string;
@@ -47,6 +48,14 @@ const dedupeIgnoreCase = (values: Array<string | undefined>) => {
     seen.add(key);
     return true;
   });
+};
+
+// Helper to extract plant IDs from records safely
+const getRecordPlants = (record: any): string[] => {
+  if (Array.isArray(record.plantIds) && record.plantIds.length > 0) {
+    return record.plantIds;
+  }
+  return record.plantId ? [record.plantId] : [];
 };
 
 export default function VK11() {
@@ -105,23 +114,34 @@ export default function VK11() {
   const billingTypesQuery = useMemoDatabase(() => collection(db, "billing_types"), [db]);
   const { data: billingTypes } = useCollection(billingTypesQuery);
 
+  // Filter billing types matching plantIds array & single plantId
   const filteredBillingTypes = useMemo(() => {
     if (!billingTypes || header.plantIds.length === 0) return [];
-    return billingTypes.filter(bt => header.plantIds.includes(bt.plantId));
-  }, [billingTypes, header.plantIds]);
+    return billingTypes.filter(bt => {
+      const recPlants = getRecordPlants(bt);
+      const matchesPlant = recPlants.some(p => header.plantIds.includes(p));
+      const matchesInventory = !header.inventoryType || bt.inventoryType === header.inventoryType;
+      const isActive = !bt.status || bt.status === "Active";
+
+      return matchesPlant && matchesInventory && isActive;
+    });
+  }, [billingTypes, header.plantIds, header.inventoryType]);
 
   const filteredMaterials = useMemo(() => {
     if (header.plantIds.length === 0) return [];
-    return (materials ?? []).filter(m =>
-      header.plantIds.includes(m.plantId) &&
-      (!header.documentCategory || m.documentCategory === header.documentCategory) &&
-      (!header.inventoryType || m.inventoryType === header.inventoryType)
-    );
+    return (materials ?? []).filter(m => {
+      const recPlants = getRecordPlants(m);
+      const matchesPlant = recPlants.some(p => header.plantIds.includes(p));
+      const matchesCategory = !header.documentCategory || m.documentCategory === header.documentCategory;
+      const matchesInventory = !header.inventoryType || m.inventoryType === header.inventoryType;
+
+      return matchesPlant && matchesCategory && matchesInventory;
+    });
   }, [materials, header.plantIds, header.documentCategory, header.inventoryType]);
 
   const filteredCustomers = useMemo(() => {
     if (header.plantIds.length === 0) return customers;
-    return customers?.filter(c => header.plantIds.includes(c.plantId)) || [];
+    return customers?.filter(c => getRecordPlantIds(c).some(p => header.plantIds.includes(p))) || [];
   }, [customers, header.plantIds]);
 
   const updateRow = (id: string, field: keyof RateRow, value: string) => {
@@ -431,7 +451,7 @@ export default function VK11() {
             <div className="sap-selection-row">
               <label className="sap-label">Inventory Type *</label>
               <div className="sap-input-wrapper max-w-[200px]">
-                <Select value={header.inventoryType} onValueChange={(val) => setHeader({ ...header, inventoryType: val })} disabled={header.plantIds.length === 0}>
+                <Select value={header.inventoryType} onValueChange={(val) => setHeader({ ...header, inventoryType: val, documentType: "", documentCategory: "" })} disabled={header.plantIds.length === 0}>
                   <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Service Invoice">Service Invoice</SelectItem>
@@ -444,8 +464,12 @@ export default function VK11() {
               <label className="sap-label">Doc. Type</label>
               <div className="sap-input-wrapper max-w-[200px]">
                 <Select value={header.documentType} onValueChange={(val) => setHeader({ ...header, documentType: val })} disabled={header.plantIds.length === 0}>
-                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
-                  <SelectContent>{dedupeIgnoreCase(filteredBillingTypes.map(b => b.documentType)).map(type => (<SelectItem key={type} value={type}>{titleCase(type)}</SelectItem>))}</SelectContent>
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select Document Type" /></SelectTrigger>
+                  <SelectContent>
+                    {dedupeIgnoreCase(filteredBillingTypes.map(b => b.documentType)).map(type => (
+                      <SelectItem key={type} value={type}>{titleCase(type)}</SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
             </div>
@@ -453,8 +477,12 @@ export default function VK11() {
               <label className="sap-label">Charge Type</label>
               <div className="sap-input-wrapper max-w-[200px]">
                 <Select value={header.documentCategory} onValueChange={(val) => setHeader({ ...header, documentCategory: val })} disabled={header.plantIds.length === 0}>
-                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
-                  <SelectContent>{dedupeIgnoreCase(filteredBillingTypes.map(b => b.documentCategory)).map(cat => (<SelectItem key={cat} value={cat}>{titleCase(cat)}</SelectItem>))}</SelectContent>
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select Charge Type" /></SelectTrigger>
+                  <SelectContent>
+                    {dedupeIgnoreCase(filteredBillingTypes.map(b => b.documentCategory)).map(cat => (
+                      <SelectItem key={cat} value={cat}>{titleCase(cat)}</SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
             </div>
@@ -462,8 +490,13 @@ export default function VK11() {
               <label className="sap-label">Customer *</label>
               <div className="sap-input-wrapper max-w-[200px]">
                 <Select value={header.customerCode} onValueChange={(val) => setHeader({ ...header, customerCode: val })} disabled={header.plantIds.length === 0}>
-                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
-                  <SelectContent>{filteredCustomers?.map(c => <SelectItem key={c.id} value={c.customerId}>{c.customerId} - {c.name}</SelectItem>)}</SelectContent>
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select Customer" /></SelectTrigger>
+                  <SelectContent>
+                    {filteredCustomers?.map(c => <SelectItem key={c.id} value={c.customerId}>{c.customerId} - {c.name}</SelectItem>)}
+                    {header.plantIds.length > 0 && (filteredCustomers?.length || 0) === 0 && (
+                      <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{NO_MASTER_RECORDS_MESSAGE}</div>
+                    )}
+                  </SelectContent>
                 </Select>
               </div>
             </div>

@@ -57,11 +57,18 @@ export default function MM02() {
   const billingQuery = useMemoDatabase(() => collection(db, "billing_types"), [db]);
   const { data: billingTypes } = useCollection(billingQuery);
 
-  const availableCategories = useMemo(() => {
+const availableCategories = useMemo(() => {
     if (!billingTypes) return [];
-    const categories = billingTypes.filter(bt => bt.documentCategory).map(bt => bt.documentCategory as string);
+    const categories = billingTypes
+      .filter(bt =>
+        bt.status === "Active" &&
+        (!editing || !editing.plantId || bt.plantId === editing.plantId) &&
+        (!editing || !editing.inventoryType || bt.inventoryType === editing.inventoryType) &&
+        bt.documentCategory
+      )
+      .map(bt => bt.documentCategory as string);
     return Array.from(new Set(categories));
-  }, [billingTypes]);
+  }, [billingTypes, editing]);
 
   const filteredMaterials = useMemo(() => {
     if (!materials) return [];
@@ -369,10 +376,13 @@ export default function MM02() {
             <div className="sap-selection-row">
               <label className="sap-label">Charge Type</label>
               <div className="sap-input-wrapper max-w-[200px]">
-                <Select value={editing?.documentCategory || ""} onValueChange={v => updateField("documentCategory", v)}>
+<Select value={editing?.documentCategory || ""} onValueChange={v => updateField("documentCategory", v)}>
                   <SelectTrigger className="h-7 rounded-none border-gray-400 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {availableCategories.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
+                    {availableCategories.length === 0 && (
+                      <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">No Document Type and Charge Type are configured for the selected Plant and Inventory Type.</div>
+                    )}
                   </SelectContent>
                 </Select>
               </div>

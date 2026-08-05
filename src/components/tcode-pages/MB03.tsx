@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import Image from "next/image";
+import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
 
 // Helper function to safely normalize invoice dates into YYYY-MM-DD for comparison
 const parseInvoiceDateToISO = (dateStr: string): string | null => {
@@ -91,10 +92,24 @@ export default function MB03() {
   const [isInvoicesLoading, setIsInvoicesLoading] = useState(false);
 
   // 5. Derived Logic
-  const filteredPlants = useMemo(() => {
+const filteredPlants = useMemo(() => {
     if (isAdmin) return plants || [];
     return plants?.filter(p => p.plantId === assignedPlantId) || [];
   }, [plants, isAdmin, assignedPlantId]);
+
+  // Customers assigned to the currently selected Plant (Plant-wise master data filter)
+  const filteredCustomers = useMemo(() => {
+    if (!customers) return [];
+    if (filterPlant === "ALL") return customers;
+    return customers.filter(c => getRecordPlantIds(c).includes(filterPlant));
+  }, [customers, filterPlant]);
+
+  // Firms/Consignors assigned to the currently selected Plant
+  const filteredFirms = useMemo(() => {
+    if (!firms) return [];
+    if (filterPlant === "ALL") return firms;
+    return firms.filter(f => getRecordPlantIds(f).includes(filterPlant));
+  }, [firms, filterPlant]);
 
   const customerMap = useMemo(() => {
     const map: Record<string, any> = {};
@@ -370,9 +385,9 @@ export default function MB03() {
             <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+<SelectContent>
               <SelectItem value="ALL">All Parties</SelectItem>
-              {customers?.map(c => {
+              {filteredCustomers.map(c => {
                 const code = c.customerId || c.code || c.id;
                 return (
                   <SelectItem key={c.id || code} value={code}>
@@ -380,6 +395,9 @@ export default function MB03() {
                   </SelectItem>
                 );
               })}
+              {filteredCustomers.length === 0 && (
+                <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{NO_MASTER_RECORDS_MESSAGE}</div>
+              )}
             </SelectContent>
           </Select>
         </div>
@@ -390,13 +408,16 @@ export default function MB03() {
             <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+<SelectContent>
               <SelectItem value="ALL">All Consignors</SelectItem>
-              {firms?.map(f => (
+              {filteredFirms.map(f => (
                 <SelectItem key={f.id} value={f.firmId || f.consignorCode || f.id}>
                   {f.name}
                 </SelectItem>
               ))}
+              {filteredFirms.length === 0 && (
+                <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{NO_MASTER_RECORDS_MESSAGE}</div>
+              )}
             </SelectContent>
           </Select>
         </div>

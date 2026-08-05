@@ -27,9 +27,21 @@ export default function VOF01() {
   const db = useDatabase();
   const [plantIds, setPlantIds] = useState<string[]>([]);
   const [inventoryType, setInventoryType] = useState("");
+  const [status, setStatus] = useState("Active");
+  const [userName, setUserName] = useState("USER");
   const [rows, setRows] = useState<BillingRow[]>([newBillingRow()]);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    const stored = localStorage.getItem("sikka_user");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        setUserName(parsed.name || parsed.username || "USER");
+      } catch (e) { /* ignore */ }
+    }
+  }, []);
 
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
   const { data: plants, isLoading: isPlantsLoading } = useCollection(plantsQuery);
@@ -106,17 +118,18 @@ export default function VOF01() {
           const dt = row.documentType.trim().toUpperCase();
           const ct = row.chargeType.trim().toUpperCase();
 
-          // Check for existing duplicate
+// Check for existing duplicate
           const q = query(
             billingTypesCollection,
             where("plantId", "==", plantId),
+            where("inventoryType", "==", inventoryType),
             where("documentType", "==", dt),
             where("documentCategory", "==", ct)
           );
           const snap = await getDocs(q);
           if (!snap.empty) {
             window.dispatchEvent(new CustomEvent('sap-status', {
-              detail: { text: `Skip: '${dt}/${ct}' already exists for Plant ${plantId}`, isError: true }
+              detail: { text: `Skip: '${dt}/${ct}' already exists for Plant ${plantId} & Inventory Type ${inventoryType}`, isError: true }
             }));
             continue;
           }
@@ -127,6 +140,8 @@ export default function VOF01() {
             inventoryType,
             documentType: dt,
             documentCategory: ct,
+            status,
+            createdBy: userName,
             createdAt: serverTimestamp(),
           });
           successCount++;
@@ -147,7 +162,7 @@ export default function VOF01() {
     } finally {
       setLoading(false);
     }
-  }, [plantIds, inventoryType, rows, validateRows, db]);
+}, [plantIds, inventoryType, status, userName, rows, validateRows, db]);
 
   useEffect(() => {
     const onExecute = () => handleSaveAll();
@@ -196,11 +211,24 @@ export default function VOF01() {
             <div className="sap-selection-row">
               <label className="sap-label">Inventory Type <span className="text-red-500">*</span></label>
               <div className="sap-input-wrapper max-w-[200px]">
-                <Select value={inventoryType} onValueChange={(val) => setInventoryType(val)}>
+<Select value={inventoryType} onValueChange={(val) => setInventoryType(val)}>
                   <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Service Invoice">Service Invoice</SelectItem>
                     <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="sap-selection-row">
+              <label className="sap-label">Status</label>
+              <div className="sap-input-wrapper max-w-[160px]">
+                <Select value={status} onValueChange={(val) => setStatus(val)}>
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Active">Active</SelectItem>
+                    <SelectItem value="Inactive">Inactive</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

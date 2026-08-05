@@ -12,6 +12,7 @@ import Image from "next/image";
 import { toSAPDate, toInputDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 import { matchesDateRange, IRNResultGrid, fmtAmountLoc } from "./IRNShared";
+import { getRecordPlantIds } from "@/lib/plant-master";
 
 export default function IRN02() {
   const db = useDatabase();
@@ -209,7 +210,7 @@ export default function IRN02() {
   // 10. Render Edit Mode
   if (editingInvoice) {
     const consignee = customerMap[editingInvoice.billTo];
-    const firm = firms?.find((f) => f.plantId === editingInvoice.plantId) || editingInvoice.snapshotFirm;
+const firm = firms?.find((f) => getRecordPlantIds(f).includes(editingInvoice.plantId)) || editingInvoice.snapshotFirm;
     const totals = editingInvoice.totals || {};
 
     return (

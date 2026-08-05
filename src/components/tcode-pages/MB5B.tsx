@@ -10,6 +10,7 @@ import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "@
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import PlantMultiSelect from "./PlantMultiSelect";
+import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
 
 type SummaryData = {
   plant: string;
@@ -59,10 +60,24 @@ export default function MB5B() {
   const [showReport, setShowReport] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
-  const { data: plants } = useCollection(useMemoDatabase(() => collection(null as any, "plants"), []));
+const { data: plants } = useCollection(useMemoDatabase(() => collection(null as any, "plants"), []));
   const { data: customers } = useCollection(useMemoDatabase(() => collection(null as any, "customers"), []));
   const { data: firms } = useCollection(useMemoDatabase(() => collection(null as any, "firms"), []));
   const { data: users } = useCollection(useMemoDatabase(() => collection(null as any, "users"), []));
+
+  // Customers assigned to any of the selected Plants (Plant-wise master data filter)
+  const filteredCustomers = useMemo(() => {
+    if (!customers) return [];
+    if (filterPlants.length === 0) return customers;
+    return customers.filter(c => getRecordPlantIds(c).some(p => filterPlants.includes(p)));
+  }, [customers, filterPlants]);
+
+  // Firms/Consignors assigned to any of the selected Plants
+  const filteredFirms = useMemo(() => {
+    if (!firms) return [];
+    if (filterPlants.length === 0) return firms;
+    return firms.filter(f => getRecordPlantIds(f).some(p => filterPlants.includes(p)));
+  }, [firms, filterPlants]);
 
   const [invoices, setInvoices] = useState<any[]>([]);
   const [receipts, setReceipts] = useState<any[]>([]);
@@ -482,13 +497,16 @@ export default function MB5B() {
             <label className="text-[10px] font-bold text-gray-500 uppercase">Consignor Name</label>
             <Select value={filterConsignor} onValueChange={setFilterConsignor}>
               <SelectTrigger className="h-8 rounded-none border-gray-400 bg-white text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
+<SelectContent>
                 <SelectItem value="ALL">All</SelectItem>
-                {firms?.map(f => (
+                {filteredFirms.map(f => (
                   <SelectItem key={f.id} value={(f.firmId || f.consignorCode || f.id || '').toString()}>
                     {(f.consignorCode || f.firmId || f.id || '').toString()} - {f.name}
                   </SelectItem>
                 ))}
+                {filteredFirms.length === 0 && (
+                  <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{NO_MASTER_RECORDS_MESSAGE}</div>
+                )}
               </SelectContent>
             </Select>
           </div>
@@ -499,11 +517,14 @@ export default function MB5B() {
               <SelectTrigger className="h-8 rounded-none border-gray-400 bg-white text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All</SelectItem>
-                {customers?.map(c => (
+                {filteredCustomers.map(c => (
                   <SelectItem key={c.id || c.customerId} value={c.customerId || c.id}>
                     {(c.customerId || c.id)} - {c.name}
                   </SelectItem>
                 ))}
+                {filteredCustomers.length === 0 && (
+                  <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{NO_MASTER_RECORDS_MESSAGE}</div>
+                )}
               </SelectContent>
             </Select>
           </div>

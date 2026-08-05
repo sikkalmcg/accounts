@@ -13,6 +13,7 @@ import { Plus, Trash2, Loader2, Search, FileEdit, Lock, AlertTriangle, Columns, 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { toSAPDate, toInputDate } from "@/lib/date-utils";
+import { getRecordPlantIds } from "@/lib/plant-master";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
@@ -121,7 +122,7 @@ export default function VF02() {
   // Auto-fetch Consignor Name from Firm Master when plant changes
   useEffect(() => {
     if (plantId && firms) {
-      const firm = firms.find(f => f.plantId === plantId);
+const firm = firms.find(f => getRecordPlantIds(f).includes(plantId));
       if (firm) {
         setConsignorName(firm.name || "");
       } else {
@@ -229,7 +230,7 @@ export default function VF02() {
       return { taxableAmount, totalQty, cgst: 0, sgst: 0, igst: 0, grossAmount: taxableAmount, isInterstate: false, avgGst: 0 };
     }
 
-    const selectedFirm = firms?.find(f => f.plantId === plantId);
+const selectedFirm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
     const selectedCustomer = customers?.find(c => c.customerId === billTo);
     const firmStateCode = selectedFirm?.gstin?.substring(0, 2);
     const custStateCode = selectedCustomer?.gstin?.substring(0, 2);
@@ -292,8 +293,13 @@ export default function VF02() {
     }));
   };
 
-  const handleExecute = useCallback(() => {
+const handleExecute = useCallback(() => {
     if (!selectedDocId || isIrnGenerated) return;
+
+    if (!docType || !docCategory) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Valid Document Type and Charge Type must be selected for the selected Plant and Inventory Type", isError: true } }));
+      return;
+    }
 
     const d = new Date(invoiceDate);
     const m = d.getMonth();
@@ -342,8 +348,12 @@ export default function VF02() {
     return () => window.removeEventListener('sap-execute', onExec);
   }, [handleExecute]);
 
-  const filteredBilling = useMemo(() => billingTypes?.filter(b => b.plantId === plantId) || [], [billingTypes, plantId]);
-  const filteredCustomers = useMemo(() => customers?.filter(c => c.plantId === plantId) || [], [customers, plantId]);
+const noBillingConfigMessage = "No Document Type and Charge Type are configured for the selected Plant and Inventory Type.";
+  const filteredBilling = useMemo(() => (billingTypes?.filter(b => b.plantId === plantId && b.inventoryType === inventoryType && b.status === "Active") || []), [billingTypes, plantId, inventoryType]);
+
+  const filteredDocTypes = useMemo(() => Array.from(new Set(filteredBilling.filter(b => b.documentType).map(b => b.documentType!))), [filteredBilling]);
+  const filteredBillingCategories = useMemo(() => Array.from(new Set(filteredBilling.filter(b => b.documentCategory).map(b => b.documentCategory!))), [filteredBilling]);
+  const filteredCustomers = useMemo(() => customers?.filter(c => getRecordPlantIds(c).includes(plantId)) || [], [customers, plantId]);
 
   return (
     <div className="w-full flex flex-col bg-white min-h-full">
@@ -493,17 +503,16 @@ export default function VF02() {
                     </div>
                   </div>
 
-                  {/* Document Type - Fixed Dropdown */}
+{/* Document Type - Master-driven Dropdown */}
                   <div className="sap-selection-row">
                     <label className="sap-label">Document Type</label>
                     <Select value={docType} onValueChange={setDocType} disabled={isIrnGenerated}>
                       <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Tax Invoice">Tax Invoice</SelectItem>
-                        <SelectItem value="Non-Tax Invoice">Non-Tax Invoice</SelectItem>
-                        <SelectItem value="Delivery Challan">Delivery Challan</SelectItem>
-                        <SelectItem value="Debit Note">Debit Note</SelectItem>
-                        <SelectItem value="Credit Note">Credit Note</SelectItem>
+                        {filteredDocTypes.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                        {plantId && inventoryType && filteredDocTypes.length === 0 && (
+                          <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{noBillingConfigMessage}</div>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -512,7 +521,12 @@ export default function VF02() {
                     <label className="sap-label">Charge Type</label>
                     <Select value={docCategory} onValueChange={v => { setDocCategory(v); setItems([]); }} disabled={isIrnGenerated}>
                       <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
-                      <SelectContent>{filteredBilling.filter(b => b.documentCategory).map(b => <SelectItem key={b.id} value={b.documentCategory!}>{b.documentCategory}</SelectItem>)}</SelectContent>
+                      <SelectContent>
+                        {filteredBillingCategories.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
+                        {plantId && inventoryType && filteredBillingCategories.length === 0 && (
+                          <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{noBillingConfigMessage}</div>
+                        )}
+                      </SelectContent>
                     </Select>
                   </div>
                   <div className="sap-selection-row">

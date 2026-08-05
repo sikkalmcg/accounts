@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { 
   Select,
@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import { useDatabase, useCollection, useMemoDatabase } from "@/database";
 import { collection } from "@/database/mongo";
+import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
 
 interface POItem {
   id: string;
@@ -35,8 +36,14 @@ export default function ME21N() {
   const vendorsQuery = useMemoDatabase(() => collection(db, "vendors"), [db]);
   const { data: vendors } = useCollection(vendorsQuery);
 
-  const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
+const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
   const { data: plants, isLoading: isPlantsLoading } = useCollection(plantsQuery);
+
+  // Filter vendors by the selected Purch. Plant (Plant-wise master filtering)
+  const filteredVendors = useMemo(() => {
+    if (!plantId) return vendors || [];
+    return (vendors || []).filter(v => getRecordPlantIds(v).includes(plantId));
+  }, [vendors, plantId]);
 
   useEffect(() => {
     setDate(new Date().toISOString().split('T')[0]);
@@ -114,12 +121,15 @@ export default function ME21N() {
                     <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
                       <SelectValue placeholder="" />
                     </SelectTrigger>
-                    <SelectContent>
-                      {vendors?.map(v => (
+<SelectContent>
+                      {filteredVendors.map(v => (
                         <SelectItem key={v.id} value={v.vendorId}>
                           {v.vendorId} - {v.vendorName}
                         </SelectItem>
                       ))}
+                      {plantId && filteredVendors.length === 0 && (
+                        <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{NO_MASTER_RECORDS_MESSAGE}</div>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>

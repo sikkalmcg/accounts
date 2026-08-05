@@ -83,8 +83,7 @@ export default function PlantMultiSelect({
       const inContainer = containerRef.current?.contains(target);
       const inDropdown = dropdownRef.current?.contains(target) ?? false;
       // Only close if the click is outside BOTH the trigger container and the
-      // portal-rendered dropdown. The dropdown is rendered via createPortal to
-      // document.body, so it is NOT a child of containerRef.
+      // portaled dropdown (which is NOT a child of containerRef).
       if (!inContainer && !inDropdown) {
         setIsOpen(false);
       }
@@ -263,13 +262,14 @@ export default function PlantMultiSelect({
         <ChevronDown className={cn("h-3.5 w-3.5 text-gray-500 shrink-0", isOpen && "rotate-180")} />
       </button>
 
-      {/* Portal Dropdown — rendered to document.body so it's never clipped */}
+      {/* Dropdown — portaled to document.body so it is never clipped by ancestor overflow */}
       {isOpen &&
         dropdownPos &&
         typeof document !== "undefined" &&
         createPortal(
           <div
             ref={dropdownRef}
+            data-plant-dropdown
             style={{
               position: "fixed",
               top: dropdownPos.top,
@@ -285,4 +285,3 @@ export default function PlantMultiSelect({
     </div>
   );
 }
-

@@ -12,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Trash2, Loader2, Columns, X, ChevronDown, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toSAPDate } from "@/lib/date-utils";
+import { getRecordPlantIds } from "@/lib/plant-master";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
@@ -265,12 +266,26 @@ export default function VF01() {
     fetchOptions();
   }, [plantId, docCategory, billTo, db, materials, inventoryType, docType]);
 
-  // 8. Calculations
+// 8. Calculations
+  const filteredBillingTypes = useMemo(() => {
+    if (!billingTypes || !plantId || !inventoryType) return [];
+    return billingTypes.filter(b =>
+      b.plantId === plantId &&
+      b.inventoryType === inventoryType &&
+      b.status === "Active"
+    );
+  }, [billingTypes, plantId, inventoryType]);
+
+  const filteredDocumentTypes = useMemo(() => {
+    return Array.from(new Set(filteredBillingTypes.filter(b => b.documentType).map(b => b.documentType!)));
+  }, [filteredBillingTypes]);
+
   const filteredBillingCategories = useMemo(() => {
-    if (!billingTypes || !plantId) return [];
-    return Array.from(new Set(billingTypes.filter(b => b.plantId === plantId && b.documentCategory).map(b => b.documentCategory!)));
-  }, [billingTypes, plantId]);
-  const filteredCustomers = useMemo(() => customers?.filter(c => c.plantId === plantId) || [], [customers, plantId]);
+    return Array.from(new Set(filteredBillingTypes.filter(b => b.documentCategory).map(b => b.documentCategory!)));
+  }, [filteredBillingTypes]);
+
+  const noBillingConfigMessage = "No Document Type and Charge Type are configured for the selected Plant and Inventory Type.";
+const filteredCustomers = useMemo(() => customers?.filter(c => getRecordPlantIds(c).includes(plantId)) || [], [customers, plantId]);
   
   const totals = useMemo(() => {
     const taxableAmount = items.reduce((acc, i) => acc + (i.amount || 0), 0);
@@ -280,7 +295,7 @@ export default function VF01() {
       return { taxableAmount, totalQty, cgst: 0, sgst: 0, igst: 0, grossAmount: taxableAmount, isInterstate: false, avgGst: 0 };
     }
 
-    const selectedFirm = firms?.find(f => f.plantId === plantId);
+const selectedFirm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
     const selectedCustomer = customers?.find(c => c.customerId === billTo);
     const firmStateCode = selectedFirm?.gstin?.substring(0, 2);
     const custStateCode = selectedCustomer?.gstin?.substring(0, 2);
@@ -344,9 +359,14 @@ export default function VF01() {
   // Amount column label based on document type
   const amountColumnLabel = isNonTax ? "Invoice Amount" : isDeliveryChallan ? "Invoice Amount" : "Taxable Amount";
 
-  const handleExecute = useCallback(async () => {
+const handleExecute = useCallback(async () => {
     if (!plantId || !invoiceNo || !billTo || !inventoryType) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Plant, Invoice Number, Bill to Party and Inventory Type are mandatory", isError: true } }));
+      return;
+    }
+
+    if (!docType || !docCategory) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Valid Document Type and Charge Type must be selected for the selected Plant and Inventory Type", isError: true } }));
       return;
     }
 
@@ -384,7 +404,7 @@ export default function VF01() {
         });
       }
 
-      const firm = firms?.find(f => f.plantId === plantId);
+const firm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
       const consignee = customers?.find(c => c.customerId === billTo);
       const shipToParty = customers?.find(c => c.customerId === (isShipToApplicable ? shipTo : billTo));
 
@@ -494,7 +514,7 @@ export default function VF01() {
                     <SelectValue placeholder="Select Consignor Firm" />
                   </SelectTrigger>
                   <SelectContent>
-                    {firms?.filter(f => f.plantId === plantId && f.status !== 'inactive').map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
+{firms?.filter(f => getRecordPlantIds(f).includes(plantId) && f.status !== 'inactive').map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -583,15 +603,18 @@ export default function VF01() {
                 </div>
               </div>
 
-              {/* Document Type - Fixed Dropdown */}
+{/* Document Type - Master-driven Dropdown */}
               <div className="sap-selection-row">
                 <label className="sap-label">Document Type *</label>
-                <Select value={docType} onValueChange={setDocType}>
+                <Select value={docType} onValueChange={(v) => { setDocType(v); }}>
                   <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {Array.from(new Set(billingTypes?.filter(b => b.plantId === plantId && b.documentType).map(b => b.documentType!))).map(type => (
+                    {filteredDocumentTypes.map(type => (
                       <SelectItem key={type} value={type}>{type}</SelectItem>
                     ))}
+                    {plantId && inventoryType && filteredDocumentTypes.length === 0 && (
+                      <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{noBillingConfigMessage}</div>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -606,6 +629,9 @@ export default function VF01() {
                     {filteredBillingCategories.map(cat => (
                       <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                     ))}
+                    {plantId && inventoryType && filteredBillingCategories.length === 0 && (
+                      <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{noBillingConfigMessage}</div>
+                    )}
                   </SelectContent>
                 </Select>
               </div>

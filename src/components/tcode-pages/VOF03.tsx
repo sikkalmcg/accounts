@@ -43,31 +43,60 @@ export default function VOF03() {
     setSortConfig({ key, direction });
   };
 
+  // Helper to extract plant list from a record safely
+  const getRecordPlants = (record: any): string[] => {
+    if (Array.isArray(record.plantIds) && record.plantIds.length > 0) {
+      return record.plantIds;
+    }
+    return record.plantId ? [record.plantId] : [];
+  };
+
   const sortedData = useMemo(() => {
     if (!records) return [];
 
     // Start with plant-based authorization restriction
-    let baseData = isAdmin ? records : records.filter(r => authorizedPlantIds.includes(r.plantId));
+    let baseData = isAdmin ? records : records.filter(r => {
+      const recPlants = getRecordPlants(r);
+      return recPlants.some(p => authorizedPlantIds.includes(p));
+    });
 
-    // Apply the selected plants filter (multi-select) - if any selected, show only those
+    // Apply the selected plants filter (multi-select)
     if (selectedPlants.length > 0) {
-      baseData = baseData.filter(r => selectedPlants.includes(r.plantId));
+      baseData = baseData.filter(r => {
+        const recPlants = getRecordPlants(r);
+        return recPlants.some(p => selectedPlants.includes(p));
+      });
     }
 
-    const filtered = baseData.filter(r => 
-      r.plantId?.toLowerCase().includes(search.toLowerCase()) || 
-      r.documentType?.toLowerCase().includes(search.toLowerCase()) ||
-      r.documentCategory?.toLowerCase().includes(search.toLowerCase()) ||
-      r.inventoryType?.toLowerCase().includes(search.toLowerCase())
-    );
+    const q = search.trim().toLowerCase();
+    const filtered = baseData.filter(r => {
+      const plantString = getRecordPlants(r).join(" ");
+      return (
+        plantString.toLowerCase().includes(q) ||
+        r.documentType?.toLowerCase().includes(q) ||
+        r.documentCategory?.toLowerCase().includes(q) ||
+        r.inventoryType?.toLowerCase().includes(q) ||
+        r.status?.toLowerCase().includes(q) ||
+        r.createdBy?.toLowerCase().includes(q)
+      );
+    });
 
     if (!sortConfig) return filtered;
 
     return [...filtered].sort((a, b) => {
-      const aVal = String(a[sortConfig.key] || "").toLowerCase();
-      const bVal = String(b[sortConfig.key] || "").toLowerCase();
-      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      let aVal = a[sortConfig.key];
+      let bVal = b[sortConfig.key];
+
+      if (sortConfig.key === 'plantId') {
+        aVal = getRecordPlants(a).join(", ");
+        bVal = getRecordPlants(b).join(", ");
+      }
+
+      const strA = String(aVal || "").toLowerCase();
+      const strB = String(bVal || "").toLowerCase();
+
+      if (strA < strB) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (strA > strB) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
   }, [records, search, sortConfig, selectedPlants, isAdmin, authorizedPlantIds]);
@@ -85,7 +114,7 @@ export default function VOF03() {
         </h2>
       </div>
 
-<div className="bg-[#e7ebf1] border-b border-[#b5c7de] px-4 py-1.5 flex flex-wrap items-center justify-between gap-2">
+      <div className="bg-[#e7ebf1] border-b border-[#b5c7de] px-4 py-1.5 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <label className="text-[11px] font-bold text-gray-600 whitespace-nowrap">Plants</label>
@@ -101,9 +130,9 @@ export default function VOF03() {
             </div>
           </div>
           <div className="relative flex items-center bg-white border border-gray-400 h-7 w-64 px-1 group focus-within:border-blue-500">
-             <Search className="h-3.5 w-3.5 text-gray-400 mr-1" />
-             <input value={search} onChange={(e) => setSearch(e.target.value)} className="w-full h-full text-xs outline-none" />
-             {search && <button onClick={() => setSearch("")} className="text-gray-400 hover:text-gray-600"><X className="h-3 w-3" /></button>}
+            <Search className="h-3.5 w-3.5 text-gray-400 mr-1" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} className="w-full h-full text-xs outline-none" placeholder="Search grid..." />
+            {search && <button onClick={() => setSearch("")} className="text-gray-400 hover:text-gray-600"><X className="h-3 w-3" /></button>}
           </div>
           <TooltipProvider>
             <div className="flex items-center gap-1">
@@ -121,8 +150,8 @@ export default function VOF03() {
           <TableHeader className="bg-[#e7ebf1] sticky top-0 z-10">
             <TableRow className="h-8 border-b-[#b5c7de]">
               <TableHead className="text-[11px] font-bold border-r w-12 text-center">#</TableHead>
-              <TableHead onClick={() => handleSort('plantId')} className="text-[11px] font-bold border-r w-48 cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center">Plant ID <SortIcon column="plantId" /></div>
+              <TableHead onClick={() => handleSort('plantId')} className="text-[11px] font-bold border-r min-w-[200px] cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">Plant ID(s) <SortIcon column="plantId" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('documentType')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Document Type <SortIcon column="documentType" /></div>
@@ -130,29 +159,62 @@ export default function VOF03() {
               <TableHead onClick={() => handleSort('inventoryType')} className="text-[11px] font-bold border-r w-36 cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Inventory Type <SortIcon column="inventoryType" /></div>
               </TableHead>
-              <TableHead onClick={() => handleSort('documentCategory')} className="text-[11px] font-bold cursor-pointer hover:bg-gray-200">
+              <TableHead onClick={() => handleSort('documentCategory')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Charge Type <SortIcon column="documentCategory" /></div>
+              </TableHead>
+              <TableHead onClick={() => handleSort('status')} className="text-[11px] font-bold border-r w-28 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">Status <SortIcon column="status" /></div>
+              </TableHead>
+              <TableHead onClick={() => handleSort('createdBy')} className="text-[11px] font-bold border-r w-36 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">Created By <SortIcon column="createdBy" /></div>
+              </TableHead>
+              <TableHead onClick={() => handleSort('createdAt')} className="text-[11px] font-bold w-44 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">Created Date & Time <SortIcon column="createdAt" /></div>
               </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={4} className="text-center py-10 text-xs">LOADING...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="text-center py-10 text-xs">LOADING...</TableCell></TableRow>
             ) : sortedData.length === 0 ? (
-              <TableRow><TableCell colSpan={4} className="text-center py-10 text-xs text-red-500 font-bold uppercase">No records found</TableCell></TableRow>
-            ) : sortedData.map((r, i) => (
-              <TableRow key={r.id} className="h-8 hover:bg-blue-50/50 transition-colors border-b border-gray-100">
-                <TableCell className="p-0 text-center text-[10px] border-r text-gray-400">{i + 1}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r font-mono font-bold text-blue-700">{r.plantId}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r">{r.documentType || "-"}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r">{r.inventoryType || "-"}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px]">{r.documentCategory || "-"}</TableCell>
-              </TableRow>
-            ))}
+              <TableRow><TableCell colSpan={8} className="text-center py-10 text-xs text-red-500 font-bold uppercase">No records found</TableCell></TableRow>
+            ) : sortedData.map((r, i) => {
+              const displayPlants = getRecordPlants(r);
+
+              return (
+                <TableRow key={r.id} className="h-8 hover:bg-blue-50/50 transition-colors border-b border-gray-100">
+                  <TableCell className="p-0 text-center text-[10px] border-r text-gray-400">{i + 1}</TableCell>
+                  <TableCell className="p-1 px-2 text-[10px] border-r font-mono font-bold text-blue-700">
+                    <div className="flex flex-wrap gap-1 items-center">
+                      {displayPlants.length > 0 ? (
+                        displayPlants.map((pid, pIdx) => (
+                          <span key={pIdx} className="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded text-[10px] border border-blue-200">
+                            {pid}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r">{r.documentType || "-"}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r">{r.inventoryType || "-"}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r">{r.documentCategory || "-"}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r text-center">
+                    {r.status ? (
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded-sm font-black uppercase text-[9px] ${r.status === "Active" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-600 border border-red-200"}`}>
+                        {r.status}
+                      </span>
+                    ) : "-"}
+                  </TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r">{r.createdBy || "-"}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px]">{r.createdAt ? new Date(r.createdAt).toLocaleString() : "-"}</TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </div>
     </div>
   );
 }
-

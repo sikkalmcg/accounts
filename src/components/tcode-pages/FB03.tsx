@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getFinancialYears, getCurrentFinancialYear } from "@/lib/date-utils";
+import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
 
 export default function FB03() {
   const db = useDatabase();
@@ -50,10 +51,17 @@ export default function FB03() {
   const { data: customers } = useCollection(customersQuery);
 
   // 4. Derived Logic
-  const filteredPlants = useMemo(() => {
+const filteredPlants = useMemo(() => {
     if (isAdmin) return plants || [];
     return plants?.filter(p => p.plantId === assignedPlantId) || [];
   }, [plants, isAdmin, assignedPlantId]);
+
+  // Customers assigned to the currently selected Plant (Plant-wise master data filter)
+  const filteredCustomers = useMemo(() => {
+    if (!customers) return [];
+    if (filterPlant === "ALL") return customers;
+    return customers.filter(c => getRecordPlantIds(c).includes(filterPlant));
+  }, [customers, filterPlant]);
 
   // Aggregate receipts by Invoice Number (separate posted vs reversed)
   const invoiceReceiptMap = useMemo(() => {
@@ -213,11 +221,14 @@ export default function FB03() {
           <label className="text-[10px] font-bold text-gray-500 uppercase">Consignee (Bill To)</label>
           <Select value={filterConsignee} onValueChange={setFilterConsignee}>
             <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
-            <SelectContent>
+<SelectContent>
               <SelectItem value="ALL">All Partners</SelectItem>
-              {customers?.filter(c => filterPlant === "ALL" || c.plantId === filterPlant).map(c => (
+              {filteredCustomers.map(c => (
                 <SelectItem key={c.id} value={c.customerId}>{c.customerId} - {c.name}</SelectItem>
               ))}
+              {filteredCustomers.length === 0 && (
+                <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{NO_MASTER_RECORDS_MESSAGE}</div>
+              )}
             </SelectContent>
           </Select>
         </div>

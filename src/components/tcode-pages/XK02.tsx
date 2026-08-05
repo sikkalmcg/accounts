@@ -281,7 +281,16 @@ export default function XK02() {
 
       {/* Edit Modal — all XK01 fields */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto rounded-sm p-0">
+        <DialogContent
+          className="max-w-3xl max-h-[90vh] overflow-y-auto rounded-sm p-0"
+          onInteractOutside={(e) => {
+            // Keep the dialog open when interacting with the portaled PlantMultiSelect dropdown
+            const target = e.target as HTMLElement | null;
+            if (target && target.closest("[data-plant-dropdown]")) {
+              e.preventDefault();
+            }
+          }}
+        >
           <DialogHeader className="bg-[#dae8f5] px-4 py-2 border-b border-[#b5c7de]">
             <DialogTitle className="text-[13px] font-bold text-gray-800 uppercase italic tracking-wider">
               Edit Vendor Master
@@ -464,4 +473,3 @@ export default function XK02() {
     </div>
   );
 }
-

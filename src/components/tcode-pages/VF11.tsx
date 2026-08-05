@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import Image from "next/image";
 import { toSAPDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
+import { getRecordPlantIds } from "@/lib/plant-master";
 
 // Utility to convert number to Indian words
 function numberToWords(num: number): string {
@@ -190,7 +191,7 @@ export default function VF11() {
   };
 
   const InvoicePreview = ({ invoice, copyLabel }: { invoice: any; copyLabel: string }) => {
-    const firm = invoice.snapshotFirm || firms?.find(f => f.plantId === invoice.plantId);
+const firm = invoice.snapshotFirm || firms?.find(f => getRecordPlantIds(f).includes(invoice.plantId));
     const billToCust = invoice.snapshotBillTo || customerMap[invoice.billTo];
     const shipToCust = invoice.snapshotShipTo || customerMap[invoice.shipTo] || billToCust;
     

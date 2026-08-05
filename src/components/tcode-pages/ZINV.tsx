@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { parse } from "date-fns";
+import { getRecordPlantIds } from "@/lib/plant-master";
 
 const BASE_COLUMNS = [
   { id: 'billMonth', label: 'Bill Month/Year' },
@@ -171,9 +172,11 @@ export default function ZINV() {
     return map;
   }, [customers]);
 
-  const firmMap = useMemo(() => {
+const firmMap = useMemo(() => {
     const map: Record<string, any> = {};
-    firms?.forEach(f => { map[f.plantId] = f; });
+    firms?.forEach(f => {
+      getRecordPlantIds(f).forEach(pid => { map[pid] = f; });
+    });
     return map;
   }, [firms]);
 
@@ -398,7 +401,7 @@ export default function ZINV() {
                 <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">All Business Partners</SelectItem>
-                  {customers?.filter(c => filterPlant === "ALL" || c.plantId === filterPlant).map(c => (
+{customers?.filter(c => filterPlant === "ALL" || getRecordPlantIds(c).includes(filterPlant)).map(c => (
                     <SelectItem key={c.id} value={c.customerId}>{c.customerId} - {c.name}</SelectItem>
                   ))}
                 </SelectContent>
