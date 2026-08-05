@@ -167,7 +167,7 @@ const firm = invoice.snapshotFirm || firms?.find(f => getRecordPlantIds(f).inclu
             {invoice.items?.map((item: any, idx: number) => (
               <tr key={idx} className="border-b border-gray-200 h-10">
                 <td className="border-r border-black text-center">{idx + 1}</td>
-                <td className="border-r border-black font-bold uppercase">{item.desc}</td>
+                <td className="border-r border-black font-bold uppercase">{item.descName || item.desc}</td>
                 {customHeaders.map((_: any, i: number) => (
                   <td key={i} className="border-r border-black text-center">{item.customValues?.[i] || "-"}</td>
                 ))}
