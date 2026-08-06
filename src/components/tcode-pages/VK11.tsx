@@ -70,12 +70,10 @@ export default function VK11() {
     documentType: "",
     documentCategory: "",
     customerCode: "",
-    validFrom: "",
-    validTo: "9999-12-31",
     approvalFile: "",
     approvalFileName: "",
   });
-  const [rows, setRows] = useState<RateRow[]>([newRow()]);
+  const [rows, setRows] = useState<RateRow[]>([newRow(new Date().toISOString().split('T')[0], "9999-12-31")]);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -105,9 +103,7 @@ export default function VK11() {
     };
   }, [pdfBlobUrl]);
 
-  useEffect(() => {
-    setHeader(prev => ({ ...prev, validFrom: new Date().toISOString().split('T')[0] }));
-  }, []);
+
 
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
   const { data: plants } = useCollection(plantsQuery);
@@ -166,14 +162,12 @@ const updateRow = (id: string, field: keyof RateRow, value: string) => {
         updated.materialName = mat?.productName || "";
         updated.hsnSac = mat?.hsnSac || "";
         updated.uom = mat?.uom || "";
-        if (!updated.validFrom) updated.validFrom = header.validFrom;
-        if (!updated.validTo) updated.validTo = header.validTo;
       }
       return updated;
     }));
   };
 
-const addRow = () => setRows(prev => [...prev, newRow(header.validFrom, header.validTo)]);
+const addRow = () => setRows(prev => [...prev, newRow(new Date().toISOString().split('T')[0], "9999-12-31")]);
 
   const deleteRow = (id: string) => {
     setRows(prev => (prev.length > 1 ? prev.filter(r => r.id !== id) : prev));
@@ -235,12 +229,8 @@ const validateRows = useCallback(async () => {
 
       }
 
-      if (!price) {
-        rowErrors.push("Basic Rate is mandatory");
-      } else if (isNaN(Number(price))) {
+      if (price && isNaN(Number(price))) {
         rowErrors.push("Basic Rate must be numeric");
-      } else if (Number(price) <= 0) {
-        rowErrors.push("Basic Rate must be greater than zero");
       }
 
       if (rowErrors.length) newErrors[row.id] = rowErrors;
@@ -282,11 +272,11 @@ const validateRows = useCallback(async () => {
             materialName: row.materialName,
             hsnSac: row.hsnSac,
             uom: row.uom,
-            status: row.status,
+            status: row.status || "Active",
             documentType: header.documentType,
             documentCategory: header.documentCategory,
             inventoryType: header.inventoryType,
-            price: parseFloat(row.price),
+            price: Number(row.price) || 0, // Store 0 if basic rate is blank or invalid
             gstRate: row.gstRate !== "" ? Number(row.gstRate) : Number((materials?.find(m => (m.materialCode || "").toUpperCase() === row.materialCode.trim().toUpperCase() || (m.productName || "").toUpperCase() === row.materialCode.trim().toUpperCase()))?.gstRate) || 0,
 currency: "INR",
             validFrom: row.validFrom || header.validFrom,
@@ -304,14 +294,12 @@ currency: "INR",
         detail: { text: `${docs.length} condition record(s) committed successfully across ${header.plantIds.length} plant(s)`, isError: false }
       }));
 setRows([newRow(new Date().toISOString().split('T')[0], "9999-12-31")]);
-      setErrors({});
-      setHeader(prev => ({
-        ...prev,
-        approvalFile: "",
-        approvalFileName: "",
-        validFrom: new Date().toISOString().split('T')[0],
-        validTo: "9999-12-31",
-      }));
+setErrors({});
+setHeader(prev => ({
+  ...prev,
+  approvalFile: "",
+  approvalFileName: "",
+}));
       return true;
     } catch (error) {
       window.dispatchEvent(new CustomEvent('sap-status', {
@@ -507,14 +495,7 @@ gstRate: gst || "",
                 </Select>
               </div>
             </div>
-            <div className="sap-selection-row">
-              <label className="sap-label">Validity *</label>
-              <div className="sap-input-wrapper gap-2 max-w-md">
-                <Input type="date" value={header.validFrom} onChange={(e) => setHeader({ ...header, validFrom: e.target.value })} />
-                <span className="text-gray-400">to</span>
-                <Input type="date" value={header.validTo} onChange={(e) => setHeader({ ...header, validTo: e.target.value })} />
-              </div>
-            </div>
+
           </div>
         </div>
 
@@ -551,7 +532,7 @@ gstRate: gst || "",
                   <TableHead className="text-[11px] font-bold border-r w-20 text-center">UOM</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-28">HSN/SAC Code</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-24 text-center">GST Rate (%)</TableHead>
-                  <TableHead className="text-[11px] font-bold border-r w-28 text-right">Basic Rate <span className="text-red-500">*</span></TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-28 text-right">Basic Rate</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-32">Validity From</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-32">Validity To</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-28 text-center">Status</TableHead>

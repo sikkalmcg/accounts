@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useCollection, useMemoDatabase } from "@/database";
 import { collection } from "@/database/mongo";
 import { ArrowUpDown, ChevronUp, ChevronDown, Download, Receipt, Wallet, ArrowRight, MinusCircle, PlusCircle, Eye, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -64,7 +64,7 @@ export default function MB03() {
   }, []);
 
   // 2. Filter State
-  const [filterPlant, setFilterPlant] = useState("ALL");
+  const [filterPlant, setFilterPlant] = useState<string[]>(["ALL"]);
   const [filterBillTo, setFilterBillTo] = useState("ALL");
   const [filterConsignor, setFilterConsignor] = useState("ALL");
   const [fromDate, setFromDate] = useState("");
@@ -101,14 +101,14 @@ const filteredPlants = useMemo(() => {
   const filteredCustomers = useMemo(() => {
     if (!customers) return [];
     if (filterPlant === "ALL") return customers;
-    return customers.filter(c => getRecordPlantIds(c).includes(filterPlant));
+    return customers.filter(c => filterPlant.some(p => getRecordPlantIds(c).includes(p)));
   }, [customers, filterPlant]);
 
   // Firms/Consignors assigned to the currently selected Plant
   const filteredFirms = useMemo(() => {
     if (!firms) return [];
     if (filterPlant === "ALL") return firms;
-    return firms.filter(f => getRecordPlantIds(f).includes(filterPlant));
+    return firms.filter(f => filterPlant.some(p => getRecordPlantIds(f).includes(p)));
   }, [firms, filterPlant]);
 
   const customerMap = useMemo(() => {
@@ -152,7 +152,7 @@ const filteredPlants = useMemo(() => {
       setIsInvoicesLoading(true);
       try {
         const params = new URLSearchParams();
-        if (filterPlant !== 'ALL') params.set('plantId', filterPlant);
+        if (!filterPlant.includes('ALL')) params.set('plantIds', filterPlant.join(','));
         if (fromDate) params.set('fromDate', fromDate);
         if (toDate) params.set('toDate', toDate);
         if (filterBillTo !== 'ALL') params.set('billTo', filterBillTo);
@@ -180,7 +180,7 @@ const filteredPlants = useMemo(() => {
     let base = allInvoices.filter(inv => {
       if (!isAdmin && assignedPlantId && inv.plantId !== assignedPlantId) return false;
       if (inv.status === "Cancelled") return false;
-      if (filterPlant !== "ALL" && inv.plantId !== filterPlant) return false;
+      if (!filterPlant.includes("ALL") && !filterPlant.includes(inv.plantId)) return false;
       
       // Bill-To Filter Fix
       if (filterBillTo !== "ALL") {
@@ -258,7 +258,7 @@ const filteredPlants = useMemo(() => {
         billToGstin: consignee?.gstin || "N/A",
       };
     });
-  }, [allInvoices, isAdmin, assignedPlantId, filterPlant, filterBillTo, filterConsignor, fromDate, toDate, consignorPlantMap, firmMap, customerMap]);
+  }, [allInvoices, isAdmin, assignedPlantId, filterPlant, filterBillTo, filterConsignor, fromDate, toDate, consignorPlantMap, firmMap, customerMap, normalizeKey]);
 
   // Summary Calculation
   const summary = useMemo(() => {
@@ -363,19 +363,42 @@ const filteredPlants = useMemo(() => {
       <div className="bg-[#e7ebf1] border-b border-[#b5c7de] p-3 grid grid-cols-5 gap-4 items-end">
         <div className="space-y-1">
           <label className="text-[10px] font-bold text-gray-500 uppercase">Plant</label>
-          <Select value={filterPlant} onValueChange={setFilterPlant}>
-            <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All Plants</SelectItem>
-              {filteredPlants.map(p => (
-                <SelectItem key={p.id || p.plantId} value={p.plantId}>
-                  {p.plantId} - {p.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Dialog>
+            <DialogTrigger className={buttonVariants({ variant: 'outline', className: "h-6 w-full rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4] justify-start" })}>
+              {filterPlant.includes("ALL") ? "All Plants" : `${filterPlant.length} plant(s) selected`}
+            </DialogTrigger>
+            <DialogContent>
+              <DialogTitle>Select Plants</DialogTitle>
+              <div className="flex flex-col space-y-2 max-h-80 overflow-y-auto">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="plant-all"
+                    checked={filterPlant.includes("ALL")}
+                    onChange={(e) => setFilterPlant(e.target.checked ? ["ALL"] : [])}
+                  />
+                  <label htmlFor="plant-all" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                    All Plants
+                  </label>
+                </div>
+                {filteredPlants.map(p => (
+                  <div key={p.id || p.plantId} className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id={`plant-${p.plantId}`}
+                      checked={filterPlant.includes(p.plantId)}
+                      onChange={(e) => {
+                        const plantId = p.plantId;
+                        const newSelection = e.target.checked ? [...filterPlant.filter(fp => fp !== "ALL"), plantId] : filterPlant.filter(fp => fp !== plantId);
+                        setFilterPlant(newSelection.length === 0 ? ["ALL"] : newSelection);
+                      }}
+                    />
+                    <label htmlFor={`plant-${p.plantId}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">{p.plantId} - {p.name}</label>
+                  </div>
+                ))}
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {/* Bill To Party Dropdown Fix - Customer Code prioritized */}
@@ -800,7 +823,7 @@ const filteredPlants = useMemo(() => {
         <div className="flex items-center gap-6">
           <span>ALV Grid: {sortedData.length} Document(s)</span>
           <span className="opacity-40">|</span>
-          <span>Plant: {filterPlant === "ALL" ? "All" : filterPlant}</span>
+          <span>Plant: {filterPlant.includes("ALL") ? "All" : filterPlant.join(', ')}</span>
         </div>
         <div className="flex items-center gap-8 pr-4">
           <div className="flex flex-col items-end">

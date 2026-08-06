@@ -39,6 +39,14 @@ interface PricingOption {
   gstRate: number;
 }
 
+// Helper to safely extract array of plant IDs from billing record (VOF03)
+const getRecordPlants = (record: any): string[] => {
+  if (Array.isArray(record.plantIds) && record.plantIds.length > 0) {
+    return record.plantIds;
+  }
+  return record.plantId ? [record.plantId] : [];
+};
+
 export default function VF02() {
   const db = useDatabase();
 
@@ -364,7 +372,16 @@ const handleExecute = useCallback(() => {
   }, [handleExecute]);
 
 const noBillingConfigMessage = "No Document Type and Charge Type are configured for the selected Plant and Inventory Type.";
-  const filteredBilling = useMemo(() => (billingTypes?.filter(b => b.plantId === plantId && b.inventoryType === inventoryType && b.status === "Active") || []), [billingTypes, plantId, inventoryType]);
+  const filteredBilling = useMemo(() => {
+    if (!billingTypes || !plantId || !inventoryType) return [];
+    return billingTypes.filter(b => {
+      const recPlants = getRecordPlants(b);
+      const matchesPlant = recPlants.includes(plantId);
+      const matchesInventory = b.inventoryType === inventoryType;
+      const isActive = !b.status || b.status === "Active";
+      return matchesPlant && matchesInventory && isActive;
+    });
+  }, [billingTypes, plantId, inventoryType]);
 
   const filteredDocTypes = useMemo(() => Array.from(new Set(filteredBilling.filter(b => b.documentType).map(b => b.documentType!))), [filteredBilling]);
   const filteredBillingCategories = useMemo(() => Array.from(new Set(filteredBilling.filter(b => b.documentCategory).map(b => b.documentCategory!))), [filteredBilling]);
@@ -520,11 +537,11 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
 {/* Document Type - Master-driven Dropdown */}
                   <div className="sap-selection-row">
                     <label className="sap-label">Document Type</label>
-                    <Select value={docType} onValueChange={setDocType} disabled={isIrnGenerated}>
-                      <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]" disabled={isLockedByTime}><SelectValue /></SelectTrigger>
+                    <Select value={docType} onValueChange={setDocType} disabled={isLockedByTime || isIrnGenerated}>
+                      <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
                       <SelectContent>
                         {filteredDocTypes.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
-                        {plantId && inventoryType && filteredDocTypes.length === 0 && (
+                        {plantId && inventoryType && !isFetchingOptions && filteredDocTypes.length === 0 && !isIrnGenerated && (
                           <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{noBillingConfigMessage}</div>
                         )}
                       </SelectContent>
@@ -533,11 +550,11 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
 
                   <div className="sap-selection-row">
                     <label className="sap-label">Charge Type</label>
-                    <Select value={docCategory} onValueChange={v => { setDocCategory(v); setItems([]); }} >
-                      <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
+                    <Select value={docCategory} onValueChange={v => { setDocCategory(v); setItems([]); }} disabled={isIrnGenerated}>
+                      <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
                       <SelectContent>
                         {filteredBillingCategories.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
-                        {plantId && inventoryType && filteredBillingCategories.length === 0 && (
+                        {plantId && inventoryType && !isFetchingOptions && filteredBillingCategories.length === 0 && !isIrnGenerated && (
                           <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{noBillingConfigMessage}</div>
                         )}
                       </SelectContent>

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getFinancialYears, getCurrentFinancialYear } from "@/lib/date-utils";
 import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
+import PlantMultiSelect from "./PlantMultiSelect";
 
 export default function FB03() {
   const db = useDatabase();
@@ -28,7 +29,7 @@ export default function FB03() {
   }, []);
 
   // 2. Filter State
-  const [filterPlant, setFilterPlant] = useState("ALL");
+  const [filterPlants, setFilterPlants] = useState<string[]>([]);
   const [filterConsignee, setFilterConsignee] = useState("ALL");
   const [filterFY, setFilterYear] = useState(getCurrentFinancialYear());
   const [showDetail, setShowDetail] = useState(false);
@@ -59,9 +60,10 @@ const filteredPlants = useMemo(() => {
   // Customers assigned to the currently selected Plant (Plant-wise master data filter)
   const filteredCustomers = useMemo(() => {
     if (!customers) return [];
-    if (filterPlant === "ALL") return customers;
-    return customers.filter(c => getRecordPlantIds(c).includes(filterPlant));
-  }, [customers, filterPlant]);
+    if (filterPlants.length !== 1) return customers;
+    const singlePlant = filterPlants[0];
+    return customers.filter(c => getRecordPlantIds(c).includes(singlePlant));
+  }, [customers, filterPlants]);
 
   // Aggregate receipts by Invoice Number (separate posted vs reversed)
   const invoiceReceiptMap = useMemo(() => {
@@ -93,7 +95,7 @@ const filteredPlants = useMemo(() => {
     let base = allInvoices.filter(inv => {
       if (!isAdmin && inv.plantId !== assignedPlantId) return false;
       if (inv.status === "Cancelled") return false;
-      if (filterPlant !== "ALL" && inv.plantId !== filterPlant) return false;
+      if (filterPlants.length > 0 && !filterPlants.includes(inv.plantId)) return false;
       if (filterConsignee !== "ALL" && inv.billTo !== filterConsignee) return false;
       if (filterFY !== "ALL" && inv.billYear !== filterFY) return false;
       return true;
@@ -115,7 +117,7 @@ const filteredPlants = useMemo(() => {
         balanceAmount: gross - totalCollection + totalReversed
       };
     });
-  }, [allInvoices, isAdmin, assignedPlantId, filterPlant, filterConsignee, filterFY, invoiceReceiptMap]);
+  }, [allInvoices, isAdmin, assignedPlantId, filterPlants, filterConsignee, filterFY, invoiceReceiptMap]);
 
   // Filter for pending invoices (balance > 1)
   const pendingInvoices = useMemo(() => processedData.filter(i => i.balanceAmount > 1), [processedData]);
@@ -208,14 +210,13 @@ const filteredPlants = useMemo(() => {
 
       <div className="bg-[#e7ebf1] border-b border-[#b5c7de] p-3 grid grid-cols-4 gap-6 items-end">
         <div className="space-y-1">
-          <label className="text-[10px] font-bold text-gray-500 uppercase">Plant</label>
-          <Select value={filterPlant} onValueChange={setFilterPlant}>
-            <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All Authorized Plants</SelectItem>
-              {filteredPlants.map(p => <SelectItem key={p.id} value={p.plantId}>{p.plantId} - {p.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <label className="text-[10px] font-bold text-gray-500 uppercase">Plant(s)</label>
+          <PlantMultiSelect
+            plants={filteredPlants}
+            selected={filterPlants}
+            onChange={setFilterPlants}
+            placeholder="Select Plant(s)..."
+          />
         </div>
         <div className="space-y-1">
           <label className="text-[10px] font-bold text-gray-500 uppercase">Consignee (Bill To)</label>

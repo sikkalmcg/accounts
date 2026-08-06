@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Trash2, Loader2, Download, Upload, AlertCircle } from "lucide-react";
 import PlantMultiSelect from "./PlantMultiSelect";
 
-const UOM_OPTIONS = ["SQFT", "MT", "KG", "BAG", "BOX", "PCS", "OTHERS"];
+const UOM_OPTIONS = ["SQFT", "MT", "KG", "BAG", "BOX", "PCS", "DAY", "OTHERS"];
 
 type MaterialRow = {
   id: string;

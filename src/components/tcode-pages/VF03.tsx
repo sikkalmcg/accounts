@@ -45,8 +45,17 @@ const firm = invoice.snapshotFirm || firms?.find(f => getRecordPlantIds(f).inclu
   const roundedTotal = Math.round(rawTotal);
   const roundOff = (roundedTotal - rawTotal).toFixed(2);
   
-  const isNonTax = invoice.docType?.toUpperCase() === "NON-TAX INVOICE";
+const isNonTax = invoice.docType?.toUpperCase() === "NON-TAX INVOICE";
   const customHeaders = invoice.customHeaders || [];
+  const items = invoice.items || [];
+
+  // Determine whether the Activity column should be printed (only if any item has a non-blank Activity value)
+  const showActivityColumn = items.some((item: any) => item?.activity && String(item.activity).trim() !== "");
+
+  // Filter custom Billing Item columns: keep only columns where at least one item has a non-blank value
+  const visibleCustomHeaders = customHeaders.filter((_: string, idx: number) =>
+    items.some((item: any) => item?.customValues?.[idx] !== undefined && String(item.customValues[idx]).trim() !== "")
+  );
 
   const docTypeLabel = useMemo(() => {
     const t = invoice.docType?.toUpperCase() || "";
@@ -125,7 +134,7 @@ const firm = invoice.snapshotFirm || firms?.find(f => getRecordPlantIds(f).inclu
             <div className="grid grid-cols-2 gap-x-0 text-[10px] border-t border-gray-100 pt-2 mt-2"> 
               <p className="text-left"><span className="text-[8px] text-gray-500 font-bold uppercase">Plant:</span> <span className="font-mono font-bold ml-1">{invoice.plantId}</span></p>
               <p className="text-left"><span className="text-[8px] text-gray-500 font-bold uppercase">Charge Type:</span> <span className="font-bold ml-1 uppercase">{invoice.docCategory}</span></p>
-            </div>
+           </div>
           )}
         </div>
 
@@ -151,9 +160,10 @@ const firm = invoice.snapshotFirm || firms?.find(f => getRecordPlantIds(f).inclu
         <table className="w-full border-x border-black">
           <thead>
             <tr className="bg-white text-[10px] font-bold border-b-2 border-black">
-              <th className="border-r border-black w-8 text-center py-2">#</th>
-              <th className="border-r border-black text-left py-2">Item Description</th>
-              {customHeaders.map((header: string, i: number) => (
+<th className="border-r border-black w-8 text-center py-2">#</th>
+              <th className="border-r border-black text-left py-2 px-2">Item Description</th>
+              {showActivityColumn && <th className="border-r border-black text-left py-2">Activity</th>} {/* Activity Column */}
+              {visibleCustomHeaders.map((header: string, i: number) => (
                 <th key={i} className="border-r border-black text-center py-2">{header}</th>
               ))}
               <th className="border-r border-black w-20 text-center py-2">HSN/SAC</th>
@@ -167,10 +177,16 @@ const firm = invoice.snapshotFirm || firms?.find(f => getRecordPlantIds(f).inclu
             {invoice.items?.map((item: any, idx: number) => (
               <tr key={idx} className="border-b border-gray-200 h-10">
                 <td className="border-r border-black text-center">{idx + 1}</td>
-                <td className="border-r border-black font-bold uppercase">{item.descName || item.desc}</td>
-                {customHeaders.map((_: any, i: number) => (
-                  <td key={i} className="border-r border-black text-center">{item.customValues?.[i] || "-"}</td>
-                ))}
+                <td className="border-r border-black font-bold uppercase px-2">{item.descName || item.desc}</td>
+                {showActivityColumn && (
+                  <td className="border-r border-black text-left px-2">{item.activity || "-"}</td>
+                )}
+                {visibleCustomHeaders.map((_: string, vi: number) => {
+                  const origIdx = customHeaders.indexOf(visibleCustomHeaders[vi]);
+                  return (
+                    <td key={vi} className="border-r border-black text-center px-2">{item.customValues?.[origIdx] || "-"}</td>
+                  );
+                })}
                 <td className="border-r border-black text-center font-mono">{item.hsn}</td>
                 <td className="border-r border-black text-center font-bold">{item.qty}</td>
                 <td className="border-r border-black text-center">{item.uom}</td>
@@ -506,6 +522,12 @@ export default function VF03() {
               </TableHead>
               <TableHead onClick={() => handleSort('inventoryType')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Inventory Type <SortIcon column="inventoryType" /></div>
+              </TableHead>
+              <TableHead onClick={() => handleSort('docCategory')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">Charge Type <SortIcon column="docCategory" /></div>
+              </TableHead>
+              <TableHead onClick={() => handleSort('docCategory')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">Charge Type <SortIcon column="docCategory" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('plantId')} className="text-[11px] font-bold border-r w-24 text-center">
                 <div className="flex items-center justify-center">Plant <SortIcon column="plantId" /></div>

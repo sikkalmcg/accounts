@@ -29,6 +29,7 @@ interface InvoiceItem {
   amount: number;
   gstRate: number;
   customValues: string[];
+  isFixedCharge: boolean; // To track if the rate is manual
 }
 
 interface PricingOption {
@@ -93,7 +94,7 @@ export default function VF01() {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const [items, setItems] = useState<InvoiceItem[]>([
-    { id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [] }
+    { id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '1', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [], isFixedCharge: false }
   ]);
 
   // 2. Auth Context
@@ -375,11 +376,13 @@ export default function VF01() {
         if (field === 'desc') {
           const selectedOption = availableOptions.find(opt => opt.materialCode === val);
           if (selectedOption) {
+            const isManualRate = !selectedOption.price || selectedOption.price <= 0;
             updated.hsn = selectedOption.hsn;
             updated.rate = String(selectedOption.price);
             updated.uom = selectedOption.uom;
             updated.gstRate = selectedOption.gstRate;
             updated.descName = selectedOption.materialName || selectedOption.materialCode;
+            updated.isFixedCharge = isManualRate;
             setNoValidPriceRowMaterial("");
           } else {
             updated.hsn = "";
@@ -387,10 +390,16 @@ export default function VF01() {
             updated.uom = "";
             updated.gstRate = 0;
             updated.descName = val;
+            updated.isFixedCharge = true; // No price found, so it's a manual entry
             setNoValidPriceRowMaterial(val);
           }
         }
-        if (field === 'qty' || field === 'rate' || field === 'desc') {
+
+        // If the rate is manually entered (fixed charge), taxable amount is the rate itself.
+        // Otherwise, it's qty * rate.
+        if (updated.isFixedCharge) {
+          updated.amount = Number(updated.rate) || 0;
+        } else {
           updated.amount = (Number(updated.qty) || 0) * (Number(updated.rate) || 0);
         }
         return updated;
@@ -412,6 +421,17 @@ export default function VF01() {
   const handleExecute = useCallback(async () => {
     if (!plantId || !invoiceNo || !billTo || !inventoryType) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Plant, Invoice Number, Bill to Party and Inventory Type are mandatory", isError: true } }));
+      return;
+    }
+
+    const invalidItem = items.find(item => item.isFixedCharge && (!item.rate || Number(item.rate) <= 0));
+    if (invalidItem) {
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: {
+          text: `Error: Manual Basic Rate is required for item '${invalidItem.descName || invalidItem.desc}'. Please enter a rate greater than zero.`,
+          isError: true
+        }
+      }));
       return;
     }
 
@@ -503,7 +523,7 @@ export default function VF01() {
       setReferenceNo("");
       setReferenceDocId(null);
       setNote("");
-      setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [] }]);
+      setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '1', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [], isFixedCharge: false }]);
     } catch (e) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Document posting failed", isError: true } }));
     } finally {
@@ -715,20 +735,20 @@ export default function VF01() {
           {isFetchingOptions && <div className="absolute inset-0 bg-white/60 z-20 flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>}
           <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <span className="text-[12px] font-semibold text-gray-700 uppercase">Line Items</span>
+<span className="text-[12px] font-semibold text-gray-700 uppercase">Billing Items</span>
               <Dialog open={isColumnDialogOpen} onOpenChange={setIsColumnDialogOpen}>
                 <DialogTrigger asChild><Button variant="outline" size="sm" className="h-5 text-[9px] px-2 rounded-none gap-1" disabled={customHeaders.length >= 3}><Columns className="h-3 w-3" /> Add Column ({customHeaders.length}/3)</Button></DialogTrigger>
                 <DialogContent className="max-w-sm rounded-none border-gray-400 p-0 overflow-hidden shadow-2xl">
                   <div className="bg-[#333e4f] text-white p-3 flex justify-between items-center"><DialogTitle className="text-[11px] font-black uppercase tracking-widest">Column Header</DialogTitle><button onClick={() => setIsColumnDialogOpen(false)}><X className="h-4 w-4" /></button></div>
                   <div className="p-6 bg-white space-y-2">
-                    <label className="text-[10px] font-bold text-gray-500 uppercase">Manual Name</label>
+                    <label className="text-[10px] font-bold text-gray-500 uppercase">Column Name</label>
                     <Input value={newHeaderName} onChange={e => setNewHeaderName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddColumn()} autoFocus />
                   </div>
                   <div className="bg-[#e1e1e1] p-3 flex justify-end gap-3"><Button onClick={handleAddColumn} className="rounded-none bg-blue-700 text-white h-8 text-xs px-6">Add Column</Button></div>
                 </DialogContent>
               </Dialog>
             </div>
-            <Button onClick={() => setItems([...items, { id: Math.random().toString(), desc: '', descName: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [] }])} variant="ghost" size="sm" className="h-5 text-[10px]"><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
+            <Button onClick={() => setItems([...items, { id: Math.random().toString(), desc: '', descName: '', activity: '', hsn: '', qty: '1', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [], isFixedCharge: false }])} variant="ghost" size="sm" className="h-5 text-[10px]"><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
           </div>
           {noValidPriceRowMaterial && (
             <div className="px-3 py-2 bg-red-50 border-b border-red-200 flex items-center gap-2 animate-in slide-in-from-top-1 duration-200">
@@ -787,9 +807,8 @@ export default function VF01() {
                   ))}
                   <TableCell className="p-0 border-r"><Input className="h-full border-none text-center" value={row.hsn} readOnly /></TableCell>
                   <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none text-center font-bold text-emerald-800" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} /></TableCell>
-                  <TableCell className="p-0 border-r text-center text-[10px]"><Input className="h-full border-none text-center bg-gray-50 text-xs" value={row.uom} readOnly /></TableCell>
-                  <TableCell className="p-0 border-r text-center font-bold text-[10px] text-purple-700"><Input className="h-full border-none text-center bg-gray-50 text-xs" value={row.gstRate ? `${row.gstRate}%` : "-"} readOnly /></TableCell>
-                  <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none text-center bg-gray-50 font-bold text-emerald-700 text-xs" value={row.rate} readOnly /></TableCell>
+                  <TableCell className="p-0 border-r text-center text-[10px]"><Input className="h-full border-none text-center bg-gray-50 text-xs" value={row.uom} readOnly /></TableCell>                  <TableCell className="p-0 border-r text-center font-bold text-[10px] text-purple-700"><Input className="h-full border-none text-center bg-gray-50 text-xs" value={row.gstRate ? `${row.gstRate}%` : "-"} readOnly /></TableCell>
+                  <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none text-center bg-gray-50 font-bold text-emerald-700 text-xs" value={row.rate} readOnly={!row.isFixedCharge} onChange={e => updateItem(row.id, 'rate', e.target.value)} /></TableCell>
                   <TableCell className="p-0 border-r bg-gray-50/50 text-right text-[11px] px-2 font-mono pr-4">{row.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
                   <TableCell className="p-0 text-center"><Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => items.length > 1 && setItems(items.filter(i => i.id !== row.id))}><Trash2 className="h-3 w-3" /></Button></TableCell>
                 </TableRow>
