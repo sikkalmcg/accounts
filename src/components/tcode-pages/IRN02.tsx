@@ -132,16 +132,20 @@ export default function IRN02() {
     setIrnData({ irnNumber: "", ackNo: "", ackDate: "", qrData: "" });
   };
 
-  // 8. Save Modified IRN
+// 8. Save Modified IRN
   const handleSave = useCallback(async () => {
     if (!editingInvoice || isLockedByTime) return;
 
     setIsSaving(true);
     try {
+      // Sync Invoice Date with ACK Date as per requirement (IRN Date and Invoice Date always identical)
+      const syncedDate = toSAPDate(irnData.ackDate);
+
       updateDocumentNonBlocking(doc(db, "sales_invoices", editingInvoice.id), {
         irnNumber: irnData.irnNumber,
         ackNo: irnData.ackNo,
-        ackDate: toSAPDate(irnData.ackDate),
+        ackDate: syncedDate,
+        invoiceDate: syncedDate, // Ensure Invoice Date is updated to match ACK Date
         qrData: irnData.qrData,
         irnStatus: "Modified",
         irnUpdatedAt: new Date().toISOString(),
@@ -156,7 +160,8 @@ export default function IRN02() {
                 ...inv,
                 irnNumber: irnData.irnNumber,
                 ackNo: irnData.ackNo,
-                ackDate: toSAPDate(irnData.ackDate),
+                ackDate: syncedDate,
+                invoiceDate: syncedDate, // Ensure Invoice Date is updated to match ACK Date
                 qrData: irnData.qrData,
                 irnStatus: "Modified",
                 irnUpdatedAt: new Date().toISOString(),

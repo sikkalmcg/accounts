@@ -143,7 +143,13 @@ export default function PlantMultiSelect({
     .map((p) => p.plantId);
 
   const dropdownContent = (
-    <div className="w-[340px] bg-white border border-gray-400 shadow-xl shadow-black/20">
+    <div
+      data-plant-dropdown
+      className="w-[340px] bg-white border border-gray-400 shadow-xl shadow-black/20"
+      onMouseDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
       <div className="bg-[#dae8f5] px-2 py-1.5 border-b border-gray-300 flex items-center justify-between">
         <span className="text-[10px] font-black uppercase text-gray-700 flex items-center gap-1.5">
           <Layers className="h-3 w-3" /> Select Plants
@@ -188,18 +194,20 @@ export default function PlantMultiSelect({
           <div className="text-[10px] text-red-500 py-3 text-center font-bold">
             No plants found. Create a plant first (OP01).
           </div>
-        ) : (
-          filteredPlants.map((p) => (
+) : (
+filteredPlants.map((p) => (
             <div
               key={p.id}
               className="flex items-center gap-2 p-1.5 hover:bg-blue-50 rounded cursor-pointer"
-              onClick={() => togglePlant(p.plantId)}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                togglePlant(p.plantId);
+              }}
             >
               <Checkbox
                 checked={selected.includes(p.plantId)}
-                onCheckedChange={() => togglePlant(p.plantId)}
-                onClick={(e) => e.stopPropagation()}
-                className="h-3.5 w-3.5"
+                className="h-3.5 w-3.5 pointer-events-none"
               />
               <span className="text-[11px] font-bold cursor-pointer flex-1">
                 {p.plantId}

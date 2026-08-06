@@ -34,7 +34,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Upload, X, Loader2, Plus, Trash2, Pencil, Building2, FileEdit } from "lucide-react";
+import { Upload, X, Loader2, Plus, Trash2, Pencil, Building2 } from "lucide-react";
 import Image from "next/image";
 
 export default function FM02() {
@@ -59,16 +59,33 @@ export default function FM02() {
   useEffect(() => {
     const stored = localStorage.getItem("sikka_user");
     if (stored) {
-      const parsed = JSON.parse(stored);
-      const isSysAdmin = parsed.username === "ajaysomra" || parsed.role === "admin";
-      setCanEdit(isSysAdmin || (parsed.tcodePermissions || []).includes("FM02"));
+      try {
+        const parsed = JSON.parse(stored);
+        const isSysAdmin = parsed.username === "ajaysomra" || parsed.role === "admin";
+        setCanEdit(isSysAdmin || (parsed.tcodePermissions || []).includes("FM02"));
+      } catch (e) { /* ignore */ }
     }
   }, []);
 
+  // Helper function to extract plant IDs/Codes properly
+  const normalizePlantIds = (firm: any): string[] => {
+    let rawList: any[] = [];
+    if (Array.isArray(firm?.assignedPlantIds) && firm.assignedPlantIds.length > 0) {
+      rawList = firm.assignedPlantIds;
+    } else if (Array.isArray(firm?.plantIds) && firm.plantIds.length > 0) {
+      rawList = firm.plantIds;
+    } else if (firm?.plantId) {
+      rawList = [firm.plantId];
+    }
+
+    return rawList
+      .map((item) => (typeof item === "object" ? item?.plantId || item?.id || item?.code : item))
+      .filter((id): id is string => typeof id === "string" && id.trim() !== "");
+  };
+
   const openEdit = (firm: any) => {
-    const plantIds = Array.isArray(firm.assignedPlantIds) && firm.assignedPlantIds.length > 0
-      ? firm.assignedPlantIds
-      : (firm.plantId ? [firm.plantId] : []);
+    const plantIds = normalizePlantIds(firm);
+
     setSelectedId(firm.id);
     setFormData({
       ...firm,
@@ -87,7 +104,7 @@ export default function FM02() {
       accountHolderName: firm.accountHolderName || "",
       accountNumber: firm.accountNumber || "",
       ifscCode: firm.ifscCode || "",
-      terms: firm.terms || [""],
+      terms: Array.isArray(firm.terms) && firm.terms.length > 0 ? firm.terms : [""],
     });
     setEditOpen(true);
   };
@@ -98,15 +115,17 @@ export default function FM02() {
     setFormData((prev: any) => ({
       ...prev,
       gstin,
-      ...(parsed ? {
-        pan: parsed.pan,
-        state: parsed.state,
-        stateCode: parsed.stateCode,
-      } : {
-        pan: "",
-        state: "",
-        stateCode: "",
-      }),
+      ...(parsed
+        ? {
+            pan: parsed.pan,
+            state: parsed.state,
+            stateCode: parsed.stateCode,
+          }
+        : {
+            pan: "",
+            state: "",
+            stateCode: "",
+          }),
     }));
   };
 
@@ -114,79 +133,118 @@ export default function FM02() {
     const file = e.target.files?.[0];
     if (file && file.size <= 500 * 1024) {
       const reader = new FileReader();
-      reader.onload = (ev) => setFormData((prev: any) => ({ ...prev, logoData: ev.target?.result }));
+      reader.onload = (ev) =>
+        setFormData((prev: any) => ({ ...prev, logoData: ev.target?.result }));
       reader.readAsDataURL(file);
     } else if (file) {
-      window.dispatchEvent(new CustomEvent("sap-status", {
-        detail: { text: "Error: Logo must be under 500 KB", isError: true },
-      }));
+      window.dispatchEvent(
+        new CustomEvent("sap-status", {
+          detail: { text: "Error: Logo must be under 500 KB", isError: true },
+        })
+      );
     }
   };
 
   const handleSave = useCallback(async () => {
     if (!formData || !selectedId) {
-      window.dispatchEvent(new CustomEvent("sap-status", {
-        detail: { text: "Please select a firm to update", isError: true },
-      }));
+      window.dispatchEvent(
+        new CustomEvent("sap-status", {
+          detail: { text: "Please select a firm to update", isError: true },
+        })
+      );
       return;
     }
 
-    if (!formData.assignedPlantIds || formData.assignedPlantIds.length === 0 || !formData.consignorCode || !formData.name || !formData.gstin) {
-      window.dispatchEvent(new CustomEvent("sap-status", {
-        detail: { text: "Validation Error: Plant(s), Consignor Code, Name, and GSTIN are required", isError: true },
-      }));
+    if (
+      !formData.assignedPlantIds ||
+      formData.assignedPlantIds.length === 0 ||
+      !formData.consignorCode ||
+      !formData.name ||
+      !formData.gstin
+    ) {
+      window.dispatchEvent(
+        new CustomEvent("sap-status", {
+          detail: {
+            text: "Validation Error: Plant(s), Consignor Code, Name, and GSTIN are required",
+            isError: true,
+          },
+        })
+      );
       return;
     }
 
     if (!canEdit) {
-      window.dispatchEvent(new CustomEvent("sap-status", {
-        detail: { text: "Error: You do not have permission to edit consignor master data", isError: true },
-      }));
+      window.dispatchEvent(
+        new CustomEvent("sap-status", {
+          detail: {
+            text: "Error: You do not have permission to edit consignor master data",
+            isError: true,
+          },
+        })
+      );
       return;
     }
 
-    const normalizedCode = String(formData.consignorCode || "").trim().toUpperCase();
+    const normalizedCode = String(formData.consignorCode || "")
+      .trim()
+      .toUpperCase();
     if (!normalizedCode) {
-      window.dispatchEvent(new CustomEvent("sap-status", {
-        detail: { text: "Error: Consignor Code is mandatory", isError: true },
-      }));
+      window.dispatchEvent(
+        new CustomEvent("sap-status", {
+          detail: { text: "Error: Consignor Code is mandatory", isError: true },
+        })
+      );
       return;
     }
 
     setLoading(true);
     try {
-      const q = query(collection(db, "firms"), where("firmId", "==", normalizedCode));
+      const q = query(
+        collection(db, "firms"),
+        where("firmId", "==", normalizedCode)
+      );
       const snap = await getDocs(q);
-      const isDuplicate = snap.docs.some(d => d.id !== selectedId);
+      const isDuplicate = snap.docs.some((d) => d.id !== selectedId);
       if (isDuplicate) {
-        window.dispatchEvent(new CustomEvent("sap-status", {
-          detail: { text: "Consignor Code already exists. Please enter a unique code.", isError: true },
-        }));
+        window.dispatchEvent(
+          new CustomEvent("sap-status", {
+            detail: {
+              text: "Consignor Code already exists. Please enter a unique code.",
+              isError: true,
+            },
+          })
+        );
         setLoading(false);
         return;
       }
 
-      const assignedPlantIds = Array.isArray(formData.assignedPlantIds) ? formData.assignedPlantIds : [];
+      const assignedPlantIds = Array.isArray(formData.assignedPlantIds)
+        ? formData.assignedPlantIds
+        : [];
       const { id, ...dataToSave } = formData;
       updateDocumentNonBlocking(doc(db, "firms", selectedId), {
         ...dataToSave,
         assignedPlantIds,
-        plantId: assignedPlantIds[0] || "", // backward compatibility with single-plant queries
+        plantId: assignedPlantIds[0] || "",
         firmId: normalizedCode,
         consignorCode: normalizedCode,
         updatedAt: new Date().toISOString(),
       });
 
-      window.dispatchEvent(new CustomEvent("sap-status", {
-        detail: { text: `Firm ${formData.name} updated successfully`, isError: false },
-      }));
+      window.dispatchEvent(
+        new CustomEvent("sap-status", {
+          detail: { text: `Firm ${formData.name} updated successfully`, isError: false },
+        })
+      );
       setEditOpen(false);
       setFormData(null);
       setSelectedId("");
     } catch (error) {
-      window.dispatchEvent(new CustomEvent("sap-status", {
-        detail: { text: "Update failed: Check database connection", isError: true },
-      }));
+      window.dispatchEvent(
+        new CustomEvent("sap-status", {
+          detail: { text: "Update failed: Check database connection", isError: true },
+        })
+      );
     } finally {
       setLoading(false);
     }
@@ -203,40 +261,55 @@ export default function FM02() {
     setLoading(true);
     try {
       deleteDocumentNonBlocking(doc(db, "firms", deleteTarget.id));
-      window.dispatchEvent(new CustomEvent("sap-status", {
-        detail: { text: "Firm record removed successfully", isError: false },
-      }));
+      window.dispatchEvent(
+        new CustomEvent("sap-status", {
+          detail: { text: "Firm record removed successfully", isError: false },
+        })
+      );
       setDeleteTarget(null);
     } catch (e) {
-      window.dispatchEvent(new CustomEvent("sap-status", {
-        detail: { text: "Deletion failed", isError: true },
-      }));
+      window.dispatchEvent(
+        new CustomEvent("sap-status", {
+          detail: { text: "Deletion failed", isError: true },
+        })
+      );
     } finally {
       setLoading(false);
     }
   };
 
   const addTermRow = () => {
-    setFormData((prev: any) => ({ ...prev, terms: [...(prev.terms || []), ""] }));
+    setFormData((prev: any) => ({
+      ...prev,
+      terms: [...(prev?.terms || []), ""],
+    }));
   };
 
   const removeTermRow = (idx: number) => {
-    if (formData.terms.length > 1) {
-      setFormData((prev: any) => ({ ...prev, terms: prev.terms.filter((_: any, i: number) => i !== idx) }));
+    if (formData?.terms?.length > 1) {
+      setFormData((prev: any) => ({
+        ...prev,
+        terms: prev.terms.filter((_: any, i: number) => i !== idx),
+      }));
     }
   };
 
   const updateTermValue = (idx: number, val: string) => {
-    const updated = [...formData.terms];
+    const updated = [...(formData?.terms || [])];
     updated[idx] = val;
     setFormData((prev: any) => ({ ...prev, terms: updated }));
   };
 
   const getPlantCodes = (firm: any): string => {
-    if (Array.isArray(firm.assignedPlantIds) && firm.assignedPlantIds.length > 0) {
-      return firm.assignedPlantIds.join(", ");
-    }
-    return firm.plantId || "N/A";
+    const codes = normalizePlantIds(firm);
+    return codes.length > 0 ? codes.join(", ") : "N/A";
+  };
+
+  const handlePlantChange = (newSelectedIds: string[]) => {
+    setFormData((prev: any) => ({
+      ...prev,
+      assignedPlantIds: Array.isArray(newSelectedIds) ? newSelectedIds : [],
+    }));
   };
 
   return (
@@ -265,52 +338,86 @@ export default function FM02() {
           </TableHeader>
           <TableBody>
             {isFirmsLoading ? (
-              <TableRow><TableCell colSpan={10} className="text-center py-4 text-xs">FETCHING CONSIGNORS...</TableCell></TableRow>
-            ) : !firms || firms.length === 0 ? (
-              <TableRow><TableCell colSpan={10} className="text-center py-10 text-xs text-red-500 font-bold">NO CONSIGNOR RECORDS FOUND</TableCell></TableRow>
-            ) : firms.map((f, i) => (
-              <TableRow key={f.id} className="h-10 hover:bg-blue-50/50 transition-colors">
-                <TableCell className="p-0 text-center text-[10px] border-r text-gray-400">{i + 1}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r font-mono text-gray-700">{getPlantCodes(f)}</TableCell>
-                <TableCell className="p-0 border-r flex items-center justify-center">
-                  {f.logoData ? (
-                    <div className="w-8 h-8 relative"><Image src={f.logoData} alt="Logo" fill className="object-contain" /></div>
-                  ) : <Building2 className="h-4 w-4 text-gray-300" />}
-                </TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r font-mono font-bold text-blue-700">{f.consignorCode || f.firmId || "-"}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r font-bold">{f.name}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r font-mono">{f.gstin}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r font-mono">{f.pan}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r">{f.state || "-"}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r font-mono text-center">{f.stateCode || "-"}</TableCell>
-                <TableCell className="p-0 px-1 border-r">
-                  <div className="flex items-center justify-center gap-1">
-                    <Button
-                      onClick={() => openEdit(f)}
-                      size="sm"
-                      className="h-6 rounded-none px-2 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold gap-1"
-                    >
-                      <Pencil className="h-3 w-3" /> Edit
-                    </Button>
-                    <Button
-                      onClick={() => setDeleteTarget(f)}
-                      size="sm"
-                      variant="destructive"
-                      className="h-6 rounded-none px-2 text-[10px] font-bold gap-1"
-                    >
-                      <Trash2 className="h-3 w-3" /> Delete
-                    </Button>
-                  </div>
+              <TableRow>
+                <TableCell colSpan={10} className="text-center py-4 text-xs">
+                  FETCHING CONSIGNORS...
                 </TableCell>
               </TableRow>
-            ))}
+            ) : !firms || firms.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={10} className="text-center py-10 text-xs text-red-500 font-bold">
+                  NO CONSIGNOR RECORDS FOUND
+                </TableCell>
+              </TableRow>
+            ) : (
+              firms.map((f, i) => (
+                <TableRow key={f.id} className="h-10 hover:bg-blue-50/50 transition-colors">
+                  <TableCell className="p-0 text-center text-[10px] border-r text-gray-400">
+                    {i + 1}
+                  </TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r font-mono text-gray-700">
+                    {getPlantCodes(f)}
+                  </TableCell>
+                  <TableCell className="p-0 border-r flex items-center justify-center">
+                    {f.logoData ? (
+                      <div className="w-8 h-8 relative">
+                        <Image src={f.logoData} alt="Logo" fill className="object-contain" />
+                      </div>
+                    ) : (
+                      <Building2 className="h-4 w-4 text-gray-300" />
+                    )}
+                  </TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r font-mono font-bold text-blue-700">
+                    {f.consignorCode || f.firmId || "-"}
+                  </TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r font-bold">
+                    {f.name}
+                  </TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r font-mono">
+                    {f.gstin}
+                  </TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r font-mono">
+                    {f.pan}
+                  </TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r">
+                    {f.state || "-"}
+                  </TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r font-mono text-center">
+                    {f.stateCode || "-"}
+                  </TableCell>
+                  <TableCell className="p-0 px-1 border-r">
+                    <div className="flex items-center justify-center gap-1">
+                      <Button
+                        onClick={() => openEdit(f)}
+                        size="sm"
+                        className="h-6 rounded-none px-2 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold gap-1"
+                      >
+                        <Pencil className="h-3 w-3" /> Edit
+                      </Button>
+                      <Button
+                        onClick={() => setDeleteTarget(f)}
+                        size="sm"
+                        variant="destructive"
+                        className="h-6 rounded-none px-2 text-[10px] font-bold gap-1"
+                      >
+                        <Trash2 className="h-3 w-3" /> Delete
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </div>
 
-      {/* Edit Modal — all FM01 fields */}
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto rounded-sm p-0">
+      {/* Edit Modal - modal={false} stops click intercept from dropdowns */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen} modal={false}>
+        <DialogContent
+          className="max-w-3xl max-h-[90vh] overflow-y-auto rounded-sm p-0 z-50 shadow-2xl border border-gray-400"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader className="bg-[#dae8f5] px-4 py-2 border-b border-[#b5c7de]">
             <DialogTitle className="text-[13px] font-bold text-gray-800 uppercase italic tracking-wider">
               Edit Consignor Master
@@ -330,12 +437,14 @@ export default function FM02() {
                   </div>
                   <div className="p-2 space-y-2">
                     <div className="sap-selection-row items-start">
-                      <label className="sap-label mt-1">Plant Access <span className="text-red-500">*</span></label>
+                      <label className="sap-label mt-1">
+                        Plant Access <span className="text-red-500">*</span>
+                      </label>
                       <div className="sap-input-wrapper max-w-[280px]">
                         <PlantMultiSelect
-                          plants={plants}
+                          plants={plants || []}
                           selected={formData.assignedPlantIds || []}
-                          onChange={(ids) => setFormData((prev: any) => ({ ...prev, assignedPlantIds: ids }))}
+                          onChange={handlePlantChange}
                           isLoading={isPlantsLoading}
                           placeholder="Select Plant(s)..."
                         />
@@ -351,9 +460,18 @@ export default function FM02() {
                         >
                           {formData.logoData ? (
                             <>
-                              <Image src={formData.logoData} alt="Logo" fill className="object-contain p-1" />
+                              <Image
+                                src={formData.logoData}
+                                alt="Logo"
+                                fill
+                                className="object-contain p-1"
+                              />
                               <button
-                                onClick={(e) => { e.stopPropagation(); setFormData((prev: any) => ({ ...prev, logoData: "" })); }}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setFormData((prev: any) => ({ ...prev, logoData: "" }));
+                                }}
                                 className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5"
                               >
                                 <X className="h-3 w-3" />
@@ -366,7 +484,13 @@ export default function FM02() {
                             </div>
                           )}
                         </div>
-                        <input type="file" ref={fileInputRef} onChange={handleLogoUpload} accept="image/*" className="hidden" />
+                        <input
+                          type="file"
+                          ref={fileInputRef}
+                          onChange={handleLogoUpload}
+                          accept="image/*"
+                          className="hidden"
+                        />
                       </div>
                     </div>
 
@@ -374,8 +498,15 @@ export default function FM02() {
                       <label className="sap-label">Consignor Code</label>
                       <div className="sap-input-wrapper max-w-[200px]">
                         <Input
-                          value={formData.consignorCode}
-                          onChange={(e) => setFormData((prev: any) => ({ ...prev, consignorCode: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "") }))}
+                          value={formData.consignorCode || ""}
+                          onChange={(e) =>
+                            setFormData((prev: any) => ({
+                              ...prev,
+                              consignorCode: e.target.value
+                                .toUpperCase()
+                                .replace(/[^A-Z0-9-]/g, ""),
+                            }))
+                          }
                         />
                       </div>
                     </div>
@@ -383,7 +514,15 @@ export default function FM02() {
                     <div className="sap-selection-row">
                       <label className="sap-label">Consignor Name</label>
                       <div className="sap-input-wrapper max-w-xl">
-                        <Input value={formData.name} onChange={(e) => setFormData((prev: any) => ({ ...prev, name: e.target.value }))} />
+                        <Input
+                          value={formData.name || ""}
+                          onChange={(e) =>
+                            setFormData((prev: any) => ({
+                              ...prev,
+                              name: e.target.value,
+                            }))
+                          }
+                        />
                       </div>
                     </div>
                   </div>
@@ -398,20 +537,35 @@ export default function FM02() {
                     <div className="sap-selection-row">
                       <label className="sap-label">GSTIN</label>
                       <div className="sap-input-wrapper max-w-[200px]">
-                        <Input value={formData.gstin} onChange={(e) => handleGSTINChange(e.target.value)} />
+                        <Input
+                          value={formData.gstin || ""}
+                          onChange={(e) => handleGSTINChange(e.target.value)}
+                        />
                       </div>
                     </div>
                     <div className="sap-selection-row">
                       <label className="sap-label">PAN</label>
                       <div className="sap-input-wrapper max-w-[150px]">
-                        <Input value={formData.pan} readOnly className="bg-gray-100 font-mono" />
+                        <Input
+                          value={formData.pan || ""}
+                          readOnly
+                          className="bg-gray-100 font-mono"
+                        />
                       </div>
                     </div>
                     <div className="sap-selection-row">
                       <label className="sap-label">State / State Code</label>
                       <div className="sap-input-wrapper max-w-xl gap-1">
-                        <Input value={formData.stateCode} readOnly className="w-12 bg-gray-100 text-center" />
-                        <Input value={formData.state} readOnly className="bg-gray-100" />
+                        <Input
+                          value={formData.stateCode || ""}
+                          readOnly
+                          className="w-12 bg-gray-100 text-center"
+                        />
+                        <Input
+                          value={formData.state || ""}
+                          readOnly
+                          className="bg-gray-100"
+                        />
                       </div>
                     </div>
                   </div>
@@ -426,25 +580,57 @@ export default function FM02() {
                     <div className="sap-selection-row">
                       <label className="sap-label">Bank Name</label>
                       <div className="sap-input-wrapper max-w-md">
-                        <Input value={formData.bankName} onChange={(e) => setFormData((prev: any) => ({ ...prev, bankName: e.target.value }))} />
+                        <Input
+                          value={formData.bankName || ""}
+                          onChange={(e) =>
+                            setFormData((prev: any) => ({
+                              ...prev,
+                              bankName: e.target.value,
+                            }))
+                          }
+                        />
                       </div>
                     </div>
                     <div className="sap-selection-row">
                       <label className="sap-label">Account Holder Name</label>
                       <div className="sap-input-wrapper max-w-md">
-                        <Input value={formData.accountHolderName} onChange={(e) => setFormData((prev: any) => ({ ...prev, accountHolderName: e.target.value }))} />
+                        <Input
+                          value={formData.accountHolderName || ""}
+                          onChange={(e) =>
+                            setFormData((prev: any) => ({
+                              ...prev,
+                              accountHolderName: e.target.value,
+                            }))
+                          }
+                        />
                       </div>
                     </div>
                     <div className="sap-selection-row">
                       <label className="sap-label">Account Number</label>
                       <div className="sap-input-wrapper max-w-md">
-                        <Input value={formData.accountNumber} onChange={(e) => setFormData((prev: any) => ({ ...prev, accountNumber: e.target.value }))} />
+                        <Input
+                          value={formData.accountNumber || ""}
+                          onChange={(e) =>
+                            setFormData((prev: any) => ({
+                              ...prev,
+                              accountNumber: e.target.value,
+                            }))
+                          }
+                        />
                       </div>
                     </div>
                     <div className="sap-selection-row">
                       <label className="sap-label">IFSC code</label>
                       <div className="sap-input-wrapper max-w-[200px]">
-                        <Input value={formData.ifscCode} onChange={(e) => setFormData((prev: any) => ({ ...prev, ifscCode: e.target.value.toUpperCase() }))} />
+                        <Input
+                          value={formData.ifscCode || ""}
+                          onChange={(e) =>
+                            setFormData((prev: any) => ({
+                              ...prev,
+                              ifscCode: e.target.value.toUpperCase(),
+                            }))
+                          }
+                        />
                       </div>
                     </div>
                   </div>
@@ -459,19 +645,45 @@ export default function FM02() {
                     <div className="sap-selection-row">
                       <label className="sap-label">Email</label>
                       <div className="sap-input-wrapper max-w-xl">
-                        <Input value={formData.email} onChange={(e) => setFormData((prev: any) => ({ ...prev, email: e.target.value }))} />
+                        <Input
+                          value={formData.email || ""}
+                          onChange={(e) =>
+                            setFormData((prev: any) => ({
+                              ...prev,
+                              email: e.target.value,
+                            }))
+                          }
+                        />
                       </div>
                     </div>
                     <div className="sap-selection-row">
                       <label className="sap-label">Mobile</label>
                       <div className="sap-input-wrapper max-w-[200px]">
-                        <Input value={formData.mobile} onChange={(e) => setFormData((prev: any) => ({ ...prev, mobile: e.target.value }))} />
+                        <Input
+                          value={formData.mobile || ""}
+                          onChange={(e) =>
+                            setFormData((prev: any) => ({
+                              ...prev,
+                              mobile: e.target.value,
+                            }))
+                          }
+                        />
                       </div>
                     </div>
                     <div className="sap-selection-row items-start">
                       <label className="sap-label mt-1">Address</label>
                       <div className="sap-input-wrapper max-w-full">
-                        <Textarea value={formData.address} onChange={(e) => setFormData((prev: any) => ({ ...prev, address: e.target.value }))} rows={2} className="rounded-none border-gray-400 focus:bg-[#fff9c4]" />
+                        <Textarea
+                          value={formData.address || ""}
+                          onChange={(e) =>
+                            setFormData((prev: any) => ({
+                              ...prev,
+                              address: e.target.value,
+                            }))
+                          }
+                          rows={2}
+                          className="rounded-none border-gray-400 focus:bg-[#fff9c4]"
+                        />
                       </div>
                     </div>
                   </div>
@@ -482,6 +694,7 @@ export default function FM02() {
                   <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700 flex justify-between items-center">
                     <span>Terms & Conditions</span>
                     <Button
+                      type="button"
                       variant="ghost"
                       size="sm"
                       onClick={addTermRow}
@@ -502,6 +715,7 @@ export default function FM02() {
                           />
                           {(formData.terms || []).length > 1 && (
                             <Button
+                              type="button"
                               variant="ghost"
                               size="icon"
                               onClick={() => removeTermRow(idx)}
@@ -520,10 +734,20 @@ export default function FM02() {
           </div>
 
           <DialogFooter className="px-4 py-3 border-t border-[#b5c7de] bg-[#f4f6f9]">
-            <Button variant="outline" onClick={() => setEditOpen(false)} className="h-7 rounded-none text-[11px] font-bold">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEditOpen(false)}
+              className="h-7 rounded-none text-[11px] font-bold"
+            >
               Cancel
             </Button>
-            <Button onClick={handleSave} disabled={loading} className="h-7 rounded-none text-[11px] font-bold gap-1.5">
+            <Button
+              type="button"
+              onClick={handleSave}
+              disabled={loading}
+              className="h-7 rounded-none text-[11px] font-bold gap-1.5"
+            >
               {loading && <Loader2 className="h-3 w-3 animate-spin" />}
               {loading ? "SAVING..." : "Save Changes"}
             </Button>
@@ -532,7 +756,10 @@ export default function FM02() {
       </Dialog>
 
       {/* Delete Warning Confirmation Popup */}
-      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+      >
         <AlertDialogContent className="max-w-md rounded-sm">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-red-600 flex items-center gap-2">
@@ -544,11 +771,15 @@ export default function FM02() {
               <b>{deleteTarget?.consignorCode || deleteTarget?.firmId || "-"}</b>)?
               <br />
               <br />
-              This operation will permanently remove the consignor master record. Already generated invoices will remain frozen with current data.
+              This operation will permanently remove the consignor master record. Already
+              generated invoices will remain frozen with current data.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={loading} className="h-8 rounded-none text-[11px] font-bold">
+            <AlertDialogCancel
+              disabled={loading}
+              className="h-8 rounded-none text-[11px] font-bold"
+            >
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
@@ -562,7 +793,11 @@ export default function FM02() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {loading && <div className="fixed bottom-10 right-10 bg-[#333e4f] text-white px-4 py-2 text-xs border border-white/20 animate-pulse">UPDATING CONSIGNOR MASTER...</div>}
+      {loading && (
+        <div className="fixed bottom-10 right-10 bg-[#333e4f] text-white px-4 py-2 text-xs border border-white/20 animate-pulse z-50">
+          UPDATING CONSIGNOR MASTER...
+        </div>
+      )}
     </div>
   );
 }
