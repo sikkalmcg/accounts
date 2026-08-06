@@ -310,7 +310,7 @@ const filteredPlants = useMemo(() => {
     if (sortedData.length === 0) return;
     const csvContent = [
       [
-        "#", "Plant", "Invoice No", "Invoice Date", "Working Month", "Doc Type", "Charge Type",
+        "#", "Plant", "Invoice No", "Invoice Date", "Working Month", "Doc Type", "Inventory Type", "Charge Type",
         "Bill-to Code", "Bill-to Party Name", "Consignor", "Item Description", "Taxable Amt", "CGST", "SGST", "IGST",
         "Gross Amount", "Receipt Amt", "TDS Amt", "Deduction Amt",
         "Deduction Remark", "Payment Date", "Bank UTR", "Payment Advice", "Balance",
@@ -323,6 +323,7 @@ const filteredPlants = useMemo(() => {
           row.invoiceDate,
           row.billMonth || "",
           row.docType || "",
+          row.inventoryType || "",
           row.docCategory || "",
           `"${row.billToCode}"`,
           `"${row.billToName}"`,
@@ -573,6 +574,14 @@ const filteredPlants = useMemo(() => {
                 Doc Type
               </TableHead>
               <TableHead
+                onClick={() => handleSort("inventoryType")}
+                className="w-36 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"
+              >
+                <div className="flex items-center">
+                  Inventory Type <SortIcon col="inventoryType" />
+                </div>
+              </TableHead>
+              <TableHead
                 onClick={() => handleSort("docCategory")}
                 className="w-36 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"
               >
@@ -667,7 +676,7 @@ const filteredPlants = useMemo(() => {
             {isInvoicesLoading ? (
               <TableRow>
 <TableCell
-                  colSpan={24}
+                  colSpan={25}
                   className="text-center py-20 text-[11px] uppercase tracking-widest animate-pulse"
                 >
                   Loading Payment Records...
@@ -676,7 +685,7 @@ const filteredPlants = useMemo(() => {
             ) : sortedData.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={24}
+                  colSpan={25}
                   className="text-center py-20 text-[11px] font-bold text-orange-600 uppercase"
                 >
                   No payment records found for the selected criteria
@@ -705,6 +714,9 @@ const filteredPlants = useMemo(() => {
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase text-center">
                     {row.docType || "-"}
+                  </TableCell>
+                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase text-center">
+                    {row.inventoryType || "-"}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase text-center">
                     {row.docCategory || "-"}
