@@ -26,19 +26,13 @@ type EditForm = {
   inventoryType: string;
 };
 
-const emptyForm = (): EditForm => ({
-  id: "",
-  materialCode: "",
-  materialName: "",
-  uom: "",
-  hsnSac: "",
-  gstRate: "",
-  status: "Active",
-  plantId: "",
-  documentType: "Tax Invoice",
-  documentCategory: "",
-  inventoryType: "",
-});
+// Helper to safely extract array of plant IDs from a record (VOF03 compatibility)
+const getRecordPlants = (record: any): string[] => {
+  if (Array.isArray(record.plantIds) && record.plantIds.length > 0) {
+    return record.plantIds;
+  }
+  return record.plantId ? [record.plantId] : [];
+};
 
 export default function MM02() {
   const db = useDatabase();
@@ -57,18 +51,57 @@ export default function MM02() {
   const billingQuery = useMemoDatabase(() => collection(db, "billing_types"), [db]);
   const { data: billingTypes } = useCollection(billingQuery);
 
-const availableCategories = useMemo(() => {
+  // Document Types sourced from VOF03 saved records (billing_types)
+  // Filtered by selected Plant + Inventory Type (Handles plantIds array & plantId string)
+  const availableDocumentTypes = useMemo(() => {
+    if (!billingTypes) return [];
+    const types = billingTypes
+      .filter(bt => {
+        if (bt.status && bt.status !== "Active") return false;
+        
+        if (editing?.plantId) {
+          const recPlants = getRecordPlants(bt);
+          if (!recPlants.includes(editing.plantId)) return false;
+        }
+
+        if (editing?.inventoryType && bt.inventoryType !== editing.inventoryType) {
+          return false;
+        }
+
+        return Boolean(bt.documentType);
+      })
+      .map(bt => bt.documentType as string);
+
+    return Array.from(new Set(types));
+  }, [billingTypes, editing?.plantId, editing?.inventoryType]);
+
+  // Charge Types (documentCategory) sourced from VOF03 saved records
+  // Filtered by selected Plant + Inventory Type + Document Type (Cascade)
+  const availableCategories = useMemo(() => {
     if (!billingTypes) return [];
     const categories = billingTypes
-      .filter(bt =>
-        bt.status === "Active" &&
-        (!editing || !editing.plantId || bt.plantId === editing.plantId) &&
-        (!editing || !editing.inventoryType || bt.inventoryType === editing.inventoryType) &&
-        bt.documentCategory
-      )
+      .filter(bt => {
+        if (bt.status && bt.status !== "Active") return false;
+
+        if (editing?.plantId) {
+          const recPlants = getRecordPlants(bt);
+          if (!recPlants.includes(editing.plantId)) return false;
+        }
+
+        if (editing?.inventoryType && bt.inventoryType !== editing.inventoryType) {
+          return false;
+        }
+
+        if (editing?.documentType && bt.documentType !== editing.documentType) {
+          return false;
+        }
+
+        return Boolean(bt.documentCategory);
+      })
       .map(bt => bt.documentCategory as string);
+
     return Array.from(new Set(categories));
-  }, [billingTypes, editing]);
+  }, [billingTypes, editing?.plantId, editing?.inventoryType, editing?.documentType]);
 
   const filteredMaterials = useMemo(() => {
     if (!materials) return [];
@@ -103,10 +136,23 @@ const availableCategories = useMemo(() => {
   };
 
   const updateField = (field: keyof EditForm, value: string) => {
-    setEditing(prev => (prev ? { ...prev, [field]: value } : prev));
+    setEditing(prev => {
+      if (!prev) return prev;
+      const updated = { ...prev, [field]: value };
+
+      // Cascade resets
+      if (field === "plantId" || field === "inventoryType") {
+        updated.documentType = "";
+        updated.documentCategory = "";
+      } else if (field === "documentType") {
+        updated.documentCategory = "";
+      }
+
+      return updated;
+    });
   };
 
-const validateForm = (): string[] => {
+  const validateForm = (): string[] => {
     if (!editing) return [];
     const errs: string[] = [];
     const code = editing.materialCode.trim();
@@ -119,7 +165,7 @@ const validateForm = (): string[] => {
     } else if (isNaN(Number(editing.gstRate))) {
       errs.push("GST Rate must be numeric");
     }
-    // Per-plant duplicate check: material code must be unique within the same plant (excluding current record)
+
     if (code && editing.plantId) {
       const existing = (materials || []).find(
         m =>
@@ -241,7 +287,7 @@ const validateForm = (): string[] => {
               <TableBody>
                 {isMaterialsLoading ? (
                   <TableRow><TableCell colSpan={11} className="text-center py-10 text-xs flex items-center justify-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> RETRIVING DATA...
+                    <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> RETRIEVING DATA...
                   </TableCell></TableRow>
                 ) : filteredMaterials.length === 0 ? (
                   <TableRow><TableCell colSpan={11} className="text-center py-10 text-xs text-red-500 font-bold uppercase">No materials found</TableCell></TableRow>
@@ -367,7 +413,7 @@ const validateForm = (): string[] => {
               <label className="sap-label">Plant ID</label>
               <div className="sap-input-wrapper max-w-[200px]">
                 <Select value={editing?.plantId || ""} onValueChange={v => updateField("plantId", v)}>
-                  <SelectTrigger className="h-7 rounded-none border-gray-400 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-7 rounded-none border-gray-400 text-xs"><SelectValue placeholder="Select Plant" /></SelectTrigger>
                   <SelectContent>
                     {plants?.map(p => <SelectItem key={p.id} value={p.plantId}>{p.plantId}</SelectItem>)}
                   </SelectContent>
@@ -376,13 +422,27 @@ const validateForm = (): string[] => {
               </div>
             </div>
             <div className="sap-selection-row">
+              <label className="sap-label">Inventory Type</label>
+              <div className="sap-input-wrapper max-w-[200px]">
+                <Select value={editing?.inventoryType || ""} onValueChange={v => updateField("inventoryType", v)}>
+                  <SelectTrigger className="h-7 rounded-none border-gray-400 text-xs"><SelectValue placeholder="Select Inventory Type" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Service Invoice">Service Invoice</SelectItem>
+                    <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="sap-selection-row">
               <label className="sap-label">Document Type</label>
               <div className="sap-input-wrapper max-w-[200px]">
-                <Select value={editing?.documentType || "Tax Invoice"} onValueChange={v => updateField("documentType", v)}>
-                  <SelectTrigger className="h-7 rounded-none border-gray-400 text-xs"><SelectValue /></SelectTrigger>
+                <Select value={editing?.documentType || ""} onValueChange={v => updateField("documentType", v)}>
+                  <SelectTrigger className="h-7 rounded-none border-gray-400 text-xs"><SelectValue placeholder="Select Document Type" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Tax Invoice">Tax Invoice</SelectItem>
-                    <SelectItem value="Non-Tax Invoice">Non-Tax Invoice</SelectItem>
+                    {availableDocumentTypes.map(type => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+                    {availableDocumentTypes.length === 0 && (
+                      <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">No Document Type is configured for the selected Plant and Inventory Type.</div>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -390,25 +450,13 @@ const validateForm = (): string[] => {
             <div className="sap-selection-row">
               <label className="sap-label">Charge Type</label>
               <div className="sap-input-wrapper max-w-[200px]">
-<Select value={editing?.documentCategory || ""} onValueChange={v => updateField("documentCategory", v)}>
-                  <SelectTrigger className="h-7 rounded-none border-gray-400 text-xs"><SelectValue /></SelectTrigger>
+                <Select value={editing?.documentCategory || ""} onValueChange={v => updateField("documentCategory", v)}>
+                  <SelectTrigger className="h-7 rounded-none border-gray-400 text-xs"><SelectValue placeholder="Select Charge Type" /></SelectTrigger>
                   <SelectContent>
                     {availableCategories.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
                     {availableCategories.length === 0 && (
-                      <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">No Document Type and Charge Type are configured for the selected Plant and Inventory Type.</div>
+                      <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">No Charge Type configured for the selected Plant, Inventory Type and Document Type.</div>
                     )}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="sap-selection-row">
-              <label className="sap-label">Inventory Type</label>
-              <div className="sap-input-wrapper max-w-[200px]">
-                <Select value={editing?.inventoryType || ""} onValueChange={v => updateField("inventoryType", v)}>
-                  <SelectTrigger className="h-7 rounded-none border-gray-400 text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Service Invoice">Service Invoice</SelectItem>
-                    <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDatabase, useCollection, useMemoDatabase } from "@/database";
 import { collection, query, orderBy } from "@/database/mongo";
-import { Search, Filter, Download, Printer, ArrowUpDown, ChevronUp, ChevronDown } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Search, ArrowUpDown, ChevronUp, ChevronDown, Download } from "lucide-react";
 import PlantMultiSelect from "./PlantMultiSelect";
 import { getCurrentUser, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
+import { downloadCsv } from "@/lib/csv-export";
 
 export default function MM03() {
   const db = useDatabase();
@@ -77,11 +78,36 @@ const sortedData = useMemo(() => {
     return sortConfig.direction === 'asc' ? <ChevronUp className="h-3 w-3 ml-1 text-blue-600" /> : <ChevronDown className="h-3 w-3 ml-1 text-blue-600" />;
   };
 
+  const handleCsvExport = () => {
+    if (sortedData.length === 0) {
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "No records to export", isError: true }
+      }));
+      return;
+    }
+    const headers = [
+      "Plant ID",
+      "Material Code",
+      "Material Name",
+      "UOM",
+      "HSN Code",
+      "GST Rate (%)",
+      "Status",
+      "Charge Type",
+      "Inventory Type",
+    ];
+    const rows = sortedData.map(m => [
+      m.plantId || "", m.materialCode || "", m.productName || "", m.uom || "", m.hsnSac || "",
+      m.gstRate !== undefined ? m.gstRate : "", m.status || "", m.documentCategory || "", m.inventoryType || ""
+    ]);
+    downloadCsv("MM03_Material_List", headers, rows);
+  };
+
   return (
     <div className="w-full flex flex-col bg-white min-h-full">
       <div className="sap-header-title">Material List: ALV Grid</div>
 
-<div className="bg-[#e7ebf1] border-b border-[#b5c7de] px-4 py-1.5 flex flex-wrap items-center justify-between gap-2">
+      <div className="bg-[#e7ebf1] border-b border-[#b5c7de] px-4 py-1.5 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <label className="text-[11px] font-bold text-gray-600 whitespace-nowrap">Plants</label>
@@ -101,7 +127,12 @@ const sortedData = useMemo(() => {
              <input value={search} onChange={(e) => setSearch(e.target.value)} className="w-full h-full text-xs outline-none" placeholder="Search Materials..." />
           </div>
         </div>
-        <div className="text-[11px] font-bold text-gray-600 uppercase">Total Materials: {sortedData.length}</div>
+        <div className="flex items-center gap-3">
+          <div className="text-[11px] font-bold text-gray-600 uppercase">Total Materials: {sortedData.length}</div>
+          <Button onClick={handleCsvExport} variant="outline" className="h-6 rounded-none bg-white border-gray-400 text-emerald-700 text-[10px] font-bold uppercase gap-1.5 shadow-sm hover:bg-emerald-50">
+            <Download className="h-3.5 w-3.5" /> Export Excel
+          </Button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto">

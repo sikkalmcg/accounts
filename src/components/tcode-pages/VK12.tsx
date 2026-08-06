@@ -53,6 +53,14 @@ const postAuditLog = (payload: any) => {
   }).catch(() => {});
 };
 
+// Helper to safely extract array of plant IDs from record
+const getRecordPlants = (record: any): string[] => {
+  if (Array.isArray(record.plantIds) && record.plantIds.length > 0) {
+    return record.plantIds;
+  }
+  return record.plantId ? [record.plantId] : [];
+};
+
 export default function VK12() {
   const db = useDatabase();
   const [selectedPlants, setSelectedPlants] = useState<string[]>([]);
@@ -101,6 +109,44 @@ export default function VK12() {
     return map;
   }, [materials]);
 
+  // Document Types & Charge Types sourced from MM03 saved records (materials)
+  // filtered by selected Plant + Inventory Type
+  const editingPlantId = editing?.plantId || "";
+  const editingInventoryType = editing?.inventoryType || "";
+
+  const availableDocumentTypes = useMemo(() => {
+    if (!materials || !editingPlantId) return [];
+    const types = materials
+      .filter(m => {
+        const recPlants = getRecordPlants(m);
+        const matchesPlant = recPlants.includes(editingPlantId);
+        const matchesInventory = !editingInventoryType || m.inventoryType === editingInventoryType;
+        const isActive = !m.status || m.status === "Active";
+
+        return matchesPlant && matchesInventory && isActive && Boolean(m.documentType);
+      })
+      .map(m => m.documentType as string);
+
+    return Array.from(new Set(types));
+  }, [materials, editingPlantId, editingInventoryType]);
+
+  const availableCategories = useMemo(() => {
+    if (!materials || !editingPlantId) return [];
+    const categories = materials
+      .filter(m => {
+        const recPlants = getRecordPlants(m);
+        const matchesPlant = recPlants.includes(editingPlantId);
+        const matchesInventory = !editingInventoryType || m.inventoryType === editingInventoryType;
+        const matchesDocType = !editing?.documentType || m.documentType === editing.documentType;
+        const isActive = !m.status || m.status === "Active";
+
+        return matchesPlant && matchesInventory && matchesDocType && isActive && Boolean(m.documentCategory);
+      })
+      .map(m => m.documentCategory as string);
+
+    return Array.from(new Set(categories));
+  }, [materials, editingPlantId, editingInventoryType, editing?.documentType]);
+
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
@@ -135,7 +181,6 @@ export default function VK12() {
 
     if (!sortConfig) return filtered;
     return [...filtered].sort((a, b) => {
-      // Resolve customer name for sorting
       const getVal = (r: any) => {
         if (sortConfig.key === 'customerName') return customerMap[r.customerCode]?.name || "";
         if (sortConfig.key === 'materialName') return r.materialName || materialMap[r.materialCode?.toUpperCase()]?.productName || "";
@@ -181,7 +226,20 @@ export default function VK12() {
   };
 
   const updateField = (field: keyof EditForm, value: string) => {
-    setEditing(prev => (prev ? { ...prev, [field]: value } : prev));
+    setEditing(prev => {
+      if (!prev) return prev;
+      const updated = { ...prev, [field]: value };
+
+      // Cascade resets
+      if (field === "plantId" || field === "inventoryType") {
+        updated.documentType = "";
+        updated.documentCategory = "";
+      } else if (field === "documentType") {
+        updated.documentCategory = "";
+      }
+
+      return updated;
+    });
   };
 
   const handleMaterialChange = (code: string) => {
@@ -223,8 +281,7 @@ export default function VK12() {
       const { id, createdBy, createdAt, ...dataToSave } = editing;
       const { userId, username } = getCurrentUserInfo();
 
-      // Determine status: if approval workflow enabled, set Pending Approval
-      const approvalWorkflowEnabled = false; // No configuration source found; extend as needed
+      const approvalWorkflowEnabled = false;
       const targetStatus = approvalWorkflowEnabled ? "Pending Approval" : (editing.status || "Active");
 
       const payload = {
@@ -250,7 +307,6 @@ export default function VK12() {
 
       updateDocumentNonBlocking(doc(db, "pricing", id), payload);
 
-      // Audit log
       postAuditLog({
         userId,
         username,
@@ -280,7 +336,6 @@ export default function VK12() {
       const { userId, username } = getCurrentUserInfo();
       deleteDocumentNonBlocking(doc(db, "pricing", deleteTarget.id));
 
-      // Audit log
       postAuditLog({
         userId,
         username,
@@ -460,7 +515,7 @@ export default function VK12() {
                   <div className="sap-selection-row"><label className="sap-label">Plant <span className="text-red-500">*</span></label>
                     <div className="sap-input-wrapper max-w-[200px]">
                       <Select value={editing.plantId} onValueChange={v => updateField("plantId", v)}>
-                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select Plant" /></SelectTrigger>
                         <SelectContent>{plants?.filter(p => isAdmin || authorizedPlantIds.includes(p.plantId)).map(p => <SelectItem key={p.id} value={p.plantId}>{p.plantId}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
@@ -468,7 +523,7 @@ export default function VK12() {
                   <div className="sap-selection-row"><label className="sap-label">Inventory Type</label>
                     <div className="sap-input-wrapper max-w-[200px]">
                       <Select value={editing.inventoryType} onValueChange={v => updateField("inventoryType", v)}>
-                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select Inventory Type" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="Service Invoice">Service Invoice</SelectItem>
                           <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
@@ -478,18 +533,34 @@ export default function VK12() {
                   </div>
                   <div className="sap-selection-row"><label className="sap-label">Document Type</label>
                     <div className="sap-input-wrapper max-w-[200px]">
-                      <Input value={editing.documentType} onChange={e => updateField("documentType", e.target.value.toUpperCase())} className="h-6 text-xs rounded-none border-gray-400" />
+                      <Select value={editing.documentType} onValueChange={v => updateField("documentType", v)}>
+                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select Document Type" /></SelectTrigger>
+                        <SelectContent>
+                          {availableDocumentTypes.map(type => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+                          {availableDocumentTypes.length === 0 && (
+                            <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">No Document Type is configured for the selected Plant and Inventory Type in MM03.</div>
+                          )}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                   <div className="sap-selection-row"><label className="sap-label">Charge Type</label>
                     <div className="sap-input-wrapper max-w-[200px]">
-                      <Input value={editing.documentCategory} onChange={e => updateField("documentCategory", e.target.value.toUpperCase())} className="h-6 text-xs rounded-none border-gray-400" />
+                      <Select value={editing.documentCategory} onValueChange={v => updateField("documentCategory", v)}>
+                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select Charge Type" /></SelectTrigger>
+                        <SelectContent>
+                          {availableCategories.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
+                          {availableCategories.length === 0 && (
+                            <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">No Charge Type is configured for the selected Plant, Inventory Type and Document Type in MM03.</div>
+                          )}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                   <div className="sap-selection-row"><label className="sap-label">Customer Code <span className="text-red-500">*</span></label>
                     <div className="sap-input-wrapper max-w-[200px]">
                       <Select value={editing.customerCode} onValueChange={v => updateField("customerCode", v)}>
-                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select Customer" /></SelectTrigger>
                         <SelectContent>{customers?.map(c => <SelectItem key={c.id} value={c.customerId}>{c.customerId} - {c.name}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
@@ -510,7 +581,7 @@ export default function VK12() {
                   <div className="sap-selection-row"><label className="sap-label">Material Code <span className="text-red-500">*</span></label>
                     <div className="sap-input-wrapper max-w-[200px]">
                       <Select value={editing.materialCode} onValueChange={handleMaterialChange}>
-                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select Material" /></SelectTrigger>
                         <SelectContent>{materials?.map(m => <SelectItem key={m.id} value={m.materialCode || m.productName}>{m.materialCode || m.productName}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
