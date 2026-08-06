@@ -529,9 +529,9 @@ gstRate: gst || "",
                   <TableHead className="text-[11px] font-bold border-r w-56">Material Code <span className="text-red-500">*</span></TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-20 text-center">UOM</TableHead>
                   <TableHead className="text-[11px] font-bold border-r">Material Name (auto)</TableHead>
-                  <TableHead className="text-[11px] font-bold border-r w-20 text-center">UOM</TableHead>
-                  <TableHead className="text-[11px] font-bold border-r w-28">HSN/SAC Code</TableHead>
-                  <TableHead className="text-[11px] font-bold border-r w-24 text-center">GST Rate (%)</TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-20 text-center">HSN/SAC Code</TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-28">GST Rate (%)</TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-24 text-center">Status</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-28 text-right">Basic Rate / FIX</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-32">Validity From</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-32">Validity To</TableHead>
