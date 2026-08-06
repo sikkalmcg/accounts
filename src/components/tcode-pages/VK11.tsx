@@ -120,20 +120,50 @@ export default function VK11() {
     return billingTypes.filter(bt => {
       const recPlants = getRecordPlants(bt);
       const matchesPlant = recPlants.some(p => header.plantIds.includes(p));
-      const matchesInventory = !header.inventoryType || bt.inventoryType === header.inventoryType;
-      const isActive = !bt.status || bt.status === "Active";
+      const matchesInventory = !header.inventoryType || normalize(bt.inventoryType) === normalize(header.inventoryType);
+      const isActive = !bt.status || normalize(bt.status) === "ACTIVE";
 
       return matchesPlant && matchesInventory && isActive;
     });
   }, [billingTypes, header.plantIds, header.inventoryType]);
+
+  const availableDocumentTypes = useMemo(
+    () => dedupeIgnoreCase(filteredBillingTypes.map(b => b.documentType)),
+    [filteredBillingTypes]
+  );
+
+  const availableCategories = useMemo(() => {
+    const records = header.documentType
+      ? filteredBillingTypes.filter(bt => normalize(bt.documentType) === normalize(header.documentType))
+      : filteredBillingTypes;
+    return dedupeIgnoreCase(records.map(b => b.documentCategory));
+  }, [filteredBillingTypes, header.documentType]);
+
+  useEffect(() => {
+    if (header.documentType && !availableDocumentTypes.includes(header.documentType)) {
+      setHeader(prev => ({ ...prev, documentType: "", documentCategory: "" }));
+    }
+  }, [availableDocumentTypes, header.documentType]);
+
+  useEffect(() => {
+    if (!header.documentType && availableDocumentTypes.length === 1) {
+      setHeader(prev => ({ ...prev, documentType: availableDocumentTypes[0] }));
+    }
+  }, [availableDocumentTypes, header.documentType]);
+
+  useEffect(() => {
+    if (header.documentType && !header.documentCategory && availableCategories.length === 1) {
+      setHeader(prev => ({ ...prev, documentCategory: availableCategories[0] }));
+    }
+  }, [availableCategories, header.documentType, header.documentCategory]);
 
   const filteredMaterials = useMemo(() => {
     if (header.plantIds.length === 0) return [];
     return (materials ?? []).filter(m => {
       const recPlants = getRecordPlants(m);
       const matchesPlant = recPlants.some(p => header.plantIds.includes(p));
-      const matchesCategory = !header.documentCategory || m.documentCategory === header.documentCategory;
-      const matchesInventory = !header.inventoryType || m.inventoryType === header.inventoryType;
+      const matchesCategory = !header.documentCategory || normalize(m.documentCategory) === normalize(header.documentCategory);
+      const matchesInventory = !header.inventoryType || normalize(m.inventoryType) === normalize(header.inventoryType);
 
       return matchesPlant && matchesCategory && matchesInventory;
     });
@@ -240,9 +270,16 @@ const validateRows = useCallback(async () => {
   }, [rows]);
 
   const handleExecute = useCallback(async () => {
-    if (header.plantIds.length === 0 || !header.inventoryType || !header.customerCode || !header.validFrom) {
+    if (header.plantIds.length === 0 || !header.inventoryType || !header.customerCode) {
       window.dispatchEvent(new CustomEvent('sap-status', {
-        detail: { text: "Validation Error: At least one Plant, Inventory Type, Customer and Validity are mandatory", isError: true }
+        detail: { text: "Validation Error: At least one Plant, Inventory Type and Customer are mandatory", isError: true }
+      }));
+      return false;
+    }
+
+    if (!header.documentType || !header.documentCategory) {
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "Validation Error: Document Type and Charge Type are required from VOF03", isError: true }
       }));
       return false;
     }
