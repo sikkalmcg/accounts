@@ -37,7 +37,7 @@ interface PricingOption {
   materialName: string;
   hsn: string;
   uom: string;
-  price: number;
+  price: number | string;
   gstRate: number;
   validFrom?: string;
   validTo?: string;
@@ -376,9 +376,9 @@ export default function VF01() {
         if (field === 'desc') {
           const selectedOption = availableOptions.find(opt => opt.materialCode === val);
           if (selectedOption) {
-            const isManualRate = !selectedOption.price || selectedOption.price <= 0;
+            const isManualRate = !selectedOption.price || (typeof selectedOption.price === 'number' && selectedOption.price <= 0) || selectedOption.price === 'FIX';
             updated.hsn = selectedOption.hsn;
-            updated.rate = String(selectedOption.price);
+            updated.rate = selectedOption.price === 'FIX' ? '' : String(selectedOption.price);
             updated.uom = selectedOption.uom;
             updated.gstRate = selectedOption.gstRate;
             updated.descName = selectedOption.materialName || selectedOption.materialCode;
@@ -393,6 +393,10 @@ export default function VF01() {
             updated.isFixedCharge = true; // No price found, so it's a manual entry
             setNoValidPriceRowMaterial(val);
           }
+        }
+
+        if (field === 'rate') {
+          updated.isFixedCharge = true;
         }
 
         // If the rate is manually entered (fixed charge), taxable amount is the rate itself.
@@ -808,7 +812,7 @@ export default function VF01() {
                   <TableCell className="p-0 border-r"><Input className="h-full border-none text-center" value={row.hsn} readOnly /></TableCell>
                   <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none text-center font-bold text-emerald-800" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} /></TableCell>
                   <TableCell className="p-0 border-r text-center text-[10px]"><Input className="h-full border-none text-center bg-gray-50 text-xs" value={row.uom} readOnly /></TableCell>                  <TableCell className="p-0 border-r text-center font-bold text-[10px] text-purple-700"><Input className="h-full border-none text-center bg-gray-50 text-xs" value={row.gstRate ? `${row.gstRate}%` : "-"} readOnly /></TableCell>
-                  <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none text-center bg-gray-50 font-bold text-emerald-700 text-xs" value={row.rate} readOnly={!row.isFixedCharge} onChange={e => updateItem(row.id, 'rate', e.target.value)} /></TableCell>
+                  <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none text-center bg-gray-50 font-bold text-emerald-700 text-xs" value={row.rate} onChange={e => updateItem(row.id, 'rate', e.target.value)} /></TableCell>
                   <TableCell className="p-0 border-r bg-gray-50/50 text-right text-[11px] px-2 font-mono pr-4">{row.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
                   <TableCell className="p-0 text-center"><Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => items.length > 1 && setItems(items.filter(i => i.id !== row.id))}><Trash2 className="h-3 w-3" /></Button></TableCell>
                 </TableRow>

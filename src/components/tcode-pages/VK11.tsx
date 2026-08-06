@@ -229,8 +229,8 @@ const validateRows = useCallback(async () => {
 
       }
 
-      if (price && isNaN(Number(price))) {
-        rowErrors.push("Basic Rate must be numeric");
+      if (price && isNaN(Number(price)) && price.trim().toUpperCase() !== 'FIX') {
+        rowErrors.push("Basic Rate must be a number or 'FIX'");
       }
 
       if (rowErrors.length) newErrors[row.id] = rowErrors;
@@ -276,7 +276,7 @@ const validateRows = useCallback(async () => {
             documentType: header.documentType,
             documentCategory: header.documentCategory,
             inventoryType: header.inventoryType,
-            price: Number(row.price) || 0, // Store 0 if basic rate is blank or invalid
+            price: row.price.trim().toUpperCase() === 'FIX' ? 'FIX' : (Number(row.price) || 0),
             gstRate: row.gstRate !== "" ? Number(row.gstRate) : Number((materials?.find(m => (m.materialCode || "").toUpperCase() === row.materialCode.trim().toUpperCase() || (m.productName || "").toUpperCase() === row.materialCode.trim().toUpperCase()))?.gstRate) || 0,
 currency: "INR",
             validFrom: row.validFrom || header.validFrom,
@@ -532,7 +532,7 @@ gstRate: gst || "",
                   <TableHead className="text-[11px] font-bold border-r w-20 text-center">UOM</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-28">HSN/SAC Code</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-24 text-center">GST Rate (%)</TableHead>
-                  <TableHead className="text-[11px] font-bold border-r w-28 text-right">Basic Rate</TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-28 text-right">Basic Rate / FIX</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-32">Validity From</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-32">Validity To</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-28 text-center">Status</TableHead>
@@ -600,11 +600,11 @@ gstRate: gst || "",
                       </TableCell>
 <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
                         <Input
-                          type="number"
+                          type="text"
                           className={`h-full border-none shadow-none rounded-none text-right font-bold text-emerald-700 focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
                           value={row.price}
                           onChange={e => updateRow(row.id, "price", e.target.value)}
-                          placeholder="0.00"
+                          placeholder="0.00 or FIX"
                         />
                       </TableCell>
                       <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
