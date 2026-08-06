@@ -812,7 +812,16 @@ export default function VF01() {
                   <TableCell className="p-0 border-r"><Input className="h-full border-none text-center" value={row.hsn} readOnly /></TableCell>
                   <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none text-center font-bold text-emerald-800" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} /></TableCell>
                   <TableCell className="p-0 border-r text-center text-[10px]"><Input className="h-full border-none text-center bg-gray-50 text-xs" value={row.uom} readOnly /></TableCell>                  <TableCell className="p-0 border-r text-center font-bold text-[10px] text-purple-700"><Input className="h-full border-none text-center bg-gray-50 text-xs" value={row.gstRate ? `${row.gstRate}%` : "-"} readOnly /></TableCell>
-                  <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none text-center bg-gray-50 font-bold text-emerald-700 text-xs" value={row.rate} onChange={e => updateItem(row.id, 'rate', e.target.value)} /></TableCell>
+<TableCell className="p-0 border-r">
+                    <Input
+                      type="number"
+                      className={cn("h-full border-none text-center font-bold text-xs", row.isFixedCharge ? "bg-white text-emerald-700" : "bg-gray-100 text-gray-600")}
+                      value={row.rate}
+                      onChange={e => updateItem(row.id, 'rate', e.target.value)}
+                      readOnly={!row.isFixedCharge}
+                      title={row.isFixedCharge ? "Fixed charge - editable" : "Basic Rate from VK13 - read only"}
+                    />
+                  </TableCell>
                   <TableCell className="p-0 border-r bg-gray-50/50 text-right text-[11px] px-2 font-mono pr-4">{row.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
                   <TableCell className="p-0 text-center"><Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => items.length > 1 && setItems(items.filter(i => i.id !== row.id))}><Trash2 className="h-3 w-3" /></Button></TableCell>
                 </TableRow>

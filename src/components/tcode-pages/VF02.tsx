@@ -29,13 +29,15 @@ interface InvoiceItem {
   amount: number;
   gstRate: number;
   customValues: string[];
+  isFixedCharge?: boolean; // To track if the rate is manual (Basic Rate = FIX)
 }
 
 interface PricingOption {
   materialCode: string;
+  materialName: string;
   hsn: string;
   uom: string;
-  price: number;
+  price: number | string;
   gstRate: number;
 }
 
@@ -167,11 +169,12 @@ const firm = firms.find(f => getRecordPlantIds(f).includes(plantId));
           where("customerCode", "==", billTo)
         );
         const snap = await getDocs(q);
-        const options: PricingOption[] = snap.docs.map(doc => {
+const options: PricingOption[] = snap.docs.map(doc => {
           const data = doc.data();
           const matMaster = materials?.find(m => m.productName === data.materialCode || m.materialCode === data.materialCode);
           return {
             materialCode: data.materialCode || "",
+            materialName: data.materialName || matMaster?.productName || data.materialCode || "",
             hsn: data.hsnSac || matMaster?.hsnSac || "",
             uom: matMaster?.uom || "PCS",
             price: data.price || 0,
@@ -292,17 +295,32 @@ const selectedFirm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
           return { ...i, customValues: updatedCustom };
         }
 
-        let updated = { ...i, [field]: val };
+let updated = { ...i, [field]: val };
         if (field === 'desc') {
           const opt = availableOptions.find(o => o.materialCode === val);
           if (opt) {
+            const isManualRate = !opt.price || (typeof opt.price === 'number' && opt.price <= 0) || String(opt.price).trim().toUpperCase() === 'FIX';
             updated.hsn = opt.hsn;
-            updated.rate = String(opt.price);
+            updated.rate = String(opt.price).trim().toUpperCase() === 'FIX' ? '' : String(opt.price);
             updated.uom = opt.uom;
             updated.gstRate = opt.gstRate;
+            updated.isFixedCharge = isManualRate;
+          } else {
+            updated.hsn = "";
+            updated.rate = "";
+            updated.uom = "";
+            updated.gstRate = 0;
+            updated.isFixedCharge = true; // No price found, so it's a manual entry
           }
         }
-        if (field === 'qty' || field === 'rate' || field === 'desc') {
+        if (field === 'rate') {
+          updated.isFixedCharge = true;
+        }
+        // If the rate is manually entered (fixed charge), taxable amount is the rate itself.
+        // Otherwise, it's qty * rate.
+        if (updated.isFixedCharge) {
+          updated.amount = Number(updated.rate) || 0;
+        } else {
           updated.amount = (Number(updated.qty) || 0) * (Number(updated.rate) || 0);
         }
         return updated;
@@ -595,7 +613,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                   ))}
                 </div>
                 {!isLockedByTime && (
-                  <Button onClick={() => setItems([...items, { id: Math.random().toString(), desc: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [] }])} variant="ghost" size="sm" className="h-5 text-[10px] hover:bg-white/50"><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
+<Button onClick={() => setItems([...items, { id: Math.random().toString(), desc: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [], isFixedCharge: false }])} variant="ghost" size="sm" className="h-5 text-[10px] hover:bg-white/50"><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
                 )}
               </div>
               <Table>
@@ -622,7 +640,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                       <TableCell className="p-0 border-r" >
                         <Select value={row.desc} onValueChange={v => updateItem(row.id, 'desc', v)} disabled={isIrnGenerated}>
                           <SelectTrigger className="h-full border-none bg-transparent text-xs rounded-none px-2 shadow-none focus:bg-[#fff9c4]"><SelectValue placeholder="" /></SelectTrigger>
-                          <SelectContent>{availableOptions.map(o => <SelectItem key={o.materialCode} value={o.materialCode}>{o.materialCode}</SelectItem>)}</SelectContent>
+<SelectContent>{availableOptions.map(o => <SelectItem key={o.materialCode} value={o.materialCode}>{o.materialName || o.materialCode}</SelectItem>)}</SelectContent>
                         </Select>
                       </TableCell>
                       <TableCell className="p-0 border-r">
@@ -647,7 +665,17 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                       <TableCell className="p-0 border-r"><Input className="h-full border-none shadow-none bg-gray-100" value={row.hsn} readOnly /></TableCell>
                       <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none shadow-none text-center font-bold text-blue-800" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} disabled={isLockedByTime} /></TableCell>
                       <TableCell className="p-0 border-r text-center text-[10px] text-gray-500">{row.uom}</TableCell>
-                      <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none shadow-none text-center bg-gray-100" value={row.rate} readOnly /></TableCell>
+<TableCell className="p-0 border-r">
+                        <Input
+                          type="number"
+                          className={cn("h-full border-none shadow-none text-center", row.isFixedCharge ? "bg-white font-bold text-emerald-700" : "bg-gray-100 text-gray-600")}
+                          value={row.rate}
+                          onChange={e => updateItem(row.id, 'rate', e.target.value)}
+                          readOnly={!row.isFixedCharge}
+                          disabled={isLockedByTime}
+                          title={row.isFixedCharge ? "Fixed charge - editable" : "Basic Rate from VK13 - read only"}
+                        />
+                      </TableCell>
                       <TableCell className="p-0 border-r bg-gray-50/50 text-right text-[11px] px-2 font-mono font-bold pr-4">{row.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
                       {!isLockedByTime && (
                         <TableCell className="p-0 text-center">

@@ -139,7 +139,7 @@ const sortedData = useMemo(() => {
         <Table className="sap-alv-grid">
           <TableHeader className="sap-alv-header">
             <TableRow className="h-8 border-b-[#b5c7de]">
-<TableHead className="text-[11px] font-bold text-gray-700 border-r w-10 text-center">#</TableHead>
+              <TableHead className="text-[11px] font-bold text-gray-700 border-r w-10 text-center">#</TableHead>
               <TableHead onClick={() => handleSort('plantId')} className="text-[11px] font-bold text-gray-700 border-r w-24 cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">PLANT ID <SortIcon column="plantId" /></div>
               </TableHead>
@@ -171,12 +171,12 @@ const sortedData = useMemo(() => {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-<TableRow><TableCell colSpan={10} className="text-center py-10 text-xs">RETRIVING DATA...</TableCell></TableRow>
-) : sortedData.length === 0 ? (
+              <TableRow><TableCell colSpan={10} className="text-center py-10 text-xs">RETRIVING DATA...</TableCell></TableRow>
+            ) : sortedData.length === 0 ? (
               <TableRow><TableCell colSpan={10} className="text-center py-10 text-xs text-red-500 font-bold uppercase">{selectedPlants.length > 0 ? NO_MASTER_RECORDS_MESSAGE : "No records found matching criteria"}</TableCell></TableRow>
             ) : sortedData.map((m, i) => (
               <TableRow key={m.id} className="h-8 hover:bg-blue-50/20 transition-colors border-b border-gray-100 group">
-<TableCell className="p-0 text-center text-[10px] border-r text-gray-400 group-hover:text-blue-600">{i + 1}</TableCell>
+                <TableCell className="p-0 text-center text-[10px] border-r text-gray-400 group-hover:text-blue-600">{i + 1}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r font-mono font-bold text-gray-600 text-center">{m.plantId || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r font-mono font-bold text-blue-700">{m.materialCode || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r font-bold text-blue-700">{m.productName}</TableCell>

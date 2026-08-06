@@ -260,7 +260,12 @@ export default function VK12() {
     if (!editing.plantId) errs.push("Plant is mandatory");
     if (!editing.customerCode) errs.push("Customer Code is mandatory");
     if (!editing.materialCode) errs.push("Material Code is mandatory");
-    if (!editing.price || isNaN(Number(editing.price)) || Number(editing.price) <= 0) errs.push("Basic Rate must be a positive number");
+const price = editing.price.trim();
+    if (price) {
+      if (price.toUpperCase() !== "FIX" && (isNaN(Number(price)) || Number(price) <= 0)) {
+        errs.push("Basic Rate must be a positive number or 'FIX'");
+      }
+    }
     if (!editing.validFrom) errs.push("Validity From is mandatory");
     return errs;
   };
@@ -292,7 +297,7 @@ export default function VK12() {
         materialName: editing.materialName,
         hsnSac: editing.hsnSac,
         gstRate: Number(editing.gstRate) || 0,
-        price: parseFloat(editing.price),
+price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? 'FIX' : (parseFloat(editing.price) || 0),
         validFrom: editing.validFrom,
         validTo: editing.validTo || "9999-12-31",
         status: targetStatus,
@@ -464,7 +469,9 @@ export default function VK12() {
                 <TableCell className="p-0 px-2 text-[10px] border-r text-gray-700 truncate max-w-[160px]">{materialName}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r font-mono text-center">{r.hsnSac || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center font-bold text-gray-500">{r.gstRate}%</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-800">INR {Number(r.price).toLocaleString()}</TableCell>
+<TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-800">
+                      {String(r.price).trim().toUpperCase() === 'FIX' ? <span className="text-amber-700">FIX</span> : `INR ${Number(r.price).toLocaleString()}`}
+                    </TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{r.validFrom}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{r.validTo}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center">
@@ -601,9 +608,9 @@ export default function VK12() {
                       <Input type="number" value={editing.gstRate} onChange={e => updateField("gstRate", e.target.value)} className="h-6 text-xs rounded-none border-gray-400 text-center" />
                     </div>
                   </div>
-                  <div className="sap-selection-row"><label className="sap-label">Basic Rate <span className="text-red-500">*</span></label>
+<div className="sap-selection-row"><label className="sap-label">Basic Rate <span className="text-red-500">*</span></label>
                     <div className="sap-input-wrapper max-w-[150px]">
-                      <Input type="number" value={editing.price} onChange={e => updateField("price", e.target.value)} className="h-6 text-xs rounded-none border-gray-400 text-right font-bold text-emerald-700" />
+                      <Input type="text" value={editing.price} onChange={e => updateField("price", e.target.value.toUpperCase())} placeholder="0.00 or FIX" className="h-6 text-xs rounded-none border-gray-400 text-right font-bold text-emerald-700" />
                     </div>
                   </div>
                   <div className="sap-selection-row"><label className="sap-label">Status</label>

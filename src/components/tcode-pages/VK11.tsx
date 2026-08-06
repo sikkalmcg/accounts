@@ -313,7 +313,7 @@ const validateRows = useCallback(async () => {
             documentType: header.documentType,
             documentCategory: header.documentCategory,
             inventoryType: header.inventoryType,
-            price: row.price.trim().toUpperCase() === 'FIX' ? 'FIX' : (Number(row.price) || 0),
+price: row.price.trim().toUpperCase() === 'FIX' || !row.price.trim() ? 'FIX' : (Number(row.price) || 0),
             gstRate: row.gstRate !== "" ? Number(row.gstRate) : Number((materials?.find(m => (m.materialCode || "").toUpperCase() === row.materialCode.trim().toUpperCase() || (m.productName || "").toUpperCase() === row.materialCode.trim().toUpperCase()))?.gstRate) || 0,
 currency: "INR",
             validFrom: row.validFrom || header.validFrom,

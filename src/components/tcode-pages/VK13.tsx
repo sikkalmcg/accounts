@@ -298,7 +298,9 @@ const pricingQuery = useMemoDatabase(() => query(collection(db, "pricing"), orde
                 <TableCell className="p-0 px-2 text-[10px] border-r text-gray-700 truncate max-w-[160px]">{materialName}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r font-mono text-center">{hsn}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center font-bold text-gray-500">{gst}%</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-800">INR {Number(r.price).toLocaleString()}</TableCell>
+<TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-800">
+                  {String(r.price).trim().toUpperCase() === 'FIX' ? <span className="text-amber-700">FIX</span> : `INR ${Number(r.price).toLocaleString()}`}
+                </TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{r.validFrom}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{r.validTo}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center">

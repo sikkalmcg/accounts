@@ -75,7 +75,11 @@ const isNonTax = invoice.docType?.toUpperCase() === "NON-TAX INVOICE";
           <h1 className="text-[200px] font-black text-red-600 rotate-[-45deg] whitespace-nowrap uppercase tracking-tighter watermark-text">CANCEL</h1>
         </div>
       )}
-      <div className="relative z-10 flex-1 flex flex-col">
+<div className="relative z-10 flex-1 flex flex-col">
+        <div className="border-y-2 border-black py-1.5 flex justify-between px-2 font-bold text-[14px] text-black mb-3">
+          <span className="text-center flex-1 uppercase tracking-[0.2em]">{docTypeLabel.header}</span>
+        </div>
+
         <div className="flex justify-between items-start mb-4">
           <div className="flex gap-4 items-start">
             {firm?.logoData ? (
@@ -106,17 +110,17 @@ const isNonTax = invoice.docType?.toUpperCase() === "NON-TAX INVOICE";
 
         {!isNonTax && invoice.irnNumber && (
           <div className="border-y-2 border-black mb-3 p-2 space-y-1.5 bg-gray-50">
-            <p className="break-all leading-tight text-left"><span className="text-[11px] text-gray-500 font-bold block">IRN: {invoice.irnNumber || "N/A"}</span></p>
+            <p className="break-all leading-tight text-left">
+              <span className="text-[11px] text-gray-500 font-bold block">IRN: {invoice.irnNumber || "N/A"}</span>
+            </p>
             <div className="grid grid-cols-2 gap-x-4 text-[11px]">
-              <p className="text-left"><span className="text-[10px] text-gray-500 font-bold uppercase">Ack No:</span> <span className="font-mono font-bold ml-1">{invoice.ackNo || "N/A"}</span></p> 
+              <p className="text-left">
+                <span className="text-[10px] text-gray-500 font-bold uppercase">Ack No:</span> <span className="font-mono font-bold ml-1">{invoice.ackNo || "N/A"}</span>
+              </p>
               <p className="text-left"><span className="text-[10px] text-gray-500 font-bold uppercase">Ack Date:</span> <span className="font-bold ml-1">{invoice.ackDate || "N/A"}</span></p>
             </div>
           </div>
         )}
-
-        <div className="border-y-2 border-black py-1.5 flex justify-between px-2 font-bold text-[12px] bg-gray-50 mb-3">
-          <span className="text-center flex-1 uppercase">{docTypeLabel.header}</span>
-        </div>
 
         <div className="mb-3 px-2">
           <div className="flex justify-between items-center mb-2">
@@ -160,15 +164,15 @@ const isNonTax = invoice.docType?.toUpperCase() === "NON-TAX INVOICE";
         <table className="w-full border-x border-black">
           <thead>
             <tr className="bg-white text-[10px] font-bold border-b-2 border-black">
-<th className="border-r border-black w-8 text-center py-2">#</th>
-              <th className="border-r border-black text-left py-2 px-2">Item Description</th>
-              {showActivityColumn && <th className="border-r border-black text-left py-2">Activity</th>} {/* Activity Column */}
+              <th className="border-r border-black w-8 text-center py-2">#</th>
+              <th className="border-r border-black text-left py-2 px-2">Item Description</th>{/* Activity Column */}
+              {showActivityColumn && <th className="border-r border-black text-left py-2">Activity</th>}
               {visibleCustomHeaders.map((header: string, i: number) => (
                 <th key={i} className="border-r border-black text-center py-2">{header}</th>
               ))}
-              <th className="border-r border-black w-20 text-center py-2">HSN/SAC</th>
+              <th className="border-r border-black w-20 text-center py-2">HSN/SAC</th>{/* No newline */}
               <th className="border-r border-black w-16 text-center py-2">Qty</th>
-              <th className="border-r border-black w-16 text-center py-2">Unit</th>
+              <th className="border-r border-black w-16 text-center py-2">UOM</th>
               <th className="border-r border-black w-14 text-center py-2">Rate</th>
               <th className="w-28 text-right py-2">Amount</th>
             </tr>
@@ -317,8 +321,11 @@ export default function VF03() {
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [authorizedPlantIds, setAuthorizedPlantIds] = useState<string[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
+const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
   const [filterPlants, setFilterPlants] = useState<string[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageJumpInput, setPageJumpInput] = useState("");
+  const PAGE_SIZE = 15;
 
   useEffect(() => {
     const stored = localStorage.getItem("sikka_user");
@@ -372,7 +379,7 @@ export default function VF03() {
              i.inventoryType?.toLowerCase().includes(searchLower) ||
              i.status?.toLowerCase().includes(searchLower);
     });
-    if (!sortConfig) return filtered;
+if (!sortConfig) return filtered;
     return [...filtered].sort((a, b) => {
       let aVal = a[sortConfig.key];
       let bVal = b[sortConfig.key];
@@ -390,30 +397,52 @@ export default function VF03() {
     });
   }, [invoices, search, sortConfig, isAdmin, authorizedPlantIds, customerMap, filterPlants]);
 
+  // Reset to first page whenever filters/search change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterPlants, authorizedPlantIds, isAdmin]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedData.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedData = sortedData.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const goToPage = (page: number) => {
+    setCurrentPage(Math.min(Math.max(1, page), totalPages));
+  };
+
+  const handlePageJump = () => {
+    const p = parseInt(pageJumpInput, 10);
+    if (!isNaN(p) && p >= 1) {
+      goToPage(p);
+    }
+    setPageJumpInput("");
+  };
+
   const handleCsvExport = () => {
     if (sortedData.length === 0) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "No records to export", isError: true } }));
       return;
     }
-    const headers = ["#", "Invoice Number", "Date", "Bill to Party", "Ship to Party", "Consignor Name", "Doc Type", "Inventory Type", "Plant", "Status", "Taxable Amount", "CGST", "SGST", "Gross Value"];
+const headers = ["#", "Output", "Plant", "Invoice Number", "Invoice Date", "Consignor Name", "Bill to Party Name", "Charge Type", "Taxable Amount", "CGST", "SGST", "IGST", "Gross Amount", "IRN Status"];
     const rows = sortedData.map((inv, i) => {
       const consigneeName = inv.snapshotBillTo?.name || (customerMap[inv.billTo] ? customerMap[inv.billTo].name : inv.billTo);
-      const shipToName = inv.snapshotShipTo?.name || (inv.shipTo ? (customerMap[inv.shipTo] ? customerMap[inv.shipTo].name : inv.shipTo) : consigneeName);
+      const isNonTaxInv = inv.docType?.toUpperCase() === "NON-TAX INVOICE";
+      const irnStatus = inv.status === "Cancelled" ? "Cancelled" : isNonTaxInv ? "Non-Tax" : (!inv.irnNumber ? "Pending IRN" : "Completed");
       return [
         i + 1,
+        "",
+        inv.plantId,
         inv.invoiceNumber,
         inv.invoiceDate,
-        consigneeName,
-        shipToName,
         inv.consignorName || customerMap[inv.billTo]?.name || "-",
-        inv.docType || "-",
-        inv.inventoryType || "-",
-        inv.plantId,
-        inv.status || "-",
+        consigneeName,
+        inv.docCategory || "-",
         inv.totals?.taxableAmount || 0,
         inv.totals?.cgst || 0,
         inv.totals?.sgst || 0,
+        inv.totals?.igst || 0,
         inv.totals?.grossAmount || 0,
+        irnStatus,
       ];
     });
     downloadCsv("VF03", headers, rows);
@@ -497,42 +526,29 @@ export default function VF03() {
       </div>
 
       <div className="flex-1 overflow-auto no-scrollbar">
-        <Table className="min-w-[1900px] sap-alv-grid">
+<Table className="min-w-[1900px] sap-alv-grid">
           <TableHeader className="sap-alv-header">
             <TableRow className="h-8">
               <TableHead className="w-10 text-center text-[10px] font-bold border-r w-12 text-center">#</TableHead>
               <TableHead className="text-[11px] font-bold border-r w-16 text-center">Output</TableHead>
+              <TableHead onClick={() => handleSort('plantId')} className="text-[11px] font-bold border-r w-24 text-center cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center justify-center">Plant <SortIcon column="plantId" /></div>
+              </TableHead>
               <TableHead onClick={() => handleSort('invoiceNumber')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center">Number <SortIcon column="invoiceNumber" /></div>
+                <div className="flex items-center">Invoice Number <SortIcon column="invoiceNumber" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('invoiceDate')} className="text-[11px] font-bold border-r w-32 cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center">Date <SortIcon column="invoiceDate" /></div>
-              </TableHead>
-              <TableHead onClick={() => handleSort('billTo')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center">Bill to Party <SortIcon column="billTo" /></div>
-              </TableHead>
-              <TableHead onClick={() => handleSort('shipTo')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center">Ship to Party <SortIcon column="shipTo" /></div>
+                <div className="flex items-center">Invoice Date <SortIcon column="invoiceDate" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('consignorName')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Consignor Name <SortIcon column="consignorName" /></div>
               </TableHead>
-              <TableHead onClick={() => handleSort('docType')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center">Doc Type <SortIcon column="docType" /></div>
-              </TableHead>
-              <TableHead onClick={() => handleSort('inventoryType')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center">Inventory Type <SortIcon column="inventoryType" /></div>
+              <TableHead onClick={() => handleSort('billTo')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">Bill to Party Name <SortIcon column="billTo" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('docCategory')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Charge Type <SortIcon column="docCategory" /></div>
               </TableHead>
-              <TableHead onClick={() => handleSort('docCategory')} className="text-[11px] font-bold border-r cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center">Charge Type <SortIcon column="docCategory" /></div>
-              </TableHead>
-              <TableHead onClick={() => handleSort('plantId')} className="text-[11px] font-bold border-r w-24 text-center">
-                <div className="flex items-center justify-center">Plant <SortIcon column="plantId" /></div>
-              </TableHead>
-              <TableHead className="text-[11px] font-bold border-r w-32 text-center">Status</TableHead>
               <TableHead onClick={() => handleSort('totals.taxableAmount')} className="text-[11px] font-bold border-r w-32 text-right cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center justify-end">Taxable Amount <SortIcon column="totals.taxableAmount" /></div>
               </TableHead>
@@ -542,27 +558,40 @@ export default function VF03() {
               <TableHead onClick={() => handleSort('totals.sgst')} className="text-[11px] font-bold border-r w-32 text-right cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center justify-end">SGST <SortIcon column="totals.sgst" /></div>
               </TableHead>
-              <TableHead onClick={() => handleSort('totals.grossAmount')} className="text-[11px] font-bold text-right w-40 pr-4 cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center justify-end">Gross Value <SortIcon column="totals.grossAmount" /></div>
+              <TableHead onClick={() => handleSort('totals.igst')} className="text-[11px] font-bold border-r w-32 text-right cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center justify-end">IGST <SortIcon column="totals.igst" /></div>
               </TableHead>
+              <TableHead onClick={() => handleSort('totals.grossAmount')} className="text-[11px] font-bold border-r text-right w-40 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center justify-end">Gross Amount <SortIcon column="totals.grossAmount" /></div>
+              </TableHead>
+              <TableHead className="text-[11px] font-bold border-r w-32 text-center">IRN Status</TableHead>
               <TableHead className="w-20 text-center text-[11px] font-bold">Download</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isInvoicesLoading ? (
-              <TableRow><TableCell colSpan={16} className="text-center py-10 text-xs">LOADING...</TableCell></TableRow>
-            ) : sortedData.length === 0 ? (
-              <TableRow><TableCell colSpan={16} className="text-center py-10 text-xs text-red-500 font-bold uppercase">Please select at least one Plant.</TableCell></TableRow>
-            ) : sortedData.map((inv, i) => {
+{isInvoicesLoading ? (
+              <TableRow><TableCell colSpan={15} className="text-center py-10 text-xs">LOADING...</TableCell></TableRow>
+) : sortedData.length === 0 ? (
+              <TableRow><TableCell colSpan={15} className="text-center py-10 text-xs text-red-500 font-bold uppercase">Please select at least one Plant.</TableCell></TableRow>
+            ) : paginatedData.map((inv, i) => {
               const consigneeName = inv.snapshotBillTo?.name || (customerMap[inv.billTo] ? customerMap[inv.billTo].name : inv.billTo);
-              const shipToName = inv.snapshotShipTo?.name || (inv.shipTo ? (customerMap[inv.shipTo] ? customerMap[inv.shipTo].name : inv.shipTo) : consigneeName);
+              const rowNumber = (safePage - 1) * PAGE_SIZE + i + 1;
               
               const isNonTax = inv.docType?.toUpperCase() === "NON-TAX INVOICE";
               const isPending = !inv.irnNumber && !isNonTax;
               const isCancelled = inv.status === "Cancelled";
+              const irnStatus = isCancelled ? (
+                <span className="bg-gray-100 text-red-600 px-2 py-0.5 rounded-full font-black border border-red-200 inline-flex items-center gap-1 uppercase tracking-tighter">Cancelled</span>
+              ) : isNonTax ? (
+                <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-bold border border-blue-200 inline-flex items-center gap-1 uppercase tracking-tighter">Non-Tax</span>
+              ) : isPending ? (
+                <span className="bg-red-50 text-red-700 px-2 py-0.5 rounded-full font-bold border border-red-200 inline-flex items-center gap-1 uppercase tracking-tighter"><Clock className="h-2.5 w-2.5" /> Pending IRN</span>
+              ) : (
+                <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold border border-emerald-200 inline-flex items-center gap-1 uppercase tracking-tighter"><CheckCircle2 className="h-2.5 w-2.5" /> Completed</span>
+              );
               return (
                 <TableRow key={inv.id} className="h-8 hover:bg-blue-50/20 transition-colors border-b border-gray-100 group">
-                  <TableCell className="p-0 text-center text-[10px] border-r text-gray-400 group-hover:text-blue-600">{i + 1}</TableCell>
+                  <TableCell className="p-0 text-center text-[10px] border-r text-gray-400 group-hover:text-blue-600">{rowNumber}</TableCell>
                   <TableCell className="p-0 border-r text-center">
                     <Dialog>
                       <DialogTrigger asChild><button onClick={() => setSelectedInvoice(inv)} className="p-1 hover:text-blue-600"><PrinterIcon className="h-3.5 w-3.5" /></button></DialogTrigger>
@@ -582,33 +611,18 @@ export default function VF03() {
                       </DialogContent>
                     </Dialog>
                   </TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r text-center font-bold text-gray-600">{inv.plantId}</TableCell>
                   <TableCell className="p-0 px-2 text-[11px] border-r font-bold text-blue-700 font-mono">{inv.invoiceNumber}</TableCell>
                   <TableCell className="p-0 px-2 text-[11px] border-r font-mono">{inv.invoiceDate}</TableCell>
-                  <TableCell className="p-0 px-2 text-[11px] border-r text-gray-700 truncate max-w-[180px]">{consigneeName}</TableCell>
-                  <TableCell className="p-0 px-2 text-[11px] border-r text-gray-700 truncate max-w-[180px]">{shipToName}</TableCell>
                   <TableCell className="p-0 px-2 text-[11px] border-r text-gray-600 truncate max-w-[150px]">{inv.consignorName || customerMap[inv.billTo]?.name || "-"}</TableCell>
-                  <TableCell className="p-0 px-2 text-[11px] border-r text-center font-semibold">
-                    {filterPlants.length === 1
-                      ? inv.docType?.replace(`${filterPlants[0]} - `, "") || "-"
-                      : inv.docType || "-"}
-                  </TableCell>
-                  <TableCell className="p-0 px-2 text-[11px] border-r text-center">{inv.inventoryType || "-"}</TableCell>
-                  <TableCell className="p-0 px-2 text-[11px] border-r text-center font-bold text-gray-600">{inv.plantId}</TableCell>
-                  <TableCell className="p-0 px-2 text-[10px] border-r text-center">
-                    {isCancelled ? (
-                      <span className="bg-gray-100 text-red-600 px-2 py-0.5 rounded-full font-black border border-red-200 inline-flex items-center gap-1 uppercase tracking-tighter">Cancelled</span>
-                    ) : isNonTax ? (
-                      <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-bold border border-blue-200 inline-flex items-center gap-1 uppercase tracking-tighter">Non-Tax</span>
-                    ) : isPending ? (
-                      <span className="bg-red-50 text-red-700 px-2 py-0.5 rounded-full font-bold border border-red-200 inline-flex items-center gap-1 uppercase tracking-tighter"><Clock className="h-2.5 w-2.5" /> Pending IRN</span>
-                    ) : (
-                      <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold border border-emerald-200 inline-flex items-center gap-1 uppercase tracking-tighter"><CheckCircle2 className="h-2.5 w-2.5" /> Completed</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="p-0 px-2 text-[11px] border-r text-right pr-4 text-blue-600 font-semibold">₹ {(inv.totals?.taxableAmount || 0).toLocaleString()}</TableCell>
-                  <TableCell className="p-0 px-2 text-[11px] border-r text-right pr-4 text-gray-600">₹ {(inv.totals?.cgst || 0).toLocaleString()}</TableCell>
-                  <TableCell className="p-0 px-2 text-[11px] border-r text-right pr-4 text-gray-600">₹ {(inv.totals?.sgst || 0).toLocaleString()}</TableCell>
-                  <TableCell className="p-0 px-2 text-[11px] text-right font-black text-emerald-800 pr-4">₹ {(inv.totals?.grossAmount || 0).toLocaleString()}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r text-gray-700 truncate max-w-[180px]">{consigneeName}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r text-center uppercase">{inv.docCategory || "-"}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r text-right pr-2 text-gray-600">₹ {(inv.totals?.taxableAmount || 0).toLocaleString()}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r text-right pr-2 text-gray-600">₹ {(inv.totals?.cgst || 0).toLocaleString()}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r text-right pr-2 text-gray-600">₹ {(inv.totals?.sgst || 0).toLocaleString()}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r text-right pr-2 text-gray-600">₹ {(inv.totals?.igst || 0).toLocaleString()}</TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r text-right font-black text-emerald-800 pr-2">₹ {(inv.totals?.grossAmount || 0).toLocaleString()}</TableCell>
+                  <TableCell className="p-0 px-2 text-[10px] border-r text-center">{irnStatus}</TableCell>
                   <TableCell className="p-0 text-center">
                     <button
                       onClick={() => downloadInvoice(inv, firms, customerMap)}
@@ -618,12 +632,59 @@ export default function VF03() {
                       <Download className="h-3.5 w-3.5" />
                     </button>
                   </TableCell>
-                </TableRow>
+</TableRow>
               );
             })}
           </TableBody>
         </Table>
       </div>
+
+      {sortedData.length > 0 && (
+        <div className="bg-[#333e4f] border-t border-black/30 px-4 py-2 flex items-center justify-between gap-4">
+          <div className="text-[10px] font-bold text-white/80 uppercase tracking-widest">
+            Page {safePage} of {totalPages} • {sortedData.length} Records
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 rounded-none text-[10px] font-bold border-white/30 bg-white/10 text-white hover:bg-white/20 gap-1"
+              onClick={() => goToPage(safePage - 1)}
+              disabled={safePage <= 1}
+            >
+              <ChevronUp className="h-3 w-3 rotate-180" /> Previous Page
+            </Button>
+            <div className="flex items-center gap-1 bg-white/10 border border-white/30 px-2 h-6">
+              <span className="text-[9px] font-bold text-white/70 uppercase">Jump to</span>
+              <input
+                type="number"
+                min={1}
+                max={totalPages}
+                value={pageJumpInput}
+                onChange={e => setPageJumpInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handlePageJump()}
+                className="w-12 h-4 text-center text-[10px] bg-white text-gray-800 outline-none rounded-sm"
+                placeholder={String(safePage)}
+              />
+              <button
+                onClick={handlePageJump}
+                className="text-white/80 hover:text-white text-[10px] font-bold uppercase"
+              >
+                Go
+              </button>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 rounded-none text-[10px] font-bold border-white/30 bg-white/10 text-white hover:bg-white/20 gap-1"
+              onClick={() => goToPage(safePage + 1)}
+              disabled={safePage >= totalPages}
+            >
+              Next Page <ChevronDown className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
