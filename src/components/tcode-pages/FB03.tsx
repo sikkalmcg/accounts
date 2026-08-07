@@ -33,7 +33,7 @@ export default function FB03() {
   const [filterConsignee, setFilterConsignee] = useState("ALL");
   const [filterFY, setFilterYear] = useState(getCurrentFinancialYear());
   const [showDetail, setShowDetail] = useState(false);
-  const [showAllInvoices, setShowAllInvoices] = useState(false); // New state to toggle between pending and all invoices
+  const [showAllInvoices, setShowAllInvoices] = useState(false); // Toggle between pending and all invoices
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
   const financialYears = useMemo(() => getFinancialYears(), []);
@@ -52,12 +52,12 @@ export default function FB03() {
   const { data: customers } = useCollection(customersQuery);
 
   // 4. Derived Logic
-const filteredPlants = useMemo(() => {
+  const filteredPlants = useMemo(() => {
     if (isAdmin) return plants || [];
     return plants?.filter(p => p.plantId === assignedPlantId) || [];
   }, [plants, isAdmin, assignedPlantId]);
 
-  // Customers assigned to the currently selected Plant (Plant-wise master data filter)
+  // Customers assigned to the currently selected Plant
   const filteredCustomers = useMemo(() => {
     if (!customers) return [];
     if (filterPlants.length !== 1) return customers;
@@ -65,7 +65,7 @@ const filteredPlants = useMemo(() => {
     return customers.filter(c => getRecordPlantIds(c).includes(singlePlant));
   }, [customers, filterPlants]);
 
-  // Aggregate receipts by Invoice Number (separate posted vs reversed)
+  // Aggregate receipts by Invoice Number
   const invoiceReceiptMap = useMemo(() => {
     const map: Record<string, any> = {};
     allReceipts?.forEach(r => {
@@ -122,7 +122,7 @@ const filteredPlants = useMemo(() => {
   // Filter for pending invoices (balance > 1)
   const pendingInvoices = useMemo(() => processedData.filter(i => i.balanceAmount > 1), [processedData]);
 
-  // Determine which data set to display based on showAllInvoices state
+  // Determine which data set to display
   const displayedData = useMemo(() => showAllInvoices ? processedData : pendingInvoices, [showAllInvoices, processedData, pendingInvoices]);
 
   const summary = useMemo(() => {
@@ -133,7 +133,7 @@ const filteredPlants = useMemo(() => {
       deduction: acc.deduction + (curr.deductionAmount || 0),
       balance: acc.balance + curr.balanceAmount
     }), { total: 0, receipt: 0, tds: 0, deduction: 0, balance: 0 });
-  }, [processedData]); // Summary should always reflect the full processed data, not just displayed.
+  }, [processedData]);
 
   const sortedData = useMemo(() => {
     const dataToSort = showAllInvoices ? processedData : pendingInvoices;
@@ -149,7 +149,7 @@ const filteredPlants = useMemo(() => {
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
-    }); // Add showAllInvoices to dependencies
+    });
   }, [showAllInvoices, processedData, pendingInvoices, sortConfig]);
 
   const hasIgst = useMemo(() => pendingInvoices.some(i => (i.totals?.igst || 0) > 0), [pendingInvoices]);
@@ -169,7 +169,7 @@ const filteredPlants = useMemo(() => {
   const handleExport = () => {
     if (sortedData.length === 0) return;
     const csvContent = [
-      ["#", "Plant", "Invoice No", "Inv. Date", "Bill Month", "Charge type", "Description", "Taxable Amt", "CGST", "SGST", "IGST", "Gross Payable", "Receipt Amt", "TDS Amt", "Deduction Amt", "Balance", "Pay Date", "Advice No", "UTR"].join(","),
+      ["#", "Plant", "Invoice No", "Inv. Date", "Bill Month", "Charge type", "Item Description", "Taxable Amt", "CGST", "SGST", "IGST", "Gross Payable", "Receipt Amt", "TDS Amt", "Deduction Amt", "Balance", "Pay Date", "Advice No", "UTR"].join(","),
       ...sortedData.map((row, idx) => [
         idx + 1,
         row.plantId,
@@ -222,7 +222,7 @@ const filteredPlants = useMemo(() => {
           <label className="text-[10px] font-bold text-gray-500 uppercase">Consignee (Bill To)</label>
           <Select value={filterConsignee} onValueChange={setFilterConsignee}>
             <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
-<SelectContent>
+            <SelectContent>
               <SelectItem value="ALL">All Partners</SelectItem>
               {filteredCustomers.map(c => (
                 <SelectItem key={c.id} value={c.customerId}>{c.customerId} - {c.name}</SelectItem>
@@ -295,7 +295,10 @@ const filteredPlants = useMemo(() => {
                   <TableHead onClick={() => handleSort('invoiceDate')} className="w-32 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Inv. Date <SortIcon col="invoiceDate" /></div></TableHead>
                   <TableHead className="w-24 text-[10px] font-bold border-r border-[#b5c7de]">Bill Month</TableHead>
                   <TableHead className="w-40 text-[10px] font-bold border-r border-[#b5c7de]">Charge type</TableHead>
-                  <TableHead className="text-[10px] font-bold border-r border-[#b5c7de]">Description</TableHead>
+
+                  {/* Header Title renamed from Description to Item Description */}
+                  <TableHead className="text-[10px] font-bold border-r border-[#b5c7de]">Item Description</TableHead>
+
                   <TableHead onClick={() => handleSort('totals.taxableAmount')} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center justify-end">Taxable Amt <SortIcon col="totals.taxableAmount" /></div></TableHead>
                   {hasCsgst && (
                     <>
@@ -327,7 +330,10 @@ const filteredPlants = useMemo(() => {
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">{row.invoiceDate}</TableCell>
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase">{row.billMonth}</TableCell>
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 truncate max-w-[150px] uppercase italic text-gray-600">{row.docCategory}</TableCell>
+
+                    {/* Displays Item Name corresponding to the invoice */}
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 truncate max-w-[250px] font-semibold text-blue-900 uppercase">{row.items?.[0]?.desc || "---"}</TableCell>
+
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono">{(row.totals?.taxableAmount || 0).toLocaleString()}</TableCell>
                     {hasCsgst && (
                       <>
@@ -351,7 +357,7 @@ const filteredPlants = useMemo(() => {
           </div>
           <div className="bg-[#333e4f] p-2 flex justify-between items-center text-white text-[10px] font-bold uppercase tracking-widest shadow-inner sticky bottom-0 z-20">
             <div className="flex items-center gap-6"><span>ALV Grid Status: {sortedData.length} Document(s) Displayed</span></div>
-            <div className="flex items-center gap-10 pr-4"> {/* Summary should reflect the currently displayed data */}
+            <div className="flex items-center gap-10 pr-4">
               <div className="flex flex-col items-end"><span className="opacity-50 text-[8px]">Net Payable</span><span className="text-[12px] font-black text-blue-300">₹ {displayedData.reduce((s, r) => s + (r.totals?.grossAmount || 0), 0).toLocaleString()}</span></div>
               <div className="flex flex-col items-end border-l border-white/20 pl-6"><span className="opacity-50 text-[8px]">Outstanding</span><span className="text-[12px] font-black text-red-400">₹ {displayedData.reduce((s, r) => s + (r.balanceAmount || 0), 0).toLocaleString()}</span></div>
             </div>

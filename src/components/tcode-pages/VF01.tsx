@@ -15,8 +15,7 @@ import { SapDateInput } from "@/components/ui/sap-date-input";
 import { getRecordPlantIds } from "@/lib/plant-master";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { format } from "date-fns";
-import { parse } from "date-fns"; // Added import for parse
+import { format, parse, isValid } from "date-fns";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
 interface InvoiceItem {
@@ -35,6 +34,7 @@ interface InvoiceItem {
 }
 
 interface PricingOption {
+  id: string;
   materialCode: string;
   materialName: string;
   hsn: string;
@@ -44,6 +44,24 @@ interface PricingOption {
   validFrom?: string;
   validTo?: string;
 }
+
+// Helper function to parse DD-MMM-YYYY or ISO date string safely
+const parseFlexibleDate = (dateStr: string): Date | null => {
+  if (!dateStr) return null;
+  let parsed = parse(dateStr, "dd-MMM-yyyy", new Date());
+  if (isValid(parsed)) return parsed;
+
+  const formattedStr = dateStr.replace(/-([a-zA-Z]{3})-/, (match, p1) => {
+    return `-${p1.charAt(0).toUpperCase()}${p1.slice(1).toLowerCase()}-`;
+  });
+  parsed = parse(formattedStr, "dd-MMM-yyyy", new Date());
+  if (isValid(parsed)) return parsed;
+
+  parsed = parse(dateStr, "yyyy-MM-dd", new Date());
+  if (isValid(parsed)) return parsed;
+
+  return null;
+};
 
 // Helper to safely extract array of plant IDs from billing record
 const getRecordPlants = (record: any): string[] => {
@@ -62,15 +80,14 @@ export default function VF01() {
   const [userName, setUserName] = useState("USER");
   const [plantId, setPlantId] = useState("");
   const [invoiceNo, setInvoiceNo] = useState("");
-  const [invoiceDate, setInvoiceDate] = useState("");
+  const [invoiceDate, setInvoiceDate] = useState(format(new Date(), "dd-MMM-yyyy"));
   
-  const [billPeriod, setBillPeriod] = useState(format(new Date(), "MMM-yyyy"));
+  const [billPeriod, setBillPeriod] = useState("");
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   
   const [docType, setDocType] = useState("Tax Invoice");
   const [docCategory, setDocCategory] = useState("");
   const [billType, setBillType] = useState("BILL UNDER F.C.M.");
-  // Default Inventory Type set to "Service Invoice" (Editable)
   const [inventoryType, setInventoryType] = useState("Service Invoice");
   const [vehicleNo, setVehicleNo] = useState("");
   const [consignorId, setConsignorId] = useState("");
@@ -117,39 +134,6 @@ export default function VF01() {
     }
   }, []);
 
-  const resetForm = useCallback(() => {
-    // Keep plantId, docType, inventoryType, billPeriod
-    setInvoiceNo("");
-    setInvoiceDate(format(new Date(), 'dd-MMM-yyyy')); // Initialize with DD-MMM-YYYY
-    setBillTo("");
-    setShipTo("");
-    setIsShipToApplicable(false);
-    setTermsAndConditions("");
-    setNote("");
-    setReferenceNo("");
-    setReferenceDocId(null);
-    setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '1', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [], isFixedCharge: false }]);
-    // Re-trigger invoice number generation
-    generateNextInvoiceNo();
-  }, [plantId, docType, db]);
-
-  // 3. Dynamic Labels & Config
-  const docLabels = useMemo(() => {
-    const t = docType?.toUpperCase() || "";
-    if (t.includes("CREDIT NOTE")) return { no: "Credit Note Number", date: "Date", header: "Credit Note" };
-    if (t.includes("DEBIT NOTE")) return { no: "Debit Note Number", date: "Date", header: "Debit Note" };
-    if (t.includes("DELIVERY CHALLAN")) return { no: "Delivery Challan Number", date: "Date", header: "Delivery Challan" };
-    return { no: "Invoice Number", date: "Date", header: "Billing Document" };
-  }, [docType]);
-
-  const isCreditNote = docType?.toUpperCase().includes("CREDIT NOTE");
-  
-  // Derived document type flags
-  const isNonTax = docType?.toUpperCase() === "NON-TAX INVOICE";
-  const isDeliveryChallan = docType?.toUpperCase() === "DELIVERY CHALLAN";
-  const showVehicleNo = inventoryType === "Supply Invoice";
-  const isRCM = billType === "BILL UNDER R.C.M.";
-
   // 4. Auto-Invoice Number Generation
   const generateNextInvoiceNo = useCallback(async () => {
     if (!plantId || !docType) {
@@ -187,9 +171,46 @@ export default function VF01() {
     }
   }, [plantId, docType, db]);
 
+  const resetForm = useCallback(() => {
+    setInvoiceNo("");
+    setInvoiceDate(format(new Date(), 'dd-MMM-yyyy')); // System format DD-MMM-YYYY
+    setBillPeriod("");
+    setDocCategory("");
+    setBillTo("");
+    setShipTo("");
+    setIsShipToApplicable(false);
+    setVehicleNo("");
+    setConsignorId("");
+    setTermsAndConditions("");
+    setNote("");
+    setReferenceNo("");
+    setReferenceDocId(null);
+    setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '1', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [], isFixedCharge: false }]);
+    
+    if (plantId && docType) {
+      generateNextInvoiceNo();
+    }
+  }, [plantId, docType, generateNextInvoiceNo]);
+
   useEffect(() => {
     generateNextInvoiceNo();
   }, [plantId, db, docType]);
+
+  // 3. Dynamic Labels & Config
+  const docLabels = useMemo(() => {
+    const t = docType?.toUpperCase() || "";
+    if (t.includes("CREDIT NOTE")) return { no: "Credit Note Number", date: "Date", header: "Credit Note" };
+    if (t.includes("DEBIT NOTE")) return { no: "Debit Note Number", date: "Date", header: "Debit Note" };
+    if (t.includes("DELIVERY CHALLAN")) return { no: "Delivery Challan Number", date: "Date", header: "Delivery Challan" };
+    return { no: "Invoice Number", date: "Date", header: "Billing Document" };
+  }, [docType]);
+
+  const isCreditNote = docType?.toUpperCase().includes("CREDIT NOTE");
+  
+  const isNonTax = docType?.toUpperCase() === "NON-TAX INVOICE";
+  const isDeliveryChallan = docType?.toUpperCase() === "DELIVERY CHALLAN";
+  const showVehicleNo = inventoryType === "Supply Invoice";
+  const isRCM = billType === "BILL UNDER R.C.M.";
 
   // 5. Master Data Queries
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
@@ -261,7 +282,7 @@ export default function VF01() {
       setIsFetchingOptions(true);
       
       try {
-        const q = query(
+        const customerPricingQuery = query(
           collection(db, "pricing"),
           where("plantId", "==", plantId),
           where("customerCode", "==", billTo),
@@ -269,24 +290,34 @@ export default function VF01() {
           where("documentType", "==", docType),
           where("documentCategory", "==", docCategory)
         );
-        const snap = await getDocs(q);
 
-      const parsedInvoiceDate = invoiceDate ? parse(invoiceDate, 'yyyy-MM-dd', new Date()) : null;
-        const invoiceTs = parsedInvoiceDate && !isNaN(parsedInvoiceDate.getTime()) ? parsedInvoiceDate.getTime() : null;
+        const genericPricingQuery = query(
+          collection(db, "pricing"),
+          where("plantId", "==", plantId),
+          where("customerCode", "==", ""),
+          where("inventoryType", "==", inventoryType),
+          where("documentType", "==", docType),
+          where("documentCategory", "==", docCategory)
+        );
+
+        const [customerSnap, genericSnap] = await Promise.all([getDocs(customerPricingQuery), getDocs(genericPricingQuery)]);
+        const snap = { docs: [...customerSnap.docs, ...genericSnap.docs] };
+
+        const parsedInvoiceDate = parseFlexibleDate(invoiceDate);
+        const invoiceTs = parsedInvoiceDate ? parsedInvoiceDate.getTime() : null;
         const validDocs = snap.docs.filter(doc => {
           const data = doc.data();
           if (!invoiceTs) return true;
-          const from = data.validFrom ? parse(data.validFrom, 'yyyy-MM-dd', new Date()).getTime() : -Infinity;
-          const to = data.validTo ? parse(data.validTo, 'yyyy-MM-dd', new Date()).getTime() : Infinity;
+          const from = data.validFrom ? (parseFlexibleDate(data.validFrom)?.getTime() || -Infinity) : -Infinity;
+          const to = data.validTo ? (parseFlexibleDate(data.validTo)?.getTime() || Infinity) : Infinity;
           return invoiceTs >= from && invoiceTs <= to;
         });
 
-        const seen = new Set<string>();
         const options: PricingOption[] = validDocs.map(doc => {
           const data = doc.data();
           const matMaster = materials?.find(m => m.productName === data.materialCode || m.materialCode === data.materialCode);
-          const key = String(data.materialCode || "").toUpperCase();
           const option: PricingOption = {
+            id: doc.id,
             materialCode: data.materialCode || "",
             materialName: data.materialName || matMaster?.productName || data.materialCode || "",
             hsn: data.hsnSac || matMaster?.hsnSac || "",
@@ -296,10 +327,8 @@ export default function VF01() {
             validFrom: data.validFrom || "",
             validTo: data.validTo || "",
           };
-          if (seen.has(key)) return null;
-          seen.add(key);
           return option;
-        }).filter(Boolean) as PricingOption[];
+        });
 
         setAvailableOptions(options);
         setNoValidPriceRowMaterial("");
@@ -312,7 +341,7 @@ export default function VF01() {
     fetchOptions();
   }, [plantId, docCategory, billTo, db, materials, inventoryType, docType, invoiceDate]);
 
-  // 8. Multi-Plant Billing Types Filter (Fixed to support plantIds array)
+  // 8. Multi-Plant Billing Types Filter
   const filteredBillingTypes = useMemo(() => {
     if (!billingTypes || !plantId || !inventoryType) return [];
     return billingTypes.filter(b => {
@@ -333,7 +362,6 @@ export default function VF01() {
     return Array.from(new Set(filteredBillingTypes.filter(b => b.documentCategory).map(b => b.documentCategory!)));
   }, [filteredBillingTypes]);
 
-  // Reset docType or docCategory if they are invalid for selected Plant / Inventory Type
   useEffect(() => {
     if (filteredDocumentTypes.length > 0 && !filteredDocumentTypes.includes(docType)) {
       setDocType(filteredDocumentTypes[0]);
@@ -394,7 +422,7 @@ export default function VF01() {
 
         let updated = { ...i, [field]: val };
         if (field === 'desc') {
-          const selectedOption = availableOptions.find(opt => opt.materialCode === val);
+          const selectedOption = availableOptions.find(opt => opt.id === val);
           if (selectedOption) {
             const isManualRate = !selectedOption.price || (typeof selectedOption.price === 'number' && selectedOption.price <= 0) || selectedOption.price === 'FIX';
             updated.hsn = selectedOption.hsn;
@@ -410,7 +438,7 @@ export default function VF01() {
             updated.uom = "";
             updated.gstRate = 0;
             updated.descName = val;
-            updated.isFixedCharge = true; // No price found, so it's a manual entry
+            updated.isFixedCharge = true;
             setNoValidPriceRowMaterial(val);
           }
         }
@@ -419,8 +447,6 @@ export default function VF01() {
           updated.isFixedCharge = true;
         }
 
-        // If the rate is manually entered (fixed charge), taxable amount is the rate itself.
-        // Otherwise, it's qty * rate.
         if (updated.isFixedCharge) {
           updated.amount = Number(updated.rate) || 0;
         } else {
@@ -447,6 +473,10 @@ export default function VF01() {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Plant, Invoice Number, Bill to Party and Inventory Type are mandatory", isError: true } }));
       return;
     }
+    if (!billPeriod) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Working Month is mandatory. Please select a month and year.", isError: true } }));
+      return;
+    }
 
     const invalidItem = items.find(item => item.isFixedCharge && (!item.rate || Number(item.rate) <= 0));
     if (invalidItem) {
@@ -466,16 +496,15 @@ export default function VF01() {
 
     setIsProcessing(true);
     try {
-      // Parse the HTML date input value (YYYY-MM-DD) to a Date object
-      const parsedInvoiceDate = parse(invoiceDate, 'yyyy-MM-dd', new Date());
-      if (isNaN(parsedInvoiceDate.getTime())) {
+      const parsedInvoiceDate = parseFlexibleDate(invoiceDate);
+      if (!parsedInvoiceDate) {
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Invalid Invoice Date format. Please use DD-MMM-YYYY.", isError: true } }));
         setIsProcessing(false);
         return;
       }
-      const invoiceDateYYYYMMDD = format(parsedInvoiceDate, 'yyyy-MM-dd'); // Convert to YYYY-MM-DD for internal use
+      const invoiceDateYYYYMMDD = format(parsedInvoiceDate, 'yyyy-MM-dd');
 
-      const d = new Date(invoiceDateYYYYMMDD); // Use the YYYY-MM-DD format for Date object creation
+      const d = parsedInvoiceDate;
       const m = d.getMonth();
       const y = d.getFullYear();
       const fyBase = m >= 3 ? y : y - 1;
@@ -529,7 +558,7 @@ export default function VF01() {
       addDocumentNonBlocking(collection(db, "sales_invoices"), {
         plantId, 
         invoiceNumber: invoiceNo.toUpperCase(),
-        invoiceDate: toSAPDate(invoiceDateYYYYMMDD), // Pass YYYY-MM-DD to toSAPDate
+        invoiceDate: toSAPDate(invoiceDateYYYYMMDD),
         billMonth: billPeriod, 
         billYear, 
         docType, 
@@ -642,13 +671,16 @@ export default function VF01() {
                   {isGeneratingNo && <Loader2 className="absolute right-2 h-3 w-3 animate-spin text-blue-600" />}
                 </div>
               </div>
+
+              {/* Invoice Date Field with DD-MMM-YYYY Format & Keyboard/Picker Input */}
               <div className="sap-selection-row">
                 <label className="sap-label">Invoice Date *</label>
                 <SapDateInput
                   value={invoiceDate}
-                  onChange={setInvoiceDate} // Assuming SapDateInput now handles DD-MMM-YYYY and returns it
-                  className="h-6 border border-gray-400 rounded-none bg-white"
-                /></div>
+                  onChange={setInvoiceDate}
+                  className="h-6 border border-gray-400 rounded-none bg-white font-mono text-xs"
+                />
+              </div>
               
               <div className="sap-selection-row">
                 <label className="sap-label">Bill to Party *</label>
@@ -767,7 +799,7 @@ export default function VF01() {
           {isFetchingOptions && <div className="absolute inset-0 bg-white/60 z-20 flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>}
           <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] flex items-center justify-between">
             <div className="flex items-center gap-4">
-<span className="text-[12px] font-semibold text-gray-700 uppercase">Billing Items</span>
+              <span className="text-[12px] font-semibold text-gray-700 uppercase">Billing Items</span>
               <Dialog open={isColumnDialogOpen} onOpenChange={setIsColumnDialogOpen}>
                 <DialogTrigger asChild><Button variant="outline" size="sm" className="h-5 text-[9px] px-2 rounded-none gap-1" disabled={customHeaders.length >= 3}><Columns className="h-3 w-3" /> Add Column ({customHeaders.length}/3)</Button></DialogTrigger>
                 <DialogContent className="max-w-sm rounded-none border-gray-400 p-0 overflow-hidden shadow-2xl">
@@ -809,7 +841,7 @@ export default function VF01() {
             <TableBody>
               {items.map((row, idx) => (
                 <TableRow key={row.id} className="h-7 hover:bg-blue-50/30">
-<TableCell className="p-0 border-r text-center text-[10px] text-gray-500">{idx + 1}</TableCell>
+                  <TableCell className="p-0 border-r text-center text-[10px] text-gray-500">{idx + 1}</TableCell>
                   <TableCell className="p-0 border-r">
                     <Select value={row.desc} onValueChange={v => updateItem(row.id, 'desc', v)}>
                       <SelectTrigger className="h-full border-none bg-transparent text-xs rounded-none px-2 focus:bg-[#fff9c4] [&>span]:line-clamp-none [&>span]:whitespace-normal">
@@ -817,7 +849,7 @@ export default function VF01() {
                       </SelectTrigger>
                       <SelectContent>
                         {availableOptions.map(opt => (
-                          <SelectItem key={opt.materialCode} value={opt.materialCode}>
+                          <SelectItem key={opt.id} value={opt.id}>
                             {opt.materialName || opt.materialCode}
                           </SelectItem>
                         ))}
@@ -834,8 +866,9 @@ export default function VF01() {
                   ))}
                   <TableCell className="p-0 border-r"><Input className="h-full border-none text-center" value={row.hsn} readOnly /></TableCell>
                   <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none text-center font-bold text-emerald-800" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} /></TableCell>
-                  <TableCell className="p-0 border-r text-center text-[10px]"><Input className="h-full border-none text-center bg-gray-50 text-xs" value={row.uom} readOnly /></TableCell>                  <TableCell className="p-0 border-r text-center font-bold text-[10px] text-purple-700"><Input className="h-full border-none text-center bg-gray-50 text-xs" value={row.gstRate ? `${row.gstRate}%` : "-"} readOnly /></TableCell>
-<TableCell className="p-0 border-r">
+                  <TableCell className="p-0 border-r text-center text-[10px]"><Input className="h-full border-none text-center bg-gray-50 text-xs" value={row.uom} readOnly /></TableCell>
+                  <TableCell className="p-0 border-r text-center font-bold text-[10px] text-purple-700"><Input className="h-full border-none text-center bg-gray-50 text-xs" value={row.gstRate ? `${row.gstRate}%` : "-"} readOnly /></TableCell>
+                  <TableCell className="p-0 border-r">
                     <Input
                       type="number"
                       className={cn("h-full border-none text-center font-bold text-xs", row.isFixedCharge ? "bg-white text-emerald-700" : "bg-gray-100 text-gray-600")}

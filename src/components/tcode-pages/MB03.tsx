@@ -1,53 +1,60 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { format, startOfQuarter } from "date-fns";
+import { format, startOfQuarter, parse, isValid } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useCollection, useMemoDatabase } from "@/database";
 import { collection } from "@/database/mongo";
-import { ArrowUpDown, ChevronUp, ChevronDown, Download, Receipt, Wallet, ArrowRight, MinusCircle, PlusCircle, Eye, X } from "lucide-react";
+import { ArrowUpDown, ChevronUp, ChevronDown, Download, Receipt, Wallet, ArrowRight, MinusCircle, PlusCircle, Eye, X, Calendar as CalendarIcon } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import Image from "next/image";
 import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
 
-// Helper function to safely normalize invoice dates into YYYY-MM-DD for comparison
-const parseInvoiceDateToISO = (dateStr: string): string | null => {
+// Helper function to safely parse dates (DD-MMM-YYYY or ISO) into Date object
+const parseFlexibleDate = (dateStr: string): Date | null => {
   if (!dateStr) return null;
 
-  // Handles YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
-    return dateStr.substring(0, 10);
-  }
+  // Try standard DD-MMM-YYYY (e.g. 10-Jun-2026)
+  let parsed = parse(dateStr, "dd-MMM-yyyy", new Date());
+  if (isValid(parsed)) return parsed;
 
-  // Handles DD-MMM-YYYY (e.g., 01-Jan-2026 or 15-AUG-2026)
-  const monthMap: Record<string, string> = {
-    jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
-    jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
-  };
+  // Try lowercase/uppercase month variation
+  const formattedStr = dateStr.replace(/-([a-zA-Z]{3})-/, (match, p1) => {
+    return `-${p1.charAt(0).toUpperCase()}${p1.slice(1).toLowerCase()}-`;
+  });
+  parsed = parse(formattedStr, "dd-MMM-yyyy", new Date());
+  if (isValid(parsed)) return parsed;
 
-  const parts = dateStr.split(/[-/]/);
-  if (parts.length === 3) {
-    if (parts[0].length === 4) {
-      // YYYY/MM/DD
-      return `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`;
-    }
-    const day = parts[0].padStart(2, "0");
-    const month = monthMap[parts[1].toLowerCase()] || parts[1].padStart(2, "0");
-    const year = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
-    return `${year}-${month}-${day}`;
-  }
+  // Try YYYY-MM-DD
+  parsed = parse(dateStr, "yyyy-MM-dd", new Date());
+  if (isValid(parsed)) return parsed;
 
   return null;
 };
 
+// Formats Date object or string into system standard DD-MMM-YYYY
+const formatSystemDate = (dateVal: Date | string | null): string => {
+  if (!dateVal) return "";
+  if (typeof dateVal === "string") {
+    const d = parseFlexibleDate(dateVal);
+    return d ? format(d, "dd-MMM-yyyy") : dateVal;
+  }
+  return isValid(dateVal) ? format(dateVal, "dd-MMM-yyyy") : "";
+};
+
+// Helper function to safely normalize invoice dates into YYYY-MM-DD for comparison
+const parseInvoiceDateToISO = (dateStr: string): string | null => {
+  if (!dateStr) return null;
+  const parsed = parseFlexibleDate(dateStr);
+  return parsed ? format(parsed, "yyyy-MM-dd") : null;
+};
+
 const normalizeKey = (value: unknown): string => (value ?? "").toString().trim().toUpperCase();
-
-const getInvoiceNumberKey = (invoice: any): string => normalizeKey(invoice?.invoiceNumber || invoice?.invoiceNo || invoice?.invoice || "");
-
-const getInvoicePlantKey = (invoice: any): string => normalizeKey(invoice?.plantId || invoice?.plantCode || invoice?.plant || "");
 
 export default function MB03() {
   // 1. User Context & Permissions
@@ -67,15 +74,18 @@ export default function MB03() {
   const [filterPlant, setFilterPlant] = useState<string[]>(["ALL"]);
   const [filterBillTo, setFilterBillTo] = useState("ALL");
   const [filterConsignor, setFilterConsignor] = useState("ALL");
+
+  // Date states formatted as DD-MMM-YYYY
   const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [toDate, setToDate] = useState(format(new Date(), "dd-MMM-yyyy"));
+  
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
   // 3. Default Date Range: First day of current quarter -> Today
   useEffect(() => {
     const now = new Date();
     const quarterStart = startOfQuarter(now);
-    setFromDate(format(quarterStart, "yyyy-MM-dd"));
+    setFromDate(format(quarterStart, "dd-MMM-yyyy"));
   }, []);
 
   // 4. Master Data Queries
@@ -92,22 +102,22 @@ export default function MB03() {
   const [isInvoicesLoading, setIsInvoicesLoading] = useState(false);
 
   // 5. Derived Logic
-const filteredPlants = useMemo(() => {
+  const filteredPlants = useMemo(() => {
     if (isAdmin) return plants || [];
     return plants?.filter(p => p.plantId === assignedPlantId) || [];
   }, [plants, isAdmin, assignedPlantId]);
 
-  // Customers assigned to the currently selected Plant (Plant-wise master data filter)
+  // Customers assigned to the currently selected Plant
   const filteredCustomers = useMemo(() => {
     if (!customers) return [];
-    if (filterPlant === "ALL") return customers;
+    if (filterPlant.includes("ALL")) return customers;
     return customers.filter(c => filterPlant.some(p => getRecordPlantIds(c).includes(p)));
   }, [customers, filterPlant]);
 
   // Firms/Consignors assigned to the currently selected Plant
   const filteredFirms = useMemo(() => {
     if (!firms) return [];
-    if (filterPlant === "ALL") return firms;
+    if (filterPlant.includes("ALL")) return firms;
     return firms.filter(f => filterPlant.some(p => getRecordPlantIds(f).includes(p)));
   }, [firms, filterPlant]);
 
@@ -153,8 +163,12 @@ const filteredPlants = useMemo(() => {
       try {
         const params = new URLSearchParams();
         if (!filterPlant.includes('ALL')) params.set('plantIds', filterPlant.join(','));
-        if (fromDate) params.set('fromDate', fromDate);
-        if (toDate) params.set('toDate', toDate);
+        
+        const fromISO = parseInvoiceDateToISO(fromDate);
+        const toISO = parseInvoiceDateToISO(toDate);
+
+        if (fromISO) params.set('fromDate', fromISO);
+        if (toISO) params.set('toDate', toISO);
         if (filterBillTo !== 'ALL') params.set('billTo', filterBillTo);
         if (filterConsignor !== 'ALL') params.set('consignor', filterConsignor);
 
@@ -177,12 +191,15 @@ const filteredPlants = useMemo(() => {
   const processedData = useMemo(() => {
     if (!allInvoices) return [];
 
+    const fromISO = parseInvoiceDateToISO(fromDate);
+    const toISO = parseInvoiceDateToISO(toDate);
+
     let base = allInvoices.filter(inv => {
       if (!isAdmin && assignedPlantId && inv.plantId !== assignedPlantId) return false;
       if (inv.status === "Cancelled") return false;
       if (!filterPlant.includes("ALL") && !filterPlant.includes(inv.plantId)) return false;
       
-      // Bill-To Filter Fix
+      // Bill-To Filter
       if (filterBillTo !== "ALL") {
         const billToValues = [
           inv.billTo,
@@ -194,18 +211,18 @@ const filteredPlants = useMemo(() => {
         if (!billToValues.includes(normalizeKey(filterBillTo))) return false;
       }
 
-      // Consignor Filter Fix
+      // Consignor Filter
       if (filterConsignor !== "ALL") {
         const plantsOfConsignor = consignorPlantMap[filterConsignor] || new Set();
         if (!plantsOfConsignor.has(inv.plantId)) return false;
       }
 
       // Safe Date Range Filtering
-      if (fromDate || toDate) {
+      if (fromISO || toISO) {
         const invISO = parseInvoiceDateToISO(inv.invoiceDate);
         if (invISO) {
-          if (fromDate && invISO < fromDate) return false;
-          if (toDate && invISO > toDate) return false;
+          if (fromISO && invISO < fromISO) return false;
+          if (toISO && invISO > toISO) return false;
         }
       }
 
@@ -241,11 +258,12 @@ const filteredPlants = useMemo(() => {
       return {
         ...inv,
         invoiceNumber: inv.invoiceNumber || inv.invoiceNo,
+        invoiceDate: formatSystemDate(inv.invoiceDate),
         receiptAmount: receipt.receiptAmount,
         tdsAmount: receipt.tds,
         deductionAmount: receipt.deduction,
         deductionRemark: receipt.deductionRemark,
-        paymentDate: receipt.paymentDate,
+        paymentDate: formatSystemDate(receipt.paymentDate),
         paymentAdviceNo: receipt.paymentAdviceNo,
         bankingUtr: receipt.bankingUtr,
         proofData: receipt.proofData,
@@ -258,7 +276,7 @@ const filteredPlants = useMemo(() => {
         billToGstin: consignee?.gstin || "N/A",
       };
     });
-  }, [allInvoices, isAdmin, assignedPlantId, filterPlant, filterBillTo, filterConsignor, fromDate, toDate, consignorPlantMap, firmMap, customerMap, normalizeKey]);
+  }, [allInvoices, isAdmin, assignedPlantId, filterPlant, filterBillTo, filterConsignor, fromDate, toDate, consignorPlantMap, firmMap, customerMap]);
 
   // Summary Calculation
   const summary = useMemo(() => {
@@ -360,8 +378,10 @@ const filteredPlants = useMemo(() => {
     <div className="w-full flex flex-col bg-white min-h-full select-text">
       <div className="sap-header-title">MB03 - Payment Record Display</div>
 
-      {/* Filter Section */}
+      {/* Filter Section (Re-ordered: Plant -> Consignor -> Bill-to Party Name -> From Date -> To Date) */}
       <div className="bg-[#e7ebf1] border-b border-[#b5c7de] p-3 grid grid-cols-5 gap-4 items-end">
+        
+        {/* 1. Plant */}
         <div className="space-y-1">
           <label className="text-[10px] font-bold text-gray-500 uppercase">Plant</label>
           <Dialog>
@@ -402,14 +422,35 @@ const filteredPlants = useMemo(() => {
           </Dialog>
         </div>
 
-        {/* Bill To Party Dropdown Fix - Customer Code prioritized */}
+        {/* 2. Consignor (Moved immediately to the left of Bill-to Party Name) */}
         <div className="space-y-1">
-          <label className="text-[10px] font-bold text-gray-500 uppercase">Bill-to Party</label>
+          <label className="text-[10px] font-bold text-gray-500 uppercase">Consignor</label>
+          <Select value={filterConsignor} onValueChange={setFilterConsignor}>
+            <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Consignors</SelectItem>
+              {filteredFirms.map(f => (
+                <SelectItem key={f.id} value={f.firmId || f.consignorCode || f.id}>
+                  {f.name}
+                </SelectItem>
+              ))}
+              {filteredFirms.length === 0 && (
+                <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{NO_MASTER_RECORDS_MESSAGE}</div>
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* 3. Bill-to Party Name */}
+        <div className="space-y-1">
+          <label className="text-[10px] font-bold text-gray-500 uppercase">Bill-to Party Name</label>
           <Select value={filterBillTo} onValueChange={setFilterBillTo}>
             <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
               <SelectValue />
             </SelectTrigger>
-<SelectContent>
+            <SelectContent>
               <SelectItem value="ALL">All Parties</SelectItem>
               {filteredCustomers.map(c => {
                 const code = c.customerId || c.code || c.id;
@@ -426,45 +467,68 @@ const filteredPlants = useMemo(() => {
           </Select>
         </div>
 
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-gray-500 uppercase">Consignor</label>
-          <Select value={filterConsignor} onValueChange={setFilterConsignor}>
-            <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
-              <SelectValue />
-            </SelectTrigger>
-<SelectContent>
-              <SelectItem value="ALL">All Consignors</SelectItem>
-              {filteredFirms.map(f => (
-                <SelectItem key={f.id} value={f.firmId || f.consignorCode || f.id}>
-                  {f.name}
-                </SelectItem>
-              ))}
-              {filteredFirms.length === 0 && (
-                <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{NO_MASTER_RECORDS_MESSAGE}</div>
-              )}
-            </SelectContent>
-          </Select>
-        </div>
-
+        {/* 4. From Date (Manual Entry + Calendar Picker in DD-MMM-YYYY format) */}
         <div className="space-y-1">
           <label className="text-[10px] font-bold text-gray-500 uppercase">From Date</label>
-          <Input
-            type="date"
-            value={fromDate}
-            onChange={e => setFromDate(e.target.value)}
-            className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"
-          />
+          <div className="relative flex items-center">
+            <Input
+              type="text"
+              placeholder="DD-MMM-YYYY"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 pr-7 focus:bg-[#fff9c4] font-mono"
+            />
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" className="h-5 w-5 p-0 absolute right-0.5 hover:bg-transparent text-gray-500">
+                  <CalendarIcon className="h-3.5 w-3.5" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0 rounded-none border-gray-400" align="end">
+                <Calendar
+                  mode="single"
+                  selected={parseFlexibleDate(fromDate) || undefined}
+                  onSelect={(date) => {
+                    if (date) setFromDate(format(date, "dd-MMM-yyyy"));
+                  }}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
 
+        {/* 5. To Date (Manual Entry + Calendar Picker in DD-MMM-YYYY format) */}
         <div className="space-y-1">
           <label className="text-[10px] font-bold text-gray-500 uppercase">To Date</label>
-          <Input
-            type="date"
-            value={toDate}
-            onChange={e => setToDate(e.target.value)}
-            className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"
-          />
+          <div className="relative flex items-center">
+            <Input
+              type="text"
+              placeholder="DD-MMM-YYYY"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 pr-7 focus:bg-[#fff9c4] font-mono"
+            />
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" className="h-5 w-5 p-0 absolute right-0.5 hover:bg-transparent text-gray-500">
+                  <CalendarIcon className="h-3.5 w-3.5" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0 rounded-none border-gray-400" align="end">
+                <Calendar
+                  mode="single"
+                  selected={parseFlexibleDate(toDate) || undefined}
+                  onSelect={(date) => {
+                    if (date) setToDate(format(date, "dd-MMM-yyyy"));
+                  }}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
+
       </div>
 
       {/* Summary Cards */}
@@ -534,7 +598,7 @@ const filteredPlants = useMemo(() => {
 
       {/* ALV Grid */}
       <div className="flex-1 overflow-auto bg-white no-scrollbar">
-<Table className="min-w-[3000px] sap-alv-grid">
+        <Table className="min-w-[3000px] sap-alv-grid">
           <TableHeader className="sap-alv-header">
             <TableRow className="h-8 border-b-[#b5c7de]">
               <TableHead className="w-10 text-center text-[10px] font-bold border-r border-[#b5c7de]">#</TableHead>
@@ -675,7 +739,7 @@ const filteredPlants = useMemo(() => {
           <TableBody>
             {isInvoicesLoading ? (
               <TableRow>
-<TableCell
+                <TableCell
                   colSpan={25}
                   className="text-center py-20 text-[11px] uppercase tracking-widest animate-pulse"
                 >
@@ -706,7 +770,7 @@ const filteredPlants = useMemo(() => {
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono font-black text-blue-800">
                     {row.invoiceNumber}
                   </TableCell>
-<TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">
+                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">
                     {row.invoiceDate}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center text-blue-700">
@@ -727,7 +791,7 @@ const filteredPlants = useMemo(() => {
                     {row.billToCode}
                   </TableCell>
 
-{/* Bill to Party Name cell */}
+                  {/* Bill to Party Name cell */}
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-semibold whitespace-normal">
                     {row.billToName}
                   </TableCell>
@@ -767,7 +831,7 @@ const filteredPlants = useMemo(() => {
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">
                     {row.paymentDate || "-"}
                   </TableCell>
-<TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono whitespace-normal">
+                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono whitespace-normal">
                     {row.bankingUtr || "-"}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">
