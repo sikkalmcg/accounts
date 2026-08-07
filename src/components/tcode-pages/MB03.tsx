@@ -328,8 +328,8 @@ export default function MB03() {
     if (sortedData.length === 0) return;
     const csvContent = [
       [
-        "#", "Plant", "Invoice No", "Invoice Date", "Working Month", "Doc Type", "Inventory Type", "Charge Type",
-        "Bill-to Code", "Bill-to Party Name", "Consignor", "Item Description", "Taxable Amt", "CGST", "SGST", "IGST",
+        "#", "Plant", "Invoice No", "Consignor", "Invoice Date", "Working Month", "Doc Type", "Charge Type",
+         "Bill-to Party Name", "Item Description", "Taxable Amt", "CGST", "SGST", "IGST",
         "Gross Amount", "Receipt Amt", "TDS Amt", "Deduction Amt",
         "Deduction Remark", "Payment Date", "Bank UTR", "Payment Advice", "Balance",
       ].join(","),
@@ -341,9 +341,7 @@ export default function MB03() {
           row.invoiceDate,
           row.billMonth || "",
           row.docType || "",
-          row.inventoryType || "",
           row.docCategory || "",
-          `"${row.billToCode}"`,
           `"${row.billToName}"`,
           `"${row.consignorName}"`,
           `"${row.items?.[0]?.desc || ""}"`,
@@ -626,6 +624,9 @@ export default function MB03() {
                   Inv. Date <SortIcon col="invoiceDate" />
                 </div>
               </TableHead>
+              <TableHead className="w-44 text-[10px] font-bold border-r border-[#b5c7de]">
+                Consignor
+              </TableHead>
               <TableHead
                 onClick={() => handleSort("billMonth")}
                 className="w-32 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"
@@ -638,14 +639,6 @@ export default function MB03() {
                 Doc Type
               </TableHead>
               <TableHead
-                onClick={() => handleSort("inventoryType")}
-                className="w-36 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"
-              >
-                <div className="flex items-center">
-                  Inventory Type <SortIcon col="inventoryType" />
-                </div>
-              </TableHead>
-              <TableHead
                 onClick={() => handleSort("docCategory")}
                 className="w-36 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"
               >
@@ -653,14 +646,8 @@ export default function MB03() {
                   Charge Type <SortIcon col="docCategory" />
                 </div>
               </TableHead>
-              <TableHead className="w-28 text-[10px] font-bold border-r border-[#b5c7de]">
-                Bill-to Code
-              </TableHead>
               <TableHead className="w-52 text-[10px] font-bold border-r border-[#b5c7de]">
                 Bill-to Party Name
-              </TableHead>
-              <TableHead className="w-44 text-[10px] font-bold border-r border-[#b5c7de]">
-                Consignor
               </TableHead>
               <TableHead className="w-48 text-[10px] font-bold border-r border-[#b5c7de]">
                 Item Description
@@ -773,6 +760,9 @@ export default function MB03() {
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">
                     {row.invoiceDate}
                   </TableCell>
+                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 whitespace-normal">
+                    {row.consignorName}
+                  </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center text-blue-700">
                     {row.billMonth || "-"}
                   </TableCell>
@@ -780,25 +770,16 @@ export default function MB03() {
                     {row.docType || "-"}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase text-center">
-                    {row.inventoryType || "-"}
-                  </TableCell>
-                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase text-center">
                     {row.docCategory || "-"}
                   </TableCell>
                   
-                  {/* Bill to Code cell */}
-                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-blue-900 font-bold">
-                    {row.billToCode}
-                  </TableCell>
 
                   {/* Bill to Party Name cell */}
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-semibold whitespace-normal">
                     {row.billToName}
                   </TableCell>
 
-                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 whitespace-normal">
-                    {row.consignorName}
-                  </TableCell>
+                  
 
                   {/* Item Description cell */}
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 whitespace-normal">
