@@ -177,7 +177,7 @@ export default function FB03() {
         row.invoiceDate,
         row.billMonth,
         `"${row.docCategory || ""}"`,
-        `"${row.items?.[0]?.desc || ""}"`,
+        `"${row.items?.[0]?.descName || row.items?.[0]?.desc || ""}"`,
         row.totals?.taxableAmount || 0,
         row.totals?.cgst || 0,
         row.totals?.sgst || 0,
@@ -331,8 +331,10 @@ export default function FB03() {
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase">{row.billMonth}</TableCell>
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 truncate max-w-[150px] uppercase italic text-gray-600">{row.docCategory}</TableCell>
 
-                    {/* Displays Item Name corresponding to the invoice */}
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 truncate max-w-[250px] font-semibold text-blue-900 uppercase">{row.items?.[0]?.desc || "---"}</TableCell>
+                    {/* Displays Item Name corresponding to the invoice (descName prioritized over desc) */}
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 truncate max-w-[250px] font-semibold text-blue-900 uppercase">
+                      {row.items?.[0]?.descName || row.items?.[0]?.desc || "---"}
+                    </TableCell>
 
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono">{(row.totals?.taxableAmount || 0).toLocaleString()}</TableCell>
                     {hasCsgst && (
