@@ -271,7 +271,7 @@ export default function VF01() {
         );
         const snap = await getDocs(q);
 
-        const parsedInvoiceDate = invoiceDate ? parse(invoiceDate, 'dd-MMM-yyyy', new Date()) : null;
+      const parsedInvoiceDate = invoiceDate ? parse(invoiceDate, 'yyyy-MM-dd', new Date()) : null;
         const invoiceTs = parsedInvoiceDate && !isNaN(parsedInvoiceDate.getTime()) ? parsedInvoiceDate.getTime() : null;
         const validDocs = snap.docs.filter(doc => {
           const data = doc.data();
@@ -466,8 +466,8 @@ export default function VF01() {
 
     setIsProcessing(true);
     try {
-      // Parse the displayed DD-MMM-YYYY date to a Date object
-      const parsedInvoiceDate = parse(invoiceDate, 'dd-MMM-yyyy', new Date());
+      // Parse the HTML date input value (YYYY-MM-DD) to a Date object
+      const parsedInvoiceDate = parse(invoiceDate, 'yyyy-MM-dd', new Date());
       if (isNaN(parsedInvoiceDate.getTime())) {
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Invalid Invoice Date format. Please use DD-MMM-YYYY.", isError: true } }));
         setIsProcessing(false);
