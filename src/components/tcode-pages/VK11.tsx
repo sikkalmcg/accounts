@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useDatabase, addDocumentNonBlocking, useCollection, useMemoDatabase } from "@/database";
 import { collection, serverTimestamp } from "@/database/mongo";
+import { format } from "date-fns";
+import { INPUT_DATE_FORMAT, toIsoDate } from "@/lib/date-utils";
 import { Input } from "@/components/ui/input";
 import { SapDateInput } from "@/components/ui/sap-date-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -27,15 +29,10 @@ type RateRow = {
 };
 
 const getDefaultValidFrom = () => {
-  const today = new Date();
-  const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
-  const day = String(today.getDate()).padStart(2, "0");
-  const month = months[today.getMonth()];
-  const year = today.getFullYear();
-  return `${day}-${month}-${year}`;
+  return format(new Date(), INPUT_DATE_FORMAT);
 };
 
-const newRow = (validFrom = getDefaultValidFrom(), validTo = "31-DEC-9999"): RateRow => ({
+const newRow = (validFrom = getDefaultValidFrom(), validTo = "9999-12-31"): RateRow => ({
   id: Math.random().toString(36).substr(2, 9),
   materialCode: "",
   materialName: "",
@@ -81,9 +78,9 @@ export default function VK11() {
     approvalFile: "",
     approvalFileName: "",
     validFrom: getDefaultValidFrom(),
-    validTo: "31-DEC-9999",
+    validTo: "9999-12-31",
   });
-  const [rows, setRows] = useState<RateRow[]>([newRow(getDefaultValidFrom(), "31-DEC-9999")]);
+  const [rows, setRows] = useState<RateRow[]>([newRow(getDefaultValidFrom(), "9999-12-31")]);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -420,8 +417,8 @@ export default function VK11() {
           gstRate: gst || "",
           status: status || "Active",
           price: rate || "",
-          validFrom: validFrom || header.validFrom,
-          validTo: validTo || header.validTo || "31-DEC-9999",
+          validFrom: toIsoDate(validFrom) || header.validFrom,
+          validTo: toIsoDate(validTo) || header.validTo || "9999-12-31",
         };
       }).filter(r => r.materialCode || r.price);
 
@@ -434,8 +431,8 @@ export default function VK11() {
           documentCategory: prev.documentCategory || first[2] || "",
           inventoryType: prev.inventoryType || first[3] || "",
           customerCode: prev.customerCode || first[4] || "",
-          validFrom: first[11] || prev.validFrom || getDefaultValidFrom(),
-          validTo: first[12] || prev.validTo || "31-DEC-9999",
+          validFrom: toIsoDate(first[11]) || prev.validFrom || getDefaultValidFrom(),
+          validTo: toIsoDate(first[12]) || prev.validTo || "9999-12-31",
         }));
         setRows(parsed);
         setErrors({});
@@ -560,7 +557,7 @@ export default function VK11() {
                 <SapDateInput
                   value={header.validFrom}
                   onChange={updateHeaderValidFrom}
-                  placeholder="Valid From"
+                  placeholder="DD-MMM-YYYY"
                 />
               </div>
             </div>
@@ -570,7 +567,7 @@ export default function VK11() {
                 <SapDateInput
                   value={header.validTo}
                   onChange={updateHeaderValidTo}
-                  placeholder="Valid To"
+                  placeholder="DD-MMM-YYYY"
                 />
               </div>
             </div>
@@ -690,7 +687,7 @@ export default function VK11() {
                           className={`h-full border-r-0 focus-within:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
                           value={row.validFrom || ""}
                           onChange={v => updateRow(row.id, "validFrom", v)}
-                          placeholder="From"
+                          placeholder="DD-MMM-YYYY"
                         />
                       </TableCell>
                       <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
@@ -698,7 +695,7 @@ export default function VK11() {
                           className={`h-full border-r-0 focus-within:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
                           value={row.validTo || ""}
                           onChange={v => updateRow(row.id, "validTo", v)}
-                          placeholder="To"
+                          placeholder="DD-MMM-YYYY"
                         />
                       </TableCell>
                       <TableCell className="p-0 text-center">

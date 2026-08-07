@@ -5,7 +5,7 @@ import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking,
 import { collection, query, where, getDocs, orderBy, doc } from "@/database/mongo";
 import { Input } from "@/components/ui/input";
 import { SapDateInput } from "@/components/ui/sap-date-input";
-import { toSAPDate } from "@/lib/date-utils";
+import { toSAPDate, toIsoDate } from "@/lib/date-utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -222,8 +222,8 @@ export default function VK12() {
       hsnSac: record.hsnSac || mat?.hsnSac || "",
       gstRate: record.gstRate !== undefined ? String(record.gstRate) : (mat?.gstRate !== undefined ? String(mat.gstRate) : ""),
       price: record.price !== undefined ? String(record.price) : "",
-      validFrom: record.validFrom || "",
-      validTo: record.validTo || "9999-12-31",
+      validFrom: toIsoDate(record.validFrom) || "",
+      validTo: toIsoDate(record.validTo) || "9999-12-31",
       status: record.status || "Active",
       approvalFile: record.approvalFile || "",
       approvalFileName: record.approvalFileName || "",
@@ -685,9 +685,9 @@ price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? '
                   </div>
                   <div className="sap-selection-row"><label className="sap-label">Validity From/To</label>
                     <div className="sap-input-wrapper gap-2 max-w-md">
-                      <SapDateInput value={editing.validFrom} onChange={v => updateField("validFrom", v)} className="h-6 border border-gray-400 rounded-none bg-white" />
+                      <SapDateInput value={editing.validFrom} onChange={v => updateField("validFrom", v)} className="h-6 border border-gray-400 rounded-none bg-white" placeholder="DD-MMM-YYYY" />
                       <span className="text-gray-400">to</span>
-                      <SapDateInput value={editing.validTo} onChange={v => updateField("validTo", v)} className="h-6 border border-gray-400 rounded-none bg-white" />
+                      <SapDateInput value={editing.validTo} onChange={v => updateField("validTo", v)} className="h-6 border border-gray-400 rounded-none bg-white" placeholder="DD-MMM-YYYY" />
                     </div>
                   </div>
                 </div>
@@ -837,12 +837,12 @@ price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? '
                     </div>
                      <div className="sap-selection-row items-center"><label className="sap-label w-32">Extend Validity From <span className="text-red-500">*</span></label>
                       <div className="sap-input-wrapper max-w-[150px]">
-                        <SapDateInput value={extendForm.newValidFrom} onChange={v => setExtendForm({...extendForm, newValidFrom: v})} className="h-6 border border-gray-400 rounded-none bg-white" />
+                        <SapDateInput value={extendForm.newValidFrom} onChange={v => setExtendForm({...extendForm, newValidFrom: v})} className="h-6 border border-gray-400 rounded-none bg-white" placeholder="DD-MMM-YYYY" />
                       </div>
                     </div>
                      <div className="sap-selection-row items-center"><label className="sap-label w-32">Extend Validity To</label>
                       <div className="sap-input-wrapper max-w-[150px]">
-                        <SapDateInput value={extendForm.newValidTo} onChange={v => setExtendForm({...extendForm, newValidTo: v})} className="h-6 border border-gray-400 rounded-none bg-white" />
+                        <SapDateInput value={extendForm.newValidTo} onChange={v => setExtendForm({...extendForm, newValidTo: v})} className="h-6 border border-gray-400 rounded-none bg-white" placeholder="DD-MMM-YYYY" />
                       </div>
                     </div>
                   </div>

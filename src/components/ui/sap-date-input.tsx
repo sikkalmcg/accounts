@@ -1,85 +1,133 @@
 "use client";
 
-import { forwardRef, useRef } from "react";
+import { forwardRef, useState, useEffect } from "react";
+import { format } from "date-fns";
+import { Calendar as CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toSAPDate } from "@/lib/date-utils";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { toSAPDate, parseSAPDate, toIsoDate, INPUT_DATE_FORMAT } from "@/lib/date-utils";
+
+export interface SapDateInputProps
+  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange" | "onBlur" | "value"> {
+  value?: string; // Expects "yyyy-MM-dd"
+  onChange?: (value: string) => void; // Sends "yyyy-MM-dd"
+  onBlur?: (e: React.FocusEvent<HTMLInputElement>) => void;
+}
 
 /**
  * SapDateInput
  *
- * A SAP-style date input that displays dates in `DD-MMM-YYYY` (e.g. 10-Jun-2026)
- * while keeping the internal value in `YYYY-MM-DD` (the HTML5 input[type=date]
- * requirement), so all existing save/validation/query logic remains unchanged.
- *
- * It renders a formatted text layer on top of an invisible native
- * `<input type="date">`. Clicking anywhere on the field opens the native
- * browser calendar picker.
+ * A SAP-style date input that:
+ *  - Displays dates in `DD-MMM-YYYY` (e.g. 04-Jun-2026)
+ *  - Uses `DD-MMM-YYYY` as the default placeholder
+ *  - Accepts manual keyboard entry in `DD-MMM-YYYY` and validates it strictly
+ *  - Allows calendar selection via the calendar icon / native picker
+ *  - Keeps the internal value in `YYYY-MM-DD` so all existing
+ *    save/validation/query logic remains unchanged.
  */
-export interface SapDateInputProps {
-  value?: string;
-  onChange?: (value: string) => void;
-  disabled?: boolean;
-  readOnly?: boolean;
-  placeholder?: string;
-  min?: string;
-  max?: string;
-  className?: string;
-}
-
 export const SapDateInput = forwardRef<HTMLInputElement, SapDateInputProps>(
-  ({ value = "", onChange, disabled, readOnly, placeholder, min, max, className }, ref) => {
-    const inputRef = useRef<HTMLInputElement | null>(null);
+  ({ className, value, onChange, placeholder, disabled, readOnly, onBlur, ...props }, ref) => {
+    const [displayValue, setDisplayValue] = useState(value ? toSAPDate(value) : "");
+    const [isPickerOpen, setPickerOpen] = useState(false);
+    const [isInvalid, setIsInvalid] = useState(false);
 
-    const display = toSAPDate(value) || placeholder || "DD-MMM-YYYY";
+    // Keep the visible DD-MMM-YYYY value in sync with the controlled ISO value.
+    useEffect(() => {
+      setDisplayValue(value ? toSAPDate(value) : "");
+      if (!value) setIsInvalid(false);
+    }, [value]);
+
+    const handleDateSelect = (date: Date | undefined) => {
+      if (date) {
+        const iso = format(date, INPUT_DATE_FORMAT);
+        setDisplayValue(toSAPDate(iso));
+        setIsInvalid(false);
+        if (onChange) onChange(iso);
+      }
+      setPickerOpen(false);
+    };
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const raw = e.target.value;
+      setDisplayValue(raw);
+
+      // Allow partial input while typing; only validate when a full date is present.
+      if (raw.trim() === "") {
+        setIsInvalid(false);
+        if (onChange) onChange("");
+        return;
+      }
+
+      const iso = toIsoDate(raw);
+      if (iso) {
+        setIsInvalid(false);
+        if (onChange) onChange(iso);
+        setDisplayValue(toSAPDate(iso));
+      } else {
+        // Full-length input that fails validation -> mark invalid.
+        setIsInvalid(raw.trim().length >= 10);
+      }
+    };
+
+    const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+      // On blur, snap back to the last valid value (or clear).
+      setDisplayValue(value ? toSAPDate(value) : "");
+      setIsInvalid(false);
+      onBlur?.(e);
+    };
+
+    const selectedDate = value ? parseSAPDate(toSAPDate(value)) || undefined : undefined;
 
     return (
-      <div
-        className={cn(
-          "relative inline-flex w-full items-center overflow-hidden",
-          disabled && "opacity-60",
-          className
-        )}
-      >
-        {/* Formatted DD-MMM-YYYY text layer */}
-        <div
-          className={cn(
-            "pointer-events-none flex h-full w-full items-center truncate px-2 font-mono text-xs",
-            value ? "text-gray-800" : "text-gray-400"
-          )}
-        >
-          {display}
+      <Popover open={isPickerOpen} onOpenChange={setPickerOpen}>
+        <div className={cn("relative flex items-center w-full", className)}>
+          <Input
+            type="text"
+            ref={ref}
+            value={displayValue}
+            onChange={handleInputChange}
+            onBlur={handleBlur}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder || "DD-MMM-YYYY"}
+            aria-invalid={isInvalid || undefined}
+            className={cn(
+              "pr-10", // Make space for the icon
+              isInvalid && "border-red-500 ring-1 ring-inset ring-red-400 focus-visible:ring-red-400"
+            )}
+            {...props}
+          />
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={disabled || readOnly}
+              className={cn(
+                "absolute right-0 h-full px-3 py-2 text-muted-foreground hover:bg-transparent",
+                isInvalid && "text-red-500"
+              )}
+              aria-label="Open calendar"
+            >
+              <CalendarIcon className="h-4 w-4" />
+            </Button>
+          </PopoverTrigger>
         </div>
-
-        {/* Invisible native date input overlay (opens the calendar picker) */}
-        <input
-          ref={(el) => {
-            inputRef.current = el;
-            if (typeof ref === "function") ref(el);
-            else if (ref) ref.current = el;
-          }}
-          type="date"
-          value={value}
-          min={min}
-          max={max}
-          disabled={disabled}
-          readOnly={readOnly}
-          onChange={(e) => onChange?.(e.target.value)}
-          onClick={() => {
-            // Ensure the picker opens on first click even if value is empty.
-            if (inputRef.current) {
-              try {
-                inputRef.current.showPicker?.();
-              } catch {
-                /* fallback: native input handles it */
-              }
-            }
-          }}
-          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-          aria-label={placeholder || "Date"}
-        />
-      </div>
+        <PopoverContent className="w-auto p-0" align="start">
+          <Calendar
+            mode="single"
+            selected={selectedDate}
+            onSelect={handleDateSelect}
+            initialFocus
+            disabled={(d) => d.getFullYear() > 9999}
+          />
+        </PopoverContent>
+      </Popover>
     );
   }
 );
 
 SapDateInput.displayName = "SapDateInput";
+
