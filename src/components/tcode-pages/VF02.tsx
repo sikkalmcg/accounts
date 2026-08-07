@@ -13,6 +13,7 @@ import { Plus, Trash2, Loader2, Search, FileEdit, Lock, AlertTriangle, Columns, 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { toSAPDate, toInputDate } from "@/lib/date-utils";
+import { SapDateInput } from "@/components/ui/sap-date-input";
 import { getRecordPlantIds } from "@/lib/plant-master";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -21,6 +22,7 @@ import { MonthYearPicker } from "@/components/ui/month-year-picker";
 interface InvoiceItem {
   id: string;
   desc: string;
+  descName?: string;
   activity: string;
   hsn: string;
   qty: string;
@@ -300,12 +302,14 @@ let updated = { ...i, [field]: val };
           const opt = availableOptions.find(o => o.materialCode === val);
           if (opt) {
             const isManualRate = !opt.price || (typeof opt.price === 'number' && opt.price <= 0) || String(opt.price).trim().toUpperCase() === 'FIX';
+            updated.descName = opt.materialName || opt.materialCode;
             updated.hsn = opt.hsn;
             updated.rate = String(opt.price).trim().toUpperCase() === 'FIX' ? '' : String(opt.price);
             updated.uom = opt.uom;
             updated.gstRate = opt.gstRate;
             updated.isFixedCharge = isManualRate;
           } else {
+            updated.descName = val;
             updated.hsn = "";
             updated.rate = "";
             updated.uom = "";
@@ -489,7 +493,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                   </div>
 
                   <div className="sap-selection-row"><label className="sap-label">{docLabels.no}</label><Input value={invoiceNo} disabled className="bg-gray-100" /></div>
-                  <div className="sap-selection-row"><label className="sap-label">Date</label><Input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} disabled={isLockedByTime} /></div>
+                  <div className="sap-selection-row"><label className="sap-label">Date</label><SapDateInput value={invoiceDate} onChange={v => setInvoiceDate(v)} disabled={isLockedByTime} className="h-6 border border-gray-400 rounded-none bg-white" /></div>
                   
                   {/* Bill to Party (renamed from Consignee) */}
                   <div className="sap-selection-row">
@@ -637,9 +641,9 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                   {items.map((row, idx) => (
                     <TableRow key={row.id} className="h-7 hover:bg-blue-50/30">
                       <TableCell className="p-0 text-center text-[10px] text-gray-400">{idx + 1}</TableCell>
-                      <TableCell className="p-0 border-r" >
+<TableCell className="p-0 border-r" >
                         <Select value={row.desc} onValueChange={v => updateItem(row.id, 'desc', v)} disabled={isIrnGenerated}>
-                          <SelectTrigger className="h-full border-none bg-transparent text-xs rounded-none px-2 shadow-none focus:bg-[#fff9c4]"><SelectValue placeholder="" /></SelectTrigger>
+                          <SelectTrigger className="h-full border-none bg-transparent text-xs rounded-none px-2 shadow-none focus:bg-[#fff9c4] [&>span]:line-clamp-none [&>span]:whitespace-normal"><SelectValue>{row.descName || "Select material..."}</SelectValue></SelectTrigger>
 <SelectContent>{availableOptions.map(o => <SelectItem key={o.materialCode} value={o.materialCode}>{o.materialName || o.materialCode}</SelectItem>)}</SelectContent>
                         </Select>
                       </TableCell>

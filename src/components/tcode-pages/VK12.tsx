@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from "@/database";
 import { collection, query, orderBy, doc } from "@/database/mongo";
 import { Input } from "@/components/ui/input";
+import { SapDateInput } from "@/components/ui/sap-date-input";
+import { toSAPDate } from "@/lib/date-utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -472,8 +474,8 @@ price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? '
 <TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-800">
                       {String(r.price).trim().toUpperCase() === 'FIX' ? <span className="text-amber-700">FIX</span> : `INR ${Number(r.price).toLocaleString()}`}
                     </TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{r.validFrom}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{r.validTo}</TableCell>
+<TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{toSAPDate(r.validFrom)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{toSAPDate(r.validTo)}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center">
                   <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] border ${String(r.status).toLowerCase() === 'active' || String(r.status).toLowerCase() === 'approved' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>{r.status || "Active"}</span>
                 </TableCell>
@@ -572,11 +574,11 @@ price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? '
                       </Select>
                     </div>
                   </div>
-                  <div className="sap-selection-row"><label className="sap-label">Validity From/To</label>
+<div className="sap-selection-row"><label className="sap-label">Validity From/To</label>
                     <div className="sap-input-wrapper gap-2 max-w-md">
-                      <Input type="date" value={editing.validFrom} onChange={e => updateField("validFrom", e.target.value)} className="h-6 text-xs rounded-none border-gray-400" />
+                      <SapDateInput value={editing.validFrom} onChange={v => updateField("validFrom", v)} className="h-6 border border-gray-400 rounded-none bg-white" />
                       <span className="text-gray-400">to</span>
-                      <Input type="date" value={editing.validTo} onChange={e => updateField("validTo", e.target.value)} className="h-6 text-xs rounded-none border-gray-400" />
+                      <SapDateInput value={editing.validTo} onChange={v => updateField("validTo", v)} className="h-6 border border-gray-400 rounded-none bg-white" />
                     </div>
                   </div>
                 </div>

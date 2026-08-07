@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useDatabase, addDocumentNonBlocking, useCollection, useMemoDatabase } from "@/database";
 import { collection, serverTimestamp, query, where, getDocs } from "@/database/mongo";
 import { Input } from "@/components/ui/input";
+import { SapDateInput } from "@/components/ui/sap-date-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -72,6 +73,8 @@ export default function VK11() {
     customerCode: "",
     approvalFile: "",
     approvalFileName: "",
+    validFrom: new Date().toISOString().split('T')[0],
+    validTo: "9999-12-31",
   });
   const [rows, setRows] = useState<RateRow[]>([newRow(new Date().toISOString().split('T')[0], "9999-12-31")]);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
@@ -644,21 +647,19 @@ gstRate: gst || "",
                           placeholder="0.00 or FIX"
                         />
                       </TableCell>
-                      <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
-                        <Input
-                          type="date"
-                          className={`h-full border-none shadow-none rounded-none text-xs font-mono focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
+<TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
+                        <SapDateInput
+                          className={`h-full border-r-0 focus-within:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
                           value={row.validFrom || ""}
-                          onChange={e => updateRow(row.id, "validFrom", e.target.value)}
+                          onChange={v => updateRow(row.id, "validFrom", v)}
                           placeholder="From"
                         />
                       </TableCell>
                       <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
-                        <Input
-                          type="date"
-                          className={`h-full border-none shadow-none rounded-none text-xs font-mono focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
+                        <SapDateInput
+                          className={`h-full border-r-0 focus-within:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
                           value={row.validTo || ""}
-                          onChange={e => updateRow(row.id, "validTo", e.target.value)}
+                          onChange={v => updateRow(row.id, "validTo", v)}
                           placeholder="To"
                         />
                       </TableCell>

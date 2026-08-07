@@ -11,10 +11,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Trash2, Loader2, Columns, X, ChevronDown, Search, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toSAPDate } from "@/lib/date-utils";
+import { SapDateInput } from "@/components/ui/sap-date-input";
 import { getRecordPlantIds } from "@/lib/plant-master";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
+import { parse } from "date-fns"; // Added import for parse
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
 interface InvoiceItem {
@@ -115,6 +117,22 @@ export default function VF01() {
     }
   }, []);
 
+  const resetForm = useCallback(() => {
+    // Keep plantId, docType, inventoryType, billPeriod
+    setInvoiceNo("");
+    setInvoiceDate(format(new Date(), 'dd-MMM-yyyy')); // Initialize with DD-MMM-YYYY
+    setBillTo("");
+    setShipTo("");
+    setIsShipToApplicable(false);
+    setTermsAndConditions("");
+    setNote("");
+    setReferenceNo("");
+    setReferenceDocId(null);
+    setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '1', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [], isFixedCharge: false }]);
+    // Re-trigger invoice number generation
+    generateNextInvoiceNo();
+  }, [plantId, docType, db]);
+
   // 3. Dynamic Labels & Config
   const docLabels = useMemo(() => {
     const t = docType?.toUpperCase() || "";
@@ -133,42 +151,43 @@ export default function VF01() {
   const isRCM = billType === "BILL UNDER R.C.M.";
 
   // 4. Auto-Invoice Number Generation
-  useEffect(() => {
-    async function generateNextInvoiceNo() {
-      if (!plantId || !docType) {
-        setInvoiceNo("");
-        return;
-      }
-      setIsGeneratingNo(true);
-      try {
-        const q = query(
-          collection(db, "sales_invoices"),
-          where("plantId", "==", plantId),
-          orderBy("invoiceNumber", "desc"),
-          limit(1)
-        );
-        const snap = await getDocs(q);
-
-        if (snap.empty) {
-          setInvoiceNo(""); 
-        } else {
-          const lastNo = snap.docs[0].data().invoiceNumber;
-          const match = lastNo.match(/(\d+)$/);
-          if (match) {
-            const nextSeq = parseInt(match[0]) + 1;
-            const paddedSeq = nextSeq.toString().padStart(match[0].length, '0');
-            const basePrefix = lastNo.substring(0, lastNo.length - match[0].length);
-            setInvoiceNo(`${basePrefix}${paddedSeq}`);
-          } else {
-            setInvoiceNo("");
-          }
-        }
-      } catch (error) {
-        console.error("Failed to generate sequence", error);
-      } finally {
-        setIsGeneratingNo(false);
-      }
+  const generateNextInvoiceNo = useCallback(async () => {
+    if (!plantId || !docType) {
+      setInvoiceNo("");
+      return;
     }
+    setIsGeneratingNo(true);
+    try {
+      const q = query(
+        collection(db, "sales_invoices"),
+        where("plantId", "==", plantId),
+        orderBy("invoiceNumber", "desc"),
+        limit(1)
+      );
+      const snap = await getDocs(q);
+
+      if (snap.empty) {
+        setInvoiceNo(""); 
+      } else {
+        const lastNo = snap.docs[0].data().invoiceNumber;
+        const match = lastNo.match(/(\d+)$/);
+        if (match) {
+          const nextSeq = parseInt(match[0]) + 1;
+          const paddedSeq = nextSeq.toString().padStart(match[0].length, '0');
+          const basePrefix = lastNo.substring(0, lastNo.length - match[0].length);
+          setInvoiceNo(`${basePrefix}${paddedSeq}`);
+        } else {
+          setInvoiceNo("");
+        }
+      }
+    } catch (error) {
+      console.error("Failed to generate sequence", error);
+    } finally {
+      setIsGeneratingNo(false);
+    }
+  }, [plantId, docType, db]);
+
+  useEffect(() => {
     generateNextInvoiceNo();
   }, [plantId, db, docType]);
 
@@ -252,12 +271,13 @@ export default function VF01() {
         );
         const snap = await getDocs(q);
 
-        const invoiceTs = invoiceDate ? new Date(`${invoiceDate}T00:00:00`).getTime() : null;
+        const parsedInvoiceDate = invoiceDate ? parse(invoiceDate, 'dd-MMM-yyyy', new Date()) : null;
+        const invoiceTs = parsedInvoiceDate && !isNaN(parsedInvoiceDate.getTime()) ? parsedInvoiceDate.getTime() : null;
         const validDocs = snap.docs.filter(doc => {
           const data = doc.data();
           if (!invoiceTs) return true;
-          const from = data.validFrom ? new Date(`${data.validFrom}T00:00:00`).getTime() : -Infinity;
-          const to = data.validTo ? new Date(`${data.validTo}T00:00:00`).getTime() : Infinity;
+          const from = data.validFrom ? parse(data.validFrom, 'yyyy-MM-dd', new Date()).getTime() : -Infinity;
+          const to = data.validTo ? parse(data.validTo, 'yyyy-MM-dd', new Date()).getTime() : Infinity;
           return invoiceTs >= from && invoiceTs <= to;
         });
 
@@ -446,12 +466,20 @@ export default function VF01() {
 
     setIsProcessing(true);
     try {
-      const d = new Date(invoiceDate);
+      // Parse the displayed DD-MMM-YYYY date to a Date object
+      const parsedInvoiceDate = parse(invoiceDate, 'dd-MMM-yyyy', new Date());
+      if (isNaN(parsedInvoiceDate.getTime())) {
+        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Invalid Invoice Date format. Please use DD-MMM-YYYY.", isError: true } }));
+        setIsProcessing(false);
+        return;
+      }
+      const invoiceDateYYYYMMDD = format(parsedInvoiceDate, 'yyyy-MM-dd'); // Convert to YYYY-MM-DD for internal use
+
+      const d = new Date(invoiceDateYYYYMMDD); // Use the YYYY-MM-DD format for Date object creation
       const m = d.getMonth();
       const y = d.getFullYear();
       const fyBase = m >= 3 ? y : y - 1;
       const billYear = `${fyBase}-${(fyBase + 1).toString().slice(-2)}`;
-
       const q = query(
         collection(db, "sales_invoices"), 
         where("invoiceNumber", "==", invoiceNo.toUpperCase()),
@@ -500,8 +528,8 @@ export default function VF01() {
 
       addDocumentNonBlocking(collection(db, "sales_invoices"), {
         plantId, 
-        invoiceNumber: invoiceNo.toUpperCase(), 
-        invoiceDate: toSAPDate(invoiceDate), 
+        invoiceNumber: invoiceNo.toUpperCase(),
+        invoiceDate: toSAPDate(invoiceDateYYYYMMDD), // Pass YYYY-MM-DD to toSAPDate
         billMonth: billPeriod, 
         billYear, 
         docType, 
@@ -521,19 +549,13 @@ export default function VF01() {
       });
 
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `${docLabels.no} ${invoiceNo} posted successfully`, isError: false } }));
-      
-      setInvoiceNo("");
-      setInventoryType("Service Invoice");
-      setReferenceNo("");
-      setReferenceDocId(null);
-      setNote("");
-      setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '1', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [], isFixedCharge: false }]);
+      resetForm();
     } catch (e) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Document posting failed", isError: true } }));
     } finally {
       setIsProcessing(false);
     }
-  }, [db, plantId, invoiceNo, invoiceDate, billPeriod, docType, docCategory, billType, billTo, shipTo, isShipToApplicable, items, totals, customHeaders, note, firms, customers, userName, isCreditNote, referenceNo, referenceDocId, docLabels, consignorId, inventoryType, showVehicleNo]);
+  }, [db, plantId, invoiceNo, invoiceDate, billPeriod, docType, docCategory, billType, billTo, shipTo, isShipToApplicable, items, totals, customHeaders, note, firms, customers, userName, isCreditNote, referenceNo, referenceDocId, docLabels, consignorId, inventoryType, showVehicleNo, resetForm]);
 
   useEffect(() => {
     const onExecute = () => handleExecute();
@@ -620,7 +642,13 @@ export default function VF01() {
                   {isGeneratingNo && <Loader2 className="absolute right-2 h-3 w-3 animate-spin text-blue-600" />}
                 </div>
               </div>
-              <div className="sap-selection-row"><label className="sap-label">Invoice Date *</label><Input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} /></div>
+              <div className="sap-selection-row">
+                <label className="sap-label">Invoice Date *</label>
+                <SapDateInput
+                  value={invoiceDate}
+                  onChange={setInvoiceDate} // Assuming SapDateInput now handles DD-MMM-YYYY and returns it
+                  className="h-6 border border-gray-400 rounded-none bg-white"
+                /></div>
               
               <div className="sap-selection-row">
                 <label className="sap-label">Bill to Party</label>
@@ -781,11 +809,11 @@ export default function VF01() {
             <TableBody>
               {items.map((row, idx) => (
                 <TableRow key={row.id} className="h-7 hover:bg-blue-50/30">
-                  <TableCell className="p-0 border-r text-center text-[10px] text-gray-500">{idx + 1}</TableCell>
+<TableCell className="p-0 border-r text-center text-[10px] text-gray-500">{idx + 1}</TableCell>
                   <TableCell className="p-0 border-r">
                     <Select value={row.desc} onValueChange={v => updateItem(row.id, 'desc', v)}>
-                      <SelectTrigger className="h-full border-none bg-transparent text-xs rounded-none px-2 focus:bg-[#fff9c4]">
-                        <SelectValue placeholder="" />
+                      <SelectTrigger className="h-full border-none bg-transparent text-xs rounded-none px-2 focus:bg-[#fff9c4] [&>span]:line-clamp-none [&>span]:whitespace-normal">
+                        <SelectValue>{row.descName || "Select material..."}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {availableOptions.map(opt => (
@@ -795,11 +823,6 @@ export default function VF01() {
                         ))}
                       </SelectContent>
                     </Select>
-                    {row.descName && (
-                      <div className="px-2 py-0.5 text-[10px] font-semibold text-gray-700 border-t border-dashed border-gray-200 bg-gray-50">
-                        {row.descName}
-                      </div>
-                    )}
                   </TableCell>
                   <TableCell className="p-0 border-r">
                     <Input className="h-full border-none focus:bg-[#fff9c4]" value={row.activity} onChange={e => updateItem(row.id, 'activity', e.target.value)} placeholder="Enter activity..." />

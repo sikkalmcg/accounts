@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import PlantMultiSelect from "./PlantMultiSelect";
+import { toSAPDate } from "@/lib/date-utils";
 import { getCurrentUser, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
 import { downloadCsv } from "@/lib/csv-export";
 
@@ -199,8 +200,8 @@ const pricingQuery = useMemoDatabase(() => query(collection(db, "pricing"), orde
       r.hsnSac || materialMap[r.materialCode?.toUpperCase()]?.hsnSac || "",
       r.gstRate !== undefined ? r.gstRate : (materialMap[r.materialCode?.toUpperCase()]?.gstRate ?? ""),
       r.price !== undefined ? r.price : "",
-      r.validFrom || "",
-      r.validTo || "",
+      toSAPDate(r.validFrom),
+      toSAPDate(r.validTo),
       r.status || "Active",
     ]);
     downloadCsv("VK13", headers, rows);
@@ -301,8 +302,8 @@ const pricingQuery = useMemoDatabase(() => query(collection(db, "pricing"), orde
 <TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-800">
                   {String(r.price).trim().toUpperCase() === 'FIX' ? <span className="text-amber-700">FIX</span> : `INR ${Number(r.price).toLocaleString()}`}
                 </TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{r.validFrom}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{r.validTo}</TableCell>
+<TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{toSAPDate(r.validFrom)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{toSAPDate(r.validTo)}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center">
                   <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] border ${String(r.status).toLowerCase() === 'active' || String(r.status).toLowerCase() === 'approved' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>{r.status || "Active"}</span>
                 </TableCell>

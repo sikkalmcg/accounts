@@ -8,6 +8,22 @@ export const SAP_DATE_FORMAT = "dd-MMM-yyyy";
 export const SAP_MONTH_FORMAT = "MMM-yyyy";
 
 /**
+ * Standard US-style date format for Sikka LMC
+ */
+export const US_DATE_FORMAT = "MM/dd/yyyy";
+
+/**
+ * Converts a Date, ISO string, or epoch number to MM/DD/YYYY (e.g. 08/07/2026).
+ * Returns an empty string for invalid or empty inputs.
+ */
+export const formatDate = (date: Date | string | number): string => {
+  if (!date && date !== 0) return "";
+  const d = typeof date === "string" || typeof date === "number" ? new Date(date) : date;
+  if (!isValid(d)) return "";
+  return format(d, US_DATE_FORMAT);
+};
+
+/**
  * Converts a Date object or ISO string to DD-MMM-YYYY
  */
 export const toSAPDate = (date: Date | string) => {
