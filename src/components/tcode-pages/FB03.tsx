@@ -4,13 +4,22 @@ import { useState, useMemo, useEffect } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDatabase, useCollection, useMemoDatabase } from "@/database";
 import { collection, query, orderBy } from "@/database/mongo";
-import { Search, ArrowUpDown, ChevronUp, ChevronDown, Filter, Printer, Download, LayoutDashboard, Receipt, Wallet, ArrowRight, FileSpreadsheet, MinusCircle, PlusCircle } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ArrowUpDown, ChevronUp, ChevronDown, LayoutDashboard, Receipt, Wallet, ArrowRight, Download, MinusCircle, PlusCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { getFinancialYears, getCurrentFinancialYear } from "@/lib/date-utils";
+import { getFinancialYears } from "@/lib/date-utils";
 import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
 import PlantMultiSelect from "./PlantMultiSelect";
+
+// Helper to calculate current Indian Financial Year (e.g. FY 2024-25) safely
+const getCurrentFY = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth() + 1; // 1 - 12
+  const startYear = month >= 4 ? year : year - 1;
+  const endYear = (startYear + 1).toString().slice(-2);
+  return `FY ${startYear}-${endYear}`;
+};
 
 export default function FB03() {
   const db = useDatabase();
@@ -29,14 +38,20 @@ export default function FB03() {
   }, []);
 
   // 2. Filter State
+  const financialYears = useMemo(() => {
+    try {
+      return getFinancialYears();
+    } catch {
+      return [getCurrentFY()];
+    }
+  }, []);
+
   const [filterPlants, setFilterPlants] = useState<string[]>([]);
   const [filterConsignee, setFilterConsignee] = useState("ALL");
-  const [filterFY, setFilterYear] = useState(getCurrentFinancialYear());
+  const [filterFY, setFilterYear] = useState<string>(() => financialYears[0] || getCurrentFY());
   const [showDetail, setShowDetail] = useState(false);
   const [showAllInvoices, setShowAllInvoices] = useState(false); // Toggle between pending and all invoices
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
-
-  const financialYears = useMemo(() => getFinancialYears(), []);
 
   // 3. Data Fetching
   const invoicesQuery = useMemoDatabase(() => query(collection(db, "sales_invoices"), orderBy("createdAt", "desc")), [db]);
@@ -295,8 +310,6 @@ export default function FB03() {
                   <TableHead onClick={() => handleSort('invoiceDate')} className="w-32 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Inv. Date <SortIcon col="invoiceDate" /></div></TableHead>
                   <TableHead className="w-24 text-[10px] font-bold border-r border-[#b5c7de]">Bill Month</TableHead>
                   <TableHead className="w-40 text-[10px] font-bold border-r border-[#b5c7de]">Charge type</TableHead>
-
-                  {/* Header Title renamed from Description to Item Description */}
                   <TableHead className="text-[10px] font-bold border-r border-[#b5c7de]">Item Description</TableHead>
 
                   <TableHead onClick={() => handleSort('totals.taxableAmount')} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center justify-end">Taxable Amt <SortIcon col="totals.taxableAmount" /></div></TableHead>
@@ -331,7 +344,6 @@ export default function FB03() {
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase">{row.billMonth}</TableCell>
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 truncate max-w-[150px] uppercase italic text-gray-600">{row.docCategory}</TableCell>
 
-                    {/* Displays Item Name corresponding to the invoice (descName prioritized over desc) */}
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 truncate max-w-[250px] font-semibold text-blue-900 uppercase">
                       {row.items?.[0]?.descName || row.items?.[0]?.desc || "---"}
                     </TableCell>

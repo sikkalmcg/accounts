@@ -2,14 +2,14 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useDatabase, addDocumentNonBlocking, useCollection, useMemoDatabase } from "@/database";
-import { collection, serverTimestamp, query, where, getDocs } from "@/database/mongo";
+import { collection, serverTimestamp } from "@/database/mongo";
 import { Input } from "@/components/ui/input";
 import { SapDateInput } from "@/components/ui/sap-date-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2, Loader2, Upload, CheckCircle2, FileText, Eye, X, Download, ExternalLink, FileSpreadsheet, AlertCircle } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Plus, Trash2, Upload, CheckCircle2, FileText, Eye, X, ExternalLink, FileSpreadsheet, AlertCircle } from "lucide-react";
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import PlantMultiSelect from "./PlantMultiSelect";
 import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
 
@@ -26,7 +26,16 @@ type RateRow = {
   validTo: string;
 };
 
-const newRow = (validFrom = "", validTo = "9999-12-31"): RateRow => ({
+const getDefaultValidFrom = () => {
+  const today = new Date();
+  const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const day = String(today.getDate()).padStart(2, "0");
+  const month = months[today.getMonth()];
+  const year = today.getFullYear();
+  return `${day}-${month}-${year}`;
+};
+
+const newRow = (validFrom = getDefaultValidFrom(), validTo = "31-DEC-9999"): RateRow => ({
   id: Math.random().toString(36).substr(2, 9),
   materialCode: "",
   materialName: "",
@@ -44,7 +53,6 @@ const normalize = (v: string) => (v || "").trim().toUpperCase();
 const titleCase = (v: string) =>
   v.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
 
-// De-duplicate case-insensitively while preserving the stored DB value
 const dedupeIgnoreCase = (values: Array<string | undefined>) => {
   const seen = new Set<string>();
   return (values.filter(Boolean) as string[]).filter(v => {
@@ -55,7 +63,6 @@ const dedupeIgnoreCase = (values: Array<string | undefined>) => {
   });
 };
 
-// Helper to extract plant IDs from records safely
 const getRecordPlants = (record: any): string[] => {
   if (Array.isArray(record.plantIds) && record.plantIds.length > 0) {
     return record.plantIds;
@@ -73,10 +80,10 @@ export default function VK11() {
     customerCode: "",
     approvalFile: "",
     approvalFileName: "",
-    validFrom: new Date().toISOString().split('T')[0],
-    validTo: "9999-12-31",
+    validFrom: getDefaultValidFrom(),
+    validTo: "31-DEC-9999",
   });
-  const [rows, setRows] = useState<RateRow[]>([newRow(new Date().toISOString().split('T')[0], "9999-12-31")]);
+  const [rows, setRows] = useState<RateRow[]>([newRow(getDefaultValidFrom(), "31-DEC-9999")]);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -106,8 +113,6 @@ export default function VK11() {
     };
   }, [pdfBlobUrl]);
 
-
-
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
   const { data: plants } = useCollection(plantsQuery);
   const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
@@ -117,7 +122,6 @@ export default function VK11() {
   const billingTypesQuery = useMemoDatabase(() => collection(db, "billing_types"), [db]);
   const { data: billingTypes } = useCollection(billingTypesQuery);
 
-  // Filter billing types matching plantIds array & single plantId
   const filteredBillingTypes = useMemo(() => {
     if (!billingTypes || header.plantIds.length === 0) return [];
     return billingTypes.filter(bt => {
@@ -177,17 +181,25 @@ export default function VK11() {
     return customers?.filter(c => getRecordPlantIds(c).some(p => header.plantIds.includes(p))) || [];
   }, [customers, header.plantIds]);
 
-const updateRow = (id: string, field: keyof RateRow, value: string) => {
+  const updateHeaderValidFrom = (val: string) => {
+    setHeader(prev => ({ ...prev, validFrom: val }));
+    setRows(prev => prev.map(r => ({ ...r, validFrom: val })));
+  };
+
+  const updateHeaderValidTo = (val: string) => {
+    setHeader(prev => ({ ...prev, validTo: val }));
+    setRows(prev => prev.map(r => ({ ...r, validTo: val })));
+  };
+
+  const updateRow = (id: string, field: keyof RateRow, value: string) => {
     setRows(prev => prev.map(r => {
       if (r.id !== id) return r;
       const updated = { ...r, [field]: value };
       if (field === "materialCode") {
-        // Fetch Material Name, HSN/SAC and UOM from MM03 (materials master)
-        // prioritized by the selected Plant(s)
         const matches = (materials ?? []).filter(m =>
           (m.materialCode || "").toUpperCase() === value.toUpperCase() ||
           (m.productName || "").toUpperCase() === value.toUpperCase()
-          && getRecordPlants(m).some(p => header.plantIds.includes(p)) // Filter by selected plant(s)
+          && getRecordPlants(m).some(p => header.plantIds.includes(p))
         );
         const mat = matches.find(m => getRecordPlants(m).some(p => header.plantIds.includes(p)))
           || matches.find(m => !header.plantIds.length)
@@ -200,7 +212,7 @@ const updateRow = (id: string, field: keyof RateRow, value: string) => {
     }));
   };
 
-const addRow = () => setRows(prev => [...prev, newRow(new Date().toISOString().split('T')[0], "9999-12-31")]);
+  const addRow = () => setRows(prev => [...prev, newRow(header.validFrom, header.validTo)]);
 
   const deleteRow = (id: string) => {
     setRows(prev => (prev.length > 1 ? prev.filter(r => r.id !== id) : prev));
@@ -231,11 +243,10 @@ const addRow = () => setRows(prev => [...prev, newRow(new Date().toISOString().s
     reader.readAsDataURL(file);
   };
 
-const validateRows = useCallback(async () => {
+  const validateRows = useCallback(async () => {
     const newErrors: Record<string, string[]> = {};
-    // Combined-key duplicate rule: Same Material Code + Same UOM + Same Basic Rate = Duplicate
     const seenCombos: Record<string, number> = {};
-    const seenMaterialCodes: Record<string, number> = {}; // For material code uniqueness within document
+    const seenMaterialCodes: Record<string, number> = {};
 
     for (let idx = 0; idx < rows.length; idx++) {
       const row = rows[idx];
@@ -259,7 +270,6 @@ const validateRows = useCallback(async () => {
         } else {
           seenMaterialCodes[materialCodeKey] = idx + 1;
         }
-
       }
 
       if (price && isNaN(Number(price)) && price.trim().toUpperCase() !== 'FIX') {
@@ -316,9 +326,9 @@ const validateRows = useCallback(async () => {
             documentType: header.documentType,
             documentCategory: header.documentCategory,
             inventoryType: header.inventoryType,
-price: row.price.trim().toUpperCase() === 'FIX' || !row.price.trim() ? 'FIX' : (Number(row.price) || 0),
+            price: row.price.trim().toUpperCase() === 'FIX' || !row.price.trim() ? 'FIX' : (Number(row.price) || 0),
             gstRate: row.gstRate !== "" ? Number(row.gstRate) : Number((materials?.find(m => (m.materialCode || "").toUpperCase() === row.materialCode.trim().toUpperCase() || (m.productName || "").toUpperCase() === row.materialCode.trim().toUpperCase()))?.gstRate) || 0,
-currency: "INR",
+            currency: "INR",
             validFrom: row.validFrom || header.validFrom,
             validTo: row.validTo || header.validTo,
             approvalFile: header.approvalFile,
@@ -333,13 +343,13 @@ currency: "INR",
       window.dispatchEvent(new CustomEvent('sap-status', {
         detail: { text: `${docs.length} condition record(s) committed successfully across ${header.plantIds.length} plant(s)`, isError: false }
       }));
-setRows([newRow(new Date().toISOString().split('T')[0], "9999-12-31")]);
-setErrors({});
-setHeader(prev => ({
-  ...prev,
-  approvalFile: "",
-  approvalFileName: "",
-}));
+      setRows([newRow(header.validFrom, header.validTo)]);
+      setErrors({});
+      setHeader(prev => ({
+        ...prev,
+        approvalFile: "",
+        approvalFileName: "",
+      }));
       return true;
     } catch (error) {
       window.dispatchEvent(new CustomEvent('sap-status', {
@@ -352,16 +362,24 @@ setHeader(prev => ({
   }, [header, rows, validateRows, db, materials]);
 
   useEffect(() => {
-    const onExecute = () => handleExecute();
-const onCancel = () => {
-      setRows([newRow(header.validFrom, header.validTo)]);
+    const onExecute = () => {
+      handleExecute();
+    };
+
+    const onCancel = () => {
+      setHeader(currentHeader => {
+        setRows([newRow(currentHeader.validFrom, currentHeader.validTo)]);
+        return currentHeader;
+      });
       setErrors({});
     };
-    window.addEventListener('sap-execute', onExecute);
-    window.addEventListener('sap-cancel', onCancel);
+
+    window.addEventListener("sap-execute", onExecute);
+    window.addEventListener("sap-cancel", onCancel);
+
     return () => {
-      window.removeEventListener('sap-execute', onExecute);
-      window.removeEventListener('sap-cancel', onCancel);
+      window.removeEventListener("sap-execute", onExecute);
+      window.removeEventListener("sap-cancel", onCancel);
     };
   }, [handleExecute]);
 
@@ -399,11 +417,11 @@ const onCancel = () => {
           materialName: materialName || "",
           hsnSac: hsnSac || "",
           uom: "",
-gstRate: gst || "",
+          gstRate: gst || "",
           status: status || "Active",
           price: rate || "",
-          validFrom: validFrom || "",
-          validTo: validTo || "9999-12-31",
+          validFrom: validFrom || header.validFrom,
+          validTo: validTo || header.validTo || "31-DEC-9999",
         };
       }).filter(r => r.materialCode || r.price);
 
@@ -416,8 +434,8 @@ gstRate: gst || "",
           documentCategory: prev.documentCategory || first[2] || "",
           inventoryType: prev.inventoryType || first[3] || "",
           customerCode: prev.customerCode || first[4] || "",
-          validFrom: prev.validFrom || first[11] || new Date().toISOString().split('T')[0],
-          validTo: prev.validTo || first[12] || "9999-12-31",
+          validFrom: first[11] || prev.validFrom || getDefaultValidFrom(),
+          validTo: first[12] || prev.validTo || "31-DEC-9999",
         }));
         setRows(parsed);
         setErrors({});
@@ -536,12 +554,33 @@ gstRate: gst || "",
               </div>
             </div>
 
+            <div className="sap-selection-row">
+              <label className="sap-label">Validity From</label>
+              <div className="sap-input-wrapper max-w-[200px]">
+                <SapDateInput
+                  value={header.validFrom}
+                  onChange={updateHeaderValidFrom}
+                  placeholder="Valid From"
+                />
+              </div>
+            </div>
+            <div className="sap-selection-row">
+              <label className="sap-label">Validity To</label>
+              <div className="sap-input-wrapper max-w-[200px]">
+                <SapDateInput
+                  value={header.validTo}
+                  onChange={updateHeaderValidTo}
+                  placeholder="Valid To"
+                />
+              </div>
+            </div>
+
           </div>
         </div>
 
         <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-white">
           <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] flex items-center justify-between">
-<span className="text-[12px] font-semibold text-gray-700">Material & Basic Price Condition</span>
+            <span className="text-[12px] font-semibold text-gray-700">Material & Basic Price Condition</span>
             <Button
               size="sm"
               variant="ghost"
@@ -565,7 +604,7 @@ gstRate: gst || "",
             <Table>
               <TableHeader className="bg-[#e7ebf1]">
                 <TableRow className="h-8">
-<TableHead className="text-[11px] font-bold border-r w-10 text-center">#</TableHead>
+                  <TableHead className="text-[11px] font-bold border-r w-10 text-center">#</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-56">Material Code <span className="text-red-500">*</span></TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-20 text-center">UOM</TableHead>
                   <TableHead className="text-[11px] font-bold border-r">Material Name (auto)</TableHead>
@@ -575,7 +614,6 @@ gstRate: gst || "",
                   <TableHead className="text-[11px] font-bold border-r w-28 text-right">Basic Rate / FIX</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-32">Validity From</TableHead>
                   <TableHead className="text-[11px] font-bold border-r w-32">Validity To</TableHead>
-                  <TableHead className="text-[11px] font-bold border-r w-28 text-center">Status</TableHead>
                   <TableHead className="w-10"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -602,7 +640,7 @@ gstRate: gst || "",
                           placeholder="Auto"
                         />
                       </TableCell>
-<TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
+                      <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
                         <Input
                           className={`h-full border-none shadow-none rounded-none bg-gray-50 font-medium focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
                           value={row.materialName}
@@ -638,7 +676,7 @@ gstRate: gst || "",
                           </SelectContent>
                         </Select>
                       </TableCell>
-<TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
+                      <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
                         <Input
                           type="text"
                           className={`h-full border-none shadow-none rounded-none text-right font-bold text-emerald-700 focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
@@ -647,7 +685,7 @@ gstRate: gst || "",
                           placeholder="0.00 or FIX"
                         />
                       </TableCell>
-<TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
+                      <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
                         <SapDateInput
                           className={`h-full border-r-0 focus-within:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}
                           value={row.validFrom || ""}
