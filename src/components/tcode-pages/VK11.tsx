@@ -592,7 +592,7 @@ export default function VK11() {
             <div className="px-3 py-2 bg-red-50 border-b border-red-200 flex items-center gap-2">
               <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
               <span className="text-[11px] font-bold text-red-700">
-                {totalInvalidRows} row(s) contain validation errors. Correct the highlighted rows before saving.
+                {totalInvalidRows} row(s) contain Validation errors. Correct the highlighted rows before saving.
               </span>
             </div>
           )}
