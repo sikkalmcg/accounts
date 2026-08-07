@@ -3,8 +3,8 @@
 import { useState, useMemo, useEffect } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDatabase, useCollection, useMemoDatabase } from "@/database";
-import { collection, query, orderBy } from "@/database/mongo";
-import { Search, Filter, Download, Printer, ArrowUpDown, ChevronUp, ChevronDown, FileText, Eye, X, ExternalLink, FileDown } from "lucide-react";
+import { collection, query, where, getDocs, orderBy } from "@/database/mongo";
+import { Search, Filter, Download, Printer, ArrowUpDown, ChevronUp, ChevronDown, FileText, Eye, X, ExternalLink, FileDown, History } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,10 @@ export default function VK13() {
   const [selectedPlants, setSelectedPlants] = useState<string[]>([]);
   const [authorizedPlantIds, setAuthorizedPlantIds] = useState<string[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
+
+  const [historyTarget, setHistoryTarget] = useState<any>(null);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [historyRecords, setHistoryRecords] = useState<any[]>([]);
 
   useEffect(() => {
     const { assignedPlantIds, isAdmin } = getCurrentUser();
@@ -53,7 +57,7 @@ export default function VK13() {
     };
   }, [pdfBlobUrl]);
 
-const pricingQuery = useMemoDatabase(() => query(collection(db, "pricing"), orderBy("createdAt", "desc")), [db]);
+  const pricingQuery = useMemoDatabase(() => query(collection(db, "pricing"), orderBy("createdAt", "desc")), [db]);
   const { data: records, isLoading } = useCollection(pricingQuery);
 
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
@@ -143,6 +147,28 @@ const pricingQuery = useMemoDatabase(() => query(collection(db, "pricing"), orde
     setSelectedRecord(record);
     setIsPreviewOpen(true);
   };
+  
+  const handleOpenHistory = async (record: any) => {
+    setHistoryTarget(record);
+    setIsHistoryLoading(true);
+    try {
+      const q = query(
+        collection(db, "pricing"),
+        where("plantId", "==", record.plantId),
+        where("customerCode", "==", record.customerCode),
+        where("materialCode", "==", record.materialCode),
+        orderBy("createdAt", "desc")
+      );
+      const snap = await getDocs(q);
+      setHistoryRecords(snap.docs.map(d => d.data()));
+    } catch (e) {
+      console.error("Failed to fetch history", e);
+      setHistoryRecords([]);
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
 
   const downloadApprovalDoc = () => {
     if (!selectedRecord) return;
@@ -206,6 +232,23 @@ const pricingQuery = useMemoDatabase(() => query(collection(db, "pricing"), orde
     ]);
     downloadCsv("VK13", headers, rows);
   };
+  
+  const handleHistoryExport = () => {
+    if (historyRecords.length === 0) {
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "No history records to export", isError: true }
+      }));
+      return;
+    }
+    const headers = ["Update Date", "Basic Rate", "Validity From", "Validity To"];
+    const rows = historyRecords.map(r => [
+      r.createdAt ? new Date(r.createdAt).toLocaleString() : "",
+      r.price ?? "",
+      toSAPDate(r.validFrom),
+      toSAPDate(r.validTo),
+    ]);
+    downloadCsv(`VK13_History_${historyTarget.materialCode}`, headers, rows);
+  };
 
   return (
     <div className="w-full flex flex-col bg-white min-h-full">
@@ -215,7 +258,7 @@ const pricingQuery = useMemoDatabase(() => query(collection(db, "pricing"), orde
         </h2>
       </div>
 
-<div className="bg-[#e7ebf1] border-b border-[#b5c7de] px-4 py-1 flex flex-wrap items-center justify-between gap-2">
+      <div className="bg-[#e7ebf1] border-b border-[#b5c7de] px-4 py-1 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <label className="text-[11px] font-bold text-gray-600 whitespace-nowrap">Plants</label>
@@ -273,7 +316,7 @@ const pricingQuery = useMemoDatabase(() => query(collection(db, "pricing"), orde
               <TableHead onClick={() => handleSort('validFrom')} className="text-[11px] font-bold border-r w-28 cursor-pointer hover:bg-gray-200">Validity From <SortIcon column="validFrom" /></TableHead>
               <TableHead onClick={() => handleSort('validTo')} className="text-[11px] font-bold border-r w-28 cursor-pointer hover:bg-gray-200">Validity To <SortIcon column="validTo" /></TableHead>
               <TableHead onClick={() => handleSort('status')} className="text-[11px] font-bold border-r w-24 cursor-pointer hover:bg-gray-200">Status <SortIcon column="status" /></TableHead>
-              <TableHead className="text-[11px] font-bold w-24 text-center">Approval</TableHead>
+              <TableHead className="text-[11px] font-bold w-48 text-center">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -299,16 +342,19 @@ const pricingQuery = useMemoDatabase(() => query(collection(db, "pricing"), orde
                 <TableCell className="p-0 px-2 text-[10px] border-r text-gray-700 truncate max-w-[160px]">{materialName}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r font-mono text-center">{hsn}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center font-bold text-gray-500">{gst}%</TableCell>
-<TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-800">
+                <TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-800">
                   {String(r.price).trim().toUpperCase() === 'FIX' ? <span className="text-amber-700">FIX</span> : `INR ${Number(r.price).toLocaleString()}`}
                 </TableCell>
-<TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{toSAPDate(r.validFrom)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{toSAPDate(r.validFrom)}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{toSAPDate(r.validTo)}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center">
                   <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] border ${String(r.status).toLowerCase() === 'active' || String(r.status).toLowerCase() === 'approved' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>{r.status || "Active"}</span>
                 </TableCell>
                 <TableCell className="p-0 border-r text-center px-1">
-                  <Button variant="ghost" onClick={() => handleOpenPreview(r)} className="h-6 w-16 gap-1 text-[9px] font-black uppercase text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-none"><Eye className="h-3 w-3" /> View</Button>
+                  <div className="flex items-center justify-center gap-1">
+                    <Button variant="ghost" onClick={() => handleOpenPreview(r)} className="h-6 w-16 gap-1 text-[9px] font-black uppercase text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-none"><Eye className="h-3 w-3" /> View Doc</Button>
+                    <Button variant="ghost" onClick={() => handleOpenHistory(r)} className="h-6 w-16 gap-1 text-[9px] font-black uppercase text-purple-700 hover:bg-purple-100 border border-purple-200 rounded-none"><History className="h-3 w-3" /> History</Button>
+                  </div>
                 </TableCell>
               </TableRow>
               );
@@ -316,7 +362,8 @@ const pricingQuery = useMemoDatabase(() => query(collection(db, "pricing"), orde
           </TableBody>
         </Table>
       </div>
-
+      
+      {/* Attachment Preview Dialog */}
       <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
         <DialogContent className="max-w-4xl p-0 rounded-none border-gray-400 overflow-hidden shadow-2xl">
           <div className="bg-[#333e4f] text-white p-2 flex justify-between items-center">
@@ -369,6 +416,57 @@ const pricingQuery = useMemoDatabase(() => query(collection(db, "pricing"), orde
               <div className="text-gray-400 font-bold uppercase text-[10px]">No approval document available.</div>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+      
+      {/* History Dialog */}
+      <Dialog open={!!historyTarget} onOpenChange={(open) => { if (!open) setHistoryTarget(null); }}>
+        <DialogContent className="max-w-4xl rounded-none border-gray-400 p-0 overflow-hidden shadow-2xl">
+          <DialogHeader className="bg-purple-800 text-white px-4 py-2 border-b border-purple-900">
+            <DialogTitle className="text-[13px] font-bold uppercase tracking-wider flex justify-between items-center">
+                Rate History
+                <Button variant="ghost" onClick={handleHistoryExport} className="h-7 text-xs gap-2 hover:bg-white/10"><FileDown className="h-4 w-4" /> Export Excel</Button>
+            </DialogTitle>
+          </DialogHeader>
+
+          {historyTarget && <div className="p-4 space-y-4">
+            <div className="border border-purple-200 rounded-sm overflow-hidden bg-purple-50">
+                <div className="bg-purple-100 px-3 py-0.5 border-b border-purple-200 text-[12px] font-semibold text-purple-800">Header Information</div>
+                <div className="p-3 grid grid-cols-3 gap-x-8 gap-y-2 text-xs">
+                    <div className="flex justify-between"><span className="text-gray-500">Plant:</span> <span className="font-bold">{historyTarget.plantId}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Charge Type:</span> <span className="font-bold">{historyTarget.documentCategory}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Material Code:</span> <span className="font-bold">{historyTarget.materialCode}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Material Name:</span> <span className="font-bold max-w-[200px] truncate">{materialMap[historyTarget.materialCode?.toUpperCase()]?.productName}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">GST Rate:</span> <span className="font-bold">{historyTarget.gstRate}%</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">HSN/SAC Code:</span> <span className="font-bold">{historyTarget.hsnSac}</span></div>
+                </div>
+            </div>
+            
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>Update Date</TableHead>
+                        <TableHead>Basic Rate</TableHead>
+                        <TableHead>Validity From</TableHead>
+                        <TableHead>Validity To</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {isHistoryLoading ? (
+                        <TableRow><TableCell colSpan={4} className="text-center">Loading history...</TableCell></TableRow>
+                    ) : (
+                    historyRecords.map(rec => (
+                        <TableRow key={rec.id}>
+                            <TableCell>{rec.createdAt ? new Date(rec.createdAt).toLocaleString() : '-'}</TableCell>
+                            <TableCell>{rec.price}</TableCell>
+                            <TableCell>{toSAPDate(rec.validFrom)}</TableCell>
+                            <TableCell>{toSAPDate(rec.validTo)}</TableCell>
+                        </TableRow>
+                    )))}
+                </TableBody>
+            </Table>
+
+          </div>}
         </DialogContent>
       </Dialog>
 

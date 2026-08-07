@@ -651,7 +651,7 @@ export default function VF01() {
                 /></div>
               
               <div className="sap-selection-row">
-                <label className="sap-label">Bill to Party</label>
+                <label className="sap-label">Bill to Party *</label>
                 <Select value={billTo} onValueChange={v => { setBillTo(v); }}>
                   <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
                   <SelectContent>{filteredCustomers.map(c => <SelectItem key={c.id} value={c.customerId}>{c.customerId} - {c.name}</SelectItem>)}</SelectContent>

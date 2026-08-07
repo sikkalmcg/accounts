@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from "@/database";
-import { collection, query, orderBy, doc } from "@/database/mongo";
+import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking, deleteDocumentNonBlocking, addDocumentNonBlocking } from "@/database";
+import { collection, query, where, getDocs, orderBy, doc } from "@/database/mongo";
 import { Input } from "@/components/ui/input";
 import { SapDateInput } from "@/components/ui/sap-date-input";
 import { toSAPDate } from "@/lib/date-utils";
@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogT
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import PlantMultiSelect from "./PlantMultiSelect";
 import { getCurrentUser, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
+import { format } from 'date-fns';
 
 type EditForm = {
   id: string;
@@ -75,6 +76,11 @@ export default function VK12() {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const [deleting, setDeleting] = useState(false);
+
+  const [extendValidityTarget, setExtendValidityTarget] = useState<any>(null);
+  const [isExtending, setIsExtending] = useState(false);
+  const [extendForm, setExtendForm] = useState({ newBasicRate: "", newValidFrom: "", newValidTo: "" });
+  const [extendFormErrors, setExtendFormErrors] = useState<string[]>([]);
 
   useEffect(() => {
     const { assignedPlantIds, isAdmin } = getCurrentUser();
@@ -336,6 +342,106 @@ price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? '
     }
   };
 
+  const handleExtendSave = async () => {
+    if (!extendValidityTarget) return;
+
+    const { plantId, customerCode, materialCode, documentCategory } = extendValidityTarget;
+    const { newBasicRate, newValidFrom, newValidTo } = extendForm;
+
+    // Validation
+    const errors: string[] = [];
+    const rate = newBasicRate.trim();
+    if (rate.toUpperCase() !== "FIX" && (isNaN(Number(rate)) || Number(rate) <= 0)) {
+        errors.push("New Basic Rate must be a positive number or 'FIX'");
+    }
+    if (!newValidFrom) {
+        errors.push("Extend Validity From date is mandatory.");
+    }
+    if (newValidTo && newValidFrom > newValidTo) {
+        errors.push("Extend Validity To date cannot be before From date.");
+    }
+
+    if (errors.length > 0) {
+        setExtendFormErrors(errors);
+        return;
+    }
+    setExtendFormErrors([]);
+    setIsExtending(true);
+
+    try {
+        // Check for overlapping periods
+        const q = query(
+            collection(db, "pricing"),
+            where("plantId", "==", plantId),
+            where("customerCode", "==", customerCode),
+            where("materialCode", "==", materialCode),
+            where("documentCategory", "==", documentCategory)
+        );
+        const snap = await getDocs(q);
+        const existingPeriods = snap.docs.map(d => d.data());
+
+        const newFrom = new Date(newValidFrom).getTime();
+        const newTo = newValidTo ? new Date(newValidTo).getTime() : new Date("9999-12-31").getTime();
+
+        const overlaps = existingPeriods.some(p => {
+            const pFrom = new Date(p.validFrom).getTime();
+            const pTo = p.validTo ? new Date(p.validTo).getTime() : new Date("9999-12-31").getTime();
+            if (newFrom >= pFrom && newFrom <= pTo) return true;
+            if (newTo >= pFrom && newTo <= pTo) return true;
+            if (newFrom <= pFrom && newTo >= pTo) return true;
+            return false;
+        });
+
+        if (overlaps) {
+            setExtendFormErrors(["The new validity period overlaps with an existing period for this material."]);
+            setIsExtending(false);
+            return;
+        }
+
+        const { userId, username } = getCurrentUserInfo();
+        
+        const { id, ...restOfTarget } = extendValidityTarget;
+
+        const newRecord = {
+            ...restOfTarget,
+            price: rate.toUpperCase() === 'FIX' ? 'FIX' : parseFloat(rate),
+            validFrom: newValidFrom,
+            validTo: newValidTo || "9999-12-31",
+            createdAt: new Date().toISOString(),
+            createdBy: username,
+            modifiedAt: null,
+            modifiedBy: null,
+            status: 'Active',
+        };
+
+        await addDocumentNonBlocking(collection(db, "pricing"), newRecord);
+
+        postAuditLog({
+            userId,
+            username,
+            action: 'EXTEND_PRICING_VALIDITY',
+            settingName: `Pricing Rate ${materialCode} for ${customerCode}`,
+            previousValue: `Rate: ${extendValidityTarget.price}, Valid: ${extendValidityTarget.validFrom} to ${extendValidityTarget.validTo}`,
+            newValue: `Rate: ${newBasicRate}, Valid: ${newValidFrom} to ${newValidTo}`,
+        });
+
+        window.dispatchEvent(new CustomEvent('sap-status', {
+            detail: { text: `Validity extended for ${materialCode}. New record created.`, isError: false }
+        }));
+
+        setExtendValidityTarget(null);
+        setExtendForm({ newBasicRate: "", newValidFrom: "", newValidTo: "" });
+
+    } catch (e) {
+        console.error("Failed to extend validity", e);
+        window.dispatchEvent(new CustomEvent('sap-status', {
+            detail: { text: "Failed to extend validity.", isError: true }
+        }));
+    } finally {
+        setIsExtending(false);
+    }
+  };
+
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -471,10 +577,10 @@ price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? '
                 <TableCell className="p-0 px-2 text-[10px] border-r text-gray-700 truncate max-w-[160px]">{materialName}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r font-mono text-center">{r.hsnSac || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center font-bold text-gray-500">{r.gstRate}%</TableCell>
-<TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-800">
-                      {String(r.price).trim().toUpperCase() === 'FIX' ? <span className="text-amber-700">FIX</span> : `INR ${Number(r.price).toLocaleString()}`}
-                    </TableCell>
-<TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{toSAPDate(r.validFrom)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-800">
+                  {String(r.price).trim().toUpperCase() === 'FIX' ? <span className="text-amber-700">FIX</span> : `INR ${Number(r.price).toLocaleString()}`}
+                </TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{toSAPDate(r.validFrom)}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono text-gray-500">{toSAPDate(r.validTo)}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center">
                   <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[9px] border ${String(r.status).toLowerCase() === 'active' || String(r.status).toLowerCase() === 'approved' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>{r.status || "Active"}</span>
@@ -483,6 +589,9 @@ price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? '
                   <div className="flex items-center justify-center gap-1">
                     <Button size="sm" onClick={() => openEdit(r)} className="h-6 rounded-none px-2 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold gap-1">
                       <Pencil className="h-3 w-3" /> Edit
+                    </Button>
+                    <Button size="sm" onClick={() => setExtendValidityTarget(r)} className="h-6 rounded-none px-2 bg-green-600 hover:bg-green-700 text-white text-[10px] font-bold gap-1">
+                      <ExternalLink className="h-3 w-3" /> Extend
                     </Button>
                     <Button size="sm" variant="destructive" onClick={() => setDeleteTarget(r)} className="h-6 rounded-none px-2 text-[10px] font-bold gap-1">
                       <Trash2 className="h-3 w-3" /> Delete
@@ -574,7 +683,7 @@ price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? '
                       </Select>
                     </div>
                   </div>
-<div className="sap-selection-row"><label className="sap-label">Validity From/To</label>
+                  <div className="sap-selection-row"><label className="sap-label">Validity From/To</label>
                     <div className="sap-input-wrapper gap-2 max-w-md">
                       <SapDateInput value={editing.validFrom} onChange={v => updateField("validFrom", v)} className="h-6 border border-gray-400 rounded-none bg-white" />
                       <span className="text-gray-400">to</span>
@@ -610,7 +719,7 @@ price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? '
                       <Input type="number" value={editing.gstRate} onChange={e => updateField("gstRate", e.target.value)} className="h-6 text-xs rounded-none border-gray-400 text-center" />
                     </div>
                   </div>
-<div className="sap-selection-row"><label className="sap-label">Basic Rate <span className="text-red-500">*</span></label>
+                  <div className="sap-selection-row"><label className="sap-label">Basic Rate <span className="text-red-500">*</span></label>
                     <div className="sap-input-wrapper max-w-[150px]">
                       <Input type="text" value={editing.price} onChange={e => updateField("price", e.target.value.toUpperCase())} placeholder="0.00 or FIX" className="h-6 text-xs rounded-none border-gray-400 text-right font-bold text-emerald-700" />
                     </div>
@@ -676,6 +785,82 @@ price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? '
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      {/* Extend Validity Dialog */}
+      <Dialog open={!!extendValidityTarget} onOpenChange={(open) => { if (!open) setExtendValidityTarget(null); }}>
+        <DialogContent className="max-w-2xl rounded-none border-gray-400 p-0 overflow-hidden shadow-2xl">
+          <DialogHeader className="bg-[#dae8f5] px-4 py-2 border-b border-[#b5c7de]">
+            <DialogTitle className="text-[13px] font-bold text-gray-800 uppercase italic tracking-wider">
+              Extend Validity
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="p-4 space-y-4">
+            {extendFormErrors.length > 0 && (
+              <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-sm flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+                <div className="text-[11px] font-bold text-red-700 space-y-0.5">
+                  {extendFormErrors.map((e, i) => <div key={i}>• {e}</div>)}
+                </div>
+              </div>
+            )}
+
+            {extendValidityTarget && (
+              <>
+                <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-gray-50">
+                  <div className="bg-gray-200 px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">Fixed Header Information</div>
+                  <div className="p-3 grid grid-cols-2 gap-x-8 gap-y-2 text-xs">
+                    <div className="flex justify-between"><span className="text-gray-500">Plant:</span> <span className="font-bold">{extendValidityTarget.plantId}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Charge Type:</span> <span className="font-bold">{extendValidityTarget.documentCategory}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Material Code:</span> <span className="font-bold">{extendValidityTarget.materialCode}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Material Name:</span> <span className="font-bold">{materialMap[extendValidityTarget.materialCode?.toUpperCase()]?.productName}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">GST Rate:</span> <span className="font-bold">{extendValidityTarget.gstRate}%</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">HSN/SAC Code:</span> <span className="font-bold">{extendValidityTarget.hsnSac}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Current Basic Rate:</span> <span className="font-bold text-emerald-700">{extendValidityTarget.price}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Previous Validity:</span> <span className="font-bold">{toSAPDate(extendValidityTarget.validFrom)} - {toSAPDate(extendValidityTarget.validTo)}</span></div>
+                  </div>
+                </div>
+
+                <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
+                  <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">Manual Entry Fields</div>
+                  <div className="p-3 grid grid-cols-1 gap-y-3">
+                    <div className="sap-selection-row items-center"><label className="sap-label w-32">New Basic Rate <span className="text-red-500">*</span></label>
+                      <div className="sap-input-wrapper max-w-[150px]">
+                        <Input 
+                          type="text" 
+                          value={extendForm.newBasicRate}
+                          onChange={e => setExtendForm({...extendForm, newBasicRate: e.target.value.toUpperCase()})}
+                          placeholder="0.00 or FIX" 
+                          className="h-6 text-xs rounded-none border-gray-400 text-right font-bold text-emerald-700"
+                        />
+                      </div>
+                    </div>
+                     <div className="sap-selection-row items-center"><label className="sap-label w-32">Extend Validity From <span className="text-red-500">*</span></label>
+                      <div className="sap-input-wrapper max-w-[150px]">
+                        <SapDateInput value={extendForm.newValidFrom} onChange={v => setExtendForm({...extendForm, newValidFrom: v})} className="h-6 border border-gray-400 rounded-none bg-white" />
+                      </div>
+                    </div>
+                     <div className="sap-selection-row items-center"><label className="sap-label w-32">Extend Validity To</label>
+                      <div className="sap-input-wrapper max-w-[150px]">
+                        <SapDateInput value={extendForm.newValidTo} onChange={v => setExtendForm({...extendForm, newValidTo: v})} className="h-6 border border-gray-400 rounded-none bg-white" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          <DialogFooter className="px-4 py-3 border-t border-[#b5c7de] bg-[#f4f6f9]">
+            <Button variant="outline" onClick={() => setExtendValidityTarget(null)} className="h-7 rounded-none text-[11px] font-bold">Cancel</Button>
+            <Button onClick={handleExtendSave} disabled={isExtending} className="h-7 rounded-none text-[11px] font-bold gap-1.5 bg-green-700 hover:bg-green-800">
+              {isExtending && <Loader2 className="h-3 w-3 animate-spin" />}
+              {isExtending ? "SAVING..." : "Save New Record"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
 
       {/* Delete Warning Confirmation Popup */}
       <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
