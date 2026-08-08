@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2, Loader2, Upload, CheckCircle2, Search, Lock, AlertTriangle } from "lucide-react";
 import { parseGSTIN } from "@/lib/gst-utils";
+import { roundToTwo, formatCurrency } from "@/lib/number-utils";
 
 type ReceiptType = "Payment Receipt" | "Invoice Receipt" | "Stock Receipt";
 
@@ -174,13 +175,13 @@ export default function MIGO() {
         // (interest/excess is captured in the Interest field instead)
         displayString = `₹0.00`;
     } else {
-        displayString = `₹${calculatedRemainingInvoiceBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+        displayString = `₹${formatCurrency(calculatedRemainingInvoiceBalance)}`;
     }
 
     return {
-        actualInterest: calculatedInterest,
-        amountToReduceBalance: calculatedAmountToReduceBalance,
-        remainingInvoiceBalance: calculatedRemainingInvoiceBalance,
+        actualInterest: roundToTwo(calculatedInterest),
+        amountToReduceBalance: roundToTwo(calculatedAmountToReduceBalance),
+        remainingInvoiceBalance: roundToTwo(calculatedRemainingInvoiceBalance),
         balanceDisplayString: displayString
     };
   }, [paymentData.currentOutstandingBalance, paymentData.receiptAmount, paymentData.tds, paymentData.deduction, receiptType]);
@@ -314,7 +315,7 @@ export default function MIGO() {
       if (i.id === id) {
         const updated = { ...i, [field]: val };
         if (field === 'qty' || field === 'rate' || field === 'desc') { // Recalculate if desc changes and rate/qty are already set
-          updated.amount = (Number(updated.qty) || 0) * (Number(updated.rate) || 0);
+          updated.amount = roundToTwo((Number(updated.qty) || 0) * (Number(updated.rate) || 0));
         }
         return updated;
       }
@@ -335,14 +336,14 @@ export default function MIGO() {
     let cgst = 0, sgst = 0, igst = 0;
     if (receiptHeader.documentType === "Tax Invoice") { // Renamed field
       if (isSameState) {
-        cgst = (amount * rate) / 2;
-        sgst = (amount * rate) / 2;
+        cgst = roundToTwo((amount * rate) / 2);
+        sgst = roundToTwo((amount * rate) / 2);
       } else {
-        igst = amount * rate;
+        igst = roundToTwo(amount * rate);
       }
     }
 
-    return { qty, amount, cgst, sgst, igst, total: amount + cgst + sgst + igst, isNonTax: receiptHeader.documentType === "Non-Tax Invoice" }; // Add isNonTax flag
+    return { qty, amount, cgst, sgst, igst, total: roundToTwo(amount + cgst + sgst + igst), isNonTax: receiptHeader.documentType === "Non-Tax Invoice" }; // Add isNonTax flag
   }, [items, receiptHeader, firms]);
 
   const handleExecute = useCallback(() => {

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Search, Loader2, Receipt, RotateCcw, Save, X, History, IndianRupee } from "lucide-react";
+import { formatAmount, sanitizeAmountInput } from "@/lib/number-utils";
 
 const FULLY_PAID_TOLERANCE = 10;
 
@@ -205,8 +206,8 @@ export default function F52() {
             <div className="p-3 grid grid-cols-4 gap-x-6 gap-y-2 text-[11px]">
               <div><label className="text-gray-400 block uppercase font-bold text-[8px]">Invoice No</label><span className="font-black text-blue-700 font-mono">{searchInvoiceNo}</span></div>
               <div><label className="text-gray-400 block uppercase font-bold text-[8px]">Plant</label><span className="font-bold">{searchPlant}</span></div>
-              <div><label className="text-gray-400 block uppercase font-bold text-[8px]">Gross Payable</label><span className="font-black">₹ {grossPayable.toLocaleString()}</span></div>
-              <div><label className="text-gray-400 block uppercase font-bold text-[8px]">Available Balance</label><span className="font-black text-red-700">₹ {availableBalance.toLocaleString()}</span></div>
+              <div><label className="text-gray-400 block uppercase font-bold text-[8px]">Gross Payable</label><span className="font-black">₹ {formatAmount(grossPayable)}</span></div>
+              <div><label className="text-gray-400 block uppercase font-bold text-[8px]">Available Balance</label><span className="font-black text-red-700">₹ {formatAmount(availableBalance)}</span></div>
             </div>
           </div>
 
@@ -234,9 +235,9 @@ export default function F52() {
                   <TableRow key={p.id} className="h-8 hover:bg-blue-50/30 border-b border-gray-100">
                     <TableCell className="p-0 text-center text-[10px] border-r text-gray-400">{idx + 1}</TableCell>
                     <TableCell className="p-0 px-2 text-[10px] border-r font-bold uppercase">{p.paymentType}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-700">₹ {(Number(p.payAmount) || 0).toLocaleString()}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r text-right">₹ {(Number(p.tds) || 0).toLocaleString()}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r text-right">₹ {(Number(p.deduction) || 0).toLocaleString()}</TableCell>
+                    <TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-700">₹ {formatAmount(p.payAmount)}</TableCell>
+                    <TableCell className="p-0 px-2 text-[10px] border-r text-right">₹ {formatAmount(p.tds)}</TableCell>
+                    <TableCell className="p-0 px-2 text-[10px] border-r text-right">₹ {formatAmount(p.deduction)}</TableCell>
                     <TableCell className="p-0 px-2 text-[10px] border-r italic">{p.deductionRemark || "---"}</TableCell>
                     <TableCell className="p-0 px-2 text-[10px] border-r font-mono text-center">{p.paymentDate || "-"}</TableCell>
                     <TableCell className="p-0 px-2 text-[10px] border-r font-mono text-center">{p.bankingUtr || p.voucherNo || "-"}</TableCell>
@@ -449,9 +450,9 @@ function EditPaymentDialog({ payment, invoice, searchPlant, availableBalance, db
               ) : (
                 <div className="sap-selection-row"><label className="sap-label">Voucher No. *</label><Input value={voucherNo} onChange={e => setVoucherNo(e.target.value.toUpperCase())} className="font-mono uppercase h-6 rounded-none border-gray-400 bg-white text-xs px-1.5" /></div>
               )}
-              <div className="sap-selection-row"><label className="sap-label font-bold text-emerald-700">Pay Amount</label><Input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} className="font-bold text-emerald-700 h-6 rounded-none border-gray-400 bg-white text-xs px-1.5" /></div>
-              <div className="sap-selection-row"><label className="sap-label">TDS</label><Input type="number" value={tds} onChange={e => setTds(e.target.value)} className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5" /></div>
-              <div className="sap-selection-row"><label className="sap-label">Deduction</label><Input type="number" value={deduction} onChange={e => setDeduction(e.target.value)} className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5" /></div>
+<div className="sap-selection-row"><label className="sap-label font-bold text-emerald-700">Pay Amount</label><Input type="number" value={payAmount} onChange={e => setPayAmount(sanitizeAmountInput(e.target.value))} className="font-bold text-emerald-700 h-6 rounded-none border-gray-400 bg-white text-xs px-1.5" /></div>
+              <div className="sap-selection-row"><label className="sap-label">TDS</label><Input type="number" value={tds} onChange={e => setTds(sanitizeAmountInput(e.target.value))} className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5" /></div>
+              <div className="sap-selection-row"><label className="sap-label">Deduction</label><Input type="number" value={deduction} onChange={e => setDeduction(sanitizeAmountInput(e.target.value))} className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5" /></div>
               {Number(deduction) > 0 && (
                 <div className="sap-selection-row animate-in fade-in duration-200">
                   <label className="sap-label">Deduction Remark *</label>
@@ -460,7 +461,7 @@ function EditPaymentDialog({ payment, invoice, searchPlant, availableBalance, db
               )}
               <div className="sap-selection-row col-span-2">
                 <label className="sap-label font-bold text-blue-800">Recalculated Balance (Auto)</label>
-                <Input value={`₹ ${recalculatedBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}`} readOnly className="bg-gray-100 text-right font-black text-blue-900 border-blue-300" />
+<Input value={`₹ ${formatAmount(recalculatedBalance)}`} readOnly className="bg-gray-100 text-right font-black text-blue-900 border-blue-300" />
               </div>
             </div>
           </div>

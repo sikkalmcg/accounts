@@ -14,6 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import Image from "next/image";
 import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
+import { formatAmount } from "@/lib/number-utils";
 
 // Helper function to safely parse dates (DD-MMM-YYYY or ISO) into Date object
 const parseFlexibleDate = (dateStr: string): Date | null => {
@@ -537,7 +538,7 @@ export default function MB03() {
           </div>
           <div>
             <p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoice Amount</p>
-            <p className="text-xl font-black text-gray-800 font-mono">₹ {summary.total.toLocaleString()}</p>
+            <p className="text-xl font-black text-gray-800 font-mono">₹ {formatAmount(summary.total)}</p>
           </div>
         </div>
         <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-emerald-300 transition-colors">
@@ -546,7 +547,7 @@ export default function MB03() {
           </div>
           <div>
             <p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Receipt Amount</p>
-            <p className="text-xl font-black text-emerald-700 font-mono">₹ {summary.receipt.toLocaleString()}</p>
+            <p className="text-xl font-black text-emerald-700 font-mono">₹ {formatAmount(summary.receipt)}</p>
           </div>
         </div>
         <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-orange-300 transition-colors">
@@ -555,7 +556,7 @@ export default function MB03() {
           </div>
           <div>
             <p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total TDS Amount</p>
-            <p className="text-xl font-black text-orange-700 font-mono">₹ {summary.tds.toLocaleString()}</p>
+            <p className="text-xl font-black text-orange-700 font-mono">₹ {formatAmount(summary.tds)}</p>
           </div>
         </div>
         <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-purple-300 transition-colors">
@@ -564,7 +565,7 @@ export default function MB03() {
           </div>
           <div>
             <p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Deduction Amount</p>
-            <p className="text-xl font-black text-purple-700 font-mono">₹ {summary.deduction.toLocaleString()}</p>
+            <p className="text-xl font-black text-purple-700 font-mono">₹ {formatAmount(summary.deduction)}</p>
           </div>
         </div>
         <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-red-300 transition-colors">
@@ -573,7 +574,7 @@ export default function MB03() {
           </div>
           <div>
             <p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Balance Amount</p>
-            <p className="text-xl font-black text-red-700 font-mono">₹ {summary.balance.toLocaleString()}</p>
+            <p className="text-xl font-black text-red-700 font-mono">₹ {formatAmount(summary.balance)}</p>
           </div>
         </div>
       </div>
@@ -786,28 +787,28 @@ export default function MB03() {
                     {row.items?.[0]?.desc || "-"}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono">
-                    {(row.totals?.taxableAmount || 0).toLocaleString()}
+                    {formatAmount(row.totals?.taxableAmount)}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">
-                    {(row.totals?.cgst || 0).toLocaleString()}
+                    {formatAmount(row.totals?.cgst)}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">
-                    {(row.totals?.sgst || 0).toLocaleString()}
+                    {formatAmount(row.totals?.sgst)}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">
-                    {(row.totals?.igst || 0).toLocaleString()}
+                    {formatAmount(row.totals?.igst)}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-black text-blue-900 bg-blue-50/20">
-                    {(row.totals?.grossAmount || row.grossAmount || 0).toLocaleString()}
+                    {formatAmount(row.totals?.grossAmount || row.grossAmount)}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-emerald-700 bg-emerald-50/20">
-                    {(row.receiptAmount || 0).toLocaleString()}
+                    {formatAmount(row.receiptAmount)}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-orange-700 bg-orange-50/20">
-                    {(row.tdsAmount || 0).toLocaleString()}
+                    {formatAmount(row.tdsAmount)}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-purple-700 bg-purple-50/20">
-                    {(row.deductionAmount || 0).toLocaleString()}
+                    {formatAmount(row.deductionAmount)}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">
                     {row.paymentDate || "-"}
@@ -866,7 +867,7 @@ export default function MB03() {
                     )}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] text-right font-black text-red-700 bg-red-50/10">
-                    {(row.balanceAmount || 0).toLocaleString()}
+                    {formatAmount(row.balanceAmount)}
                   </TableCell>
                 </TableRow>
               ))
@@ -883,34 +884,34 @@ export default function MB03() {
           <span>Plant: {filterPlant.includes("ALL") ? "All" : filterPlant.join(', ')}</span>
         </div>
         <div className="flex items-center gap-8 pr-4">
-          <div className="flex flex-col items-end">
+<div className="flex flex-col items-end">
             <span className="opacity-50 text-[8px]">Total Gross</span>
             <span className="text-[12px] font-black text-blue-300">
-              ₹ {summary.total.toLocaleString()}
+              ₹ {formatAmount(summary.total)}
             </span>
           </div>
           <div className="flex flex-col items-end border-l border-white/20 pl-6">
             <span className="opacity-50 text-[8px]">Total Receipts</span>
             <span className="text-[12px] font-black text-emerald-400">
-              ₹ {summary.receipt.toLocaleString()}
+              ₹ {formatAmount(summary.receipt)}
             </span>
           </div>
           <div className="flex flex-col items-end border-l border-white/20 pl-6">
             <span className="opacity-50 text-[8px]">TDS</span>
             <span className="text-[12px] font-black text-orange-400">
-              ₹ {summary.tds.toLocaleString()}
+              ₹ {formatAmount(summary.tds)}
             </span>
           </div>
           <div className="flex flex-col items-end border-l border-white/20 pl-6">
             <span className="opacity-50 text-[8px]">Deductions</span>
             <span className="text-[12px] font-black text-purple-400">
-              ₹ {summary.deduction.toLocaleString()}
+              ₹ {formatAmount(summary.deduction)}
             </span>
           </div>
           <div className="flex flex-col items-end border-l border-white/20 pl-6">
             <span className="opacity-50 text-[8px]">Outstanding</span>
             <span className="text-[12px] font-black text-red-400">
-              ₹ {summary.balance.toLocaleString()}
+              ₹ {formatAmount(summary.balance)}
             </span>
           </div>
         </div>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/mongodb';
 import { getFallbackDb } from '@/lib/fallbackDb';
+import { roundObjectNumbers } from '@/lib/number-utils';
 
 const collectionNamePattern = /^[a-zA-Z0-9_-]+$/;
 const serialize = (document: any) => ({ ...document, id: document._id.toString(), _id: undefined });
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ collection: string }> }) {
   const { collection } = await params;
   if (!collectionNamePattern.test(collection)) return NextResponse.json({ error: 'Invalid collection' }, { status: 400 });
-  const payload = await request.json();
+  const payload = roundObjectNumbers(await request.json());
   delete payload.id;
   const document = { ...payload, createdAt: payload.createdAt ?? new Date(), updatedAt: new Date() };
   const result = await (await getDb()).collection(collection).insertOne(document);

@@ -11,8 +11,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import Image from "next/image";
 import { toSAPDate, toInputDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
-import { matchesDateRange, IRNResultGrid, fmtAmountLoc } from "./IRNShared";
+import { matchesDateRange, IRNResultGrid } from "./IRNShared";
 import { getRecordPlantIds } from "@/lib/plant-master";
+import { formatAmount } from "@/lib/number-utils";
 
 export default function IRN02() {
   const db = useDatabase();
@@ -280,11 +281,11 @@ const firm = firms?.find((f) => getRecordPlantIds(f).includes(editingInvoice.pla
               </div>
               <div>
                 <label className="text-gray-500 block uppercase font-bold text-[9px]">Taxable Amount</label>
-                <span className="font-bold">₹ {fmtAmountLoc(totals.taxableAmount)}</span>
+                <span className="font-bold">₹ {formatAmount(totals.taxableAmount)}</span>
               </div>
               <div className="bg-emerald-700 p-1.5 rounded-sm text-white flex justify-between items-center">
                 <span className="uppercase font-bold text-[9px]">Gross Payable</span>
-                <span className="font-black text-[12px]">₹ {fmtAmountLoc(totals.grossAmount)}</span>
+                <span className="font-black text-[12px]">₹ {formatAmount(totals.grossAmount)}</span>
               </div>
             </div>
           </div>

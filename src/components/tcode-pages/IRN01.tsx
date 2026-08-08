@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import Image from "next/image";
 import { toSAPDate } from "@/lib/date-utils";
 import { getRecordPlantIds } from "@/lib/plant-master";
+import { formatAmount } from "@/lib/number-utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { InvoicePreview } from "./VF03";
 
@@ -141,23 +142,23 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(selectedInvoice.plan
               <div className="col-span-2"><label className="text-gray-500 block uppercase font-bold text-[9px]">Description</label><span className="font-bold truncate block">{description}</span></div>
               <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Total Quantity with UOM</label><span className="font-bold">{quantityWithUom}</span></div>
               <div><label className="text-gray-500 block uppercase font-bold text-[9px]">HSN/SAC Code</label><span className="font-bold">{item1.hsn || "N/A"}</span></div>
-              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Taxable Amount</label><span className="font-bold">₹ {totals.taxableAmount?.toLocaleString()}</span></div>
+              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Taxable Amount</label><span className="font-bold">₹ {formatAmount(totals.taxableAmount)}</span></div>
 
               <div><label className="text-gray-500 block uppercase font-bold text-[9px]">GST Rate (%)</label><span className="font-bold">{gstPct.toFixed(2)}</span></div>
               {!isInterstate ? (
                 <>
-                  <div><label className="text-gray-500 block uppercase font-bold text-[9px]">CGST Amount</label><span className="font-bold">₹ {(totals.cgst || 0).toLocaleString()}</span></div>
-                  <div><label className="text-gray-500 block uppercase font-bold text-[9px]">SGST Amount</label><span className="font-bold">₹ {(totals.sgst || 0).toLocaleString()}</span></div>
+                  <div><label className="text-gray-500 block uppercase font-bold text-[9px]">CGST Amount</label><span className="font-bold">₹ {formatAmount(totals.cgst)}</span></div>
+                  <div><label className="text-gray-500 block uppercase font-bold text-[9px]">SGST Amount</label><span className="font-bold">₹ {formatAmount(totals.sgst)}</span></div>
                 </>
               ) : (
                 <>
-                  <div className="col-span-2"><label className="text-gray-500 block uppercase font-bold text-[9px]">IGST Amount</label><span className="font-bold">₹ {(totals.igst || 0).toLocaleString()}</span></div>
+                  <div className="col-span-2"><label className="text-gray-500 block uppercase font-bold text-[9px]">IGST Amount</label><span className="font-bold">₹ {formatAmount(totals.igst)}</span></div>
                 </>
               )}
 
               <div className="bg-emerald-700 p-1.5 rounded-sm text-white col-span-4 flex justify-between items-center mt-2 shadow-sm">
                 <span className="uppercase font-bold text-[9px] tracking-widest">Gross Payable Amount (Final Settlement)</span>
-                <span className="font-black text-[13px]">₹ {selectedInvoice.totals?.grossAmount?.toLocaleString()}</span>
+                <span className="font-black text-[13px]">₹ {formatAmount(selectedInvoice.totals?.grossAmount)}</span>
               </div>
             </div>
           </div>
@@ -239,7 +240,7 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(selectedInvoice.plan
                 <TableCell className="p-0 px-2 text-[11px] border-r text-center">{inv.billYear}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r truncate font-semibold uppercase">{customerMap[inv.shipTo]?.name || customerMap[inv.billTo]?.name || inv.billTo}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r text-center">{customerMap[inv.shipTo]?.stateName || "-"}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] text-right font-black text-emerald-900 pr-6 bg-blue-50/30 group-hover:bg-emerald-50 transition-colors">₹ {inv.totals?.grossAmount?.toLocaleString()}</TableCell>
+<TableCell className="p-0 px-2 text-[11px] text-right font-black text-emerald-900 pr-6 bg-blue-50/30 group-hover:bg-emerald-50 transition-colors">₹ {formatAmount(inv.totals?.grossAmount)}</TableCell>
               </TableRow>
             ))}
           </TableBody>

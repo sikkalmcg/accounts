@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { getRecordPlantIds } from "@/lib/plant-master";
+import { formatAmount, sanitizeAmountInput, roundToTwo } from "@/lib/number-utils";
 
 const FULLY_PAID_TOLERANCE = 10; // ₹10.00 - Balance less than this = Fully Paid
 
@@ -219,12 +220,12 @@ const firmMap = useMemo(() => {
                 <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono font-black text-blue-800">{row.invoiceNo}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">{row.date || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 truncate max-w-[200px] font-semibold text-blue-900 uppercase">{row.items?.[0]?.desc || "---"}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono">{(row.totals?.amount || 0).toLocaleString()}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{(row.totals?.cgst || 0).toLocaleString()}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{(row.totals?.sgst || 0).toLocaleString()}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{(row.totals?.igst || 0).toLocaleString()}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-black text-blue-900 bg-blue-50/20">{(row.grossPayable || 0).toLocaleString()}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-black text-red-700 bg-red-50/10">{(row.balanceAmount || 0).toLocaleString()}</TableCell>
+<TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono">{formatAmount(row.totals?.amount)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{formatAmount(row.totals?.cgst)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{formatAmount(row.totals?.sgst)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{formatAmount(row.totals?.igst)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-black text-blue-900 bg-blue-50/20">{formatAmount(row.grossPayable)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-black text-red-700 bg-red-50/10">{formatAmount(row.balanceAmount)}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-center">
                   {row.isFullyPaid ? (
                     <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase text-gray-400" title="Balance below ₹10.00 - fully paid"><Ban className="h-3 w-3" /> Settled</span>
@@ -252,8 +253,8 @@ const firmMap = useMemo(() => {
           <span>{sortedData.length} Invoice Receipt(s)</span>
         </div>
         <div className="flex items-center gap-8 pr-4">
-          <div className="flex flex-col items-end"><span className="opacity-50 text-[8px]">Total Payable</span><span className="text-[12px] font-black text-blue-300">₹ {sortedData.reduce((s, r) => s + (r.grossPayable || 0), 0).toLocaleString()}</span></div>
-          <div className="flex flex-col items-end border-l border-white/20 pl-6"><span className="opacity-50 text-[8px]">Outstanding</span><span className="text-[12px] font-black text-red-400">₹ {sortedData.reduce((s, r) => s + (r.balanceAmount || 0), 0).toLocaleString()}</span></div>
+          <div className="flex flex-col items-end"><span className="opacity-50 text-[8px]">Total Payable</span><span className="text-[12px] font-black text-blue-300">₹ {formatAmount(sortedData.reduce((s, r) => s + (r.grossPayable || 0), 0))}</span></div>
+          <div className="flex flex-col items-end border-l border-white/20 pl-6"><span className="opacity-50 text-[8px]">Outstanding</span><span className="text-[12px] font-black text-red-400">₹ {formatAmount(sortedData.reduce((s, r) => s + (r.balanceAmount || 0), 0))}</span></div>
         </div>
       </div>
     </div>
@@ -322,7 +323,7 @@ function PayButton({ row, vendorMap, db, isAdmin, assignedPlantId }: { row: any;
       return;
     }
     if (payVal > availableBalance) {
-      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Error: Pay Amount cannot exceed available balance of ₹${availableBalance.toLocaleString()}`, isError: true } }));
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Error: Pay Amount cannot exceed available balance of ₹${formatAmount(availableBalance)}`, isError: true } }));
       return;
     }
     if (computedBalance < -0.01) {
@@ -363,7 +364,7 @@ function PayButton({ row, vendorMap, db, isAdmin, assignedPlantId }: { row: any;
         updatedAt: serverTimestamp(),
       });
 
-      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Outgoing payment of ₹${payVal.toLocaleString()} posted for Invoice ${row.invoiceNo}`, isError: false } }));
+window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Outgoing payment of ₹${formatAmount(payVal)} posted for Invoice ${row.invoiceNo}`, isError: false } }));
       setOpen(false);
     } catch (e) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "System Error: Failed to post outgoing payment", isError: true } }));
@@ -398,12 +399,12 @@ function PayButton({ row, vendorMap, db, isAdmin, assignedPlantId }: { row: any;
               <div className="sap-selection-row"><label className="sap-label">Invoice Number</label><Input value={row.invoiceNo} readOnly className="bg-gray-100 font-mono font-black text-blue-800" /></div>
               <div className="sap-selection-row"><label className="sap-label">Invoice Date</label><Input value={row.date || "-"} readOnly className="bg-gray-100" /></div>
               <div className="sap-selection-row"><label className="sap-label">Vendor Name</label><Input value={row.vendorName} readOnly className="bg-gray-100 font-bold" /></div>
-              <div className="sap-selection-row"><label className="sap-label">Available Balance</label><Input value={`₹ ${availableBalance.toLocaleString()}`} readOnly className="bg-red-50 font-black text-red-700 border-red-200" /></div>
-              <div className="sap-selection-row"><label className="sap-label">Taxable Amount</label><Input value={(row.totals?.amount || 0).toLocaleString()} readOnly className="bg-gray-100 text-right font-mono" /></div>
-              <div className="sap-selection-row"><label className="sap-label">CGST</label><Input value={(row.totals?.cgst || 0).toLocaleString()} readOnly className="bg-gray-100 text-right font-mono" /></div>
-              <div className="sap-selection-row"><label className="sap-label">SGST</label><Input value={(row.totals?.sgst || 0).toLocaleString()} readOnly className="bg-gray-100 text-right font-mono" /></div>
-              <div className="sap-selection-row"><label className="sap-label">IGST</label><Input value={(row.totals?.igst || 0).toLocaleString()} readOnly className="bg-gray-100 text-right font-mono" /></div>
-              <div className="sap-selection-row col-span-2"><label className="sap-label font-bold text-blue-800">Total Payable Amount</label><Input value={gross.toLocaleString()} readOnly className="bg-gray-200 text-right font-black text-blue-900 border-blue-300" /></div>
+<div className="sap-selection-row"><label className="sap-label">Available Balance</label><Input value={`₹ ${formatAmount(availableBalance)}`} readOnly className="bg-red-50 font-black text-red-700 border-red-200" /></div>
+              <div className="sap-selection-row"><label className="sap-label">Taxable Amount</label><Input value={formatAmount(row.totals?.amount)} readOnly className="bg-gray-100 text-right font-mono" /></div>
+              <div className="sap-selection-row"><label className="sap-label">CGST</label><Input value={formatAmount(row.totals?.cgst)} readOnly className="bg-gray-100 text-right font-mono" /></div>
+              <div className="sap-selection-row"><label className="sap-label">SGST</label><Input value={formatAmount(row.totals?.sgst)} readOnly className="bg-gray-100 text-right font-mono" /></div>
+              <div className="sap-selection-row"><label className="sap-label">IGST</label><Input value={formatAmount(row.totals?.igst)} readOnly className="bg-gray-100 text-right font-mono" /></div>
+              <div className="sap-selection-row col-span-2"><label className="sap-label font-bold text-blue-800">Total Payable Amount</label><Input value={formatAmount(gross)} readOnly className="bg-gray-200 text-right font-black text-blue-900 border-blue-300" /></div>
             </div>
           </div>
 
@@ -435,9 +436,9 @@ function PayButton({ row, vendorMap, db, isAdmin, assignedPlantId }: { row: any;
                   <Input value={voucherNo} onChange={e => setVoucherNo(e.target.value.toUpperCase())} className="font-mono uppercase" placeholder="Enter voucher no..." />
                 </div>
               )}
-              <div className="sap-selection-row"><label className="sap-label font-bold text-emerald-700">Pay Amount *</label><Input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} className="font-bold text-emerald-700" placeholder="0.00" /></div>
-              <div className="sap-selection-row"><label className="sap-label">TDS</label><Input type="number" value={tds} onChange={e => setTds(e.target.value)} /></div>
-              <div className="sap-selection-row"><label className="sap-label">Deduction</label><Input type="number" value={deduction} onChange={e => setDeduction(e.target.value)} /></div>
+<div className="sap-selection-row"><label className="sap-label font-bold text-emerald-700">Pay Amount *</label><Input type="number" value={sanitizeAmountInput(payAmount)} onChange={e => setPayAmount(sanitizeAmountInput(e.target.value))} className="font-bold text-emerald-700" placeholder="0.00" /></div>
+              <div className="sap-selection-row"><label className="sap-label">TDS</label><Input type="number" value={sanitizeAmountInput(tds)} onChange={e => setTds(sanitizeAmountInput(e.target.value))} /></div>
+              <div className="sap-selection-row"><label className="sap-label">Deduction</label><Input type="number" value={sanitizeAmountInput(deduction)} onChange={e => setDeduction(sanitizeAmountInput(e.target.value))} /></div>
               {Number(deduction) > 0 && (
                 <div className="sap-selection-row animate-in fade-in duration-200">
                   <label className="sap-label">Deduction Remark *</label>
@@ -447,7 +448,7 @@ function PayButton({ row, vendorMap, db, isAdmin, assignedPlantId }: { row: any;
               <div className="sap-selection-row col-span-2">
                 <label className="sap-label font-bold text-blue-800">Balance Amount (Auto)</label>
                 <div className="flex items-center gap-3">
-                  <Input value={`₹ ${computedBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}`} readOnly className={`bg-gray-100 text-right font-black border ${isFullyPaidAfter ? "text-emerald-700 border-emerald-300 bg-emerald-50" : "text-blue-900 border-blue-300"}`} />
+                  <Input value={`₹ ${formatAmount(computedBalance)}`} readOnly className={`bg-gray-100 text-right font-black border ${isFullyPaidAfter ? "text-emerald-700 border-emerald-300 bg-emerald-50" : "text-blue-900 border-blue-300"}`} />
                   {isFullyPaidAfter && <span className="text-[9px] font-black uppercase text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-sm whitespace-nowrap">Fully Paid</span>}
                 </div>
               </div>

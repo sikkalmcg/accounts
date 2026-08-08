@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import Image from "next/image";
 import { getRecordPlantIds } from "@/lib/plant-master";
+import { formatAmount } from "@/lib/number-utils";
 
 export default function F110() {
   const db = useDatabase();
@@ -194,15 +195,15 @@ const firmMap = useMemo(() => {
                           </div>
                           
                           <div className="grid grid-cols-2 gap-6 border-b border-gray-100 pb-4">
-                            <div><p className="text-[9px] font-bold text-gray-400 uppercase">Receipt Amount</p><p className="text-sm font-black text-gray-800">₹ {Number(inv.receiptData?.receiptAmount || 0).toLocaleString()}</p></div>
-                            <div><p className="text-[9px] font-bold text-gray-400 uppercase">TDS Amount</p><p className="text-sm font-black text-gray-800">₹ {Number(inv.receiptData?.tds || 0).toLocaleString()}</p></div>
-                            <div><p className="text-[9px] font-bold text-gray-400 uppercase">Deduction Amount</p><p className="text-sm font-black text-red-700">₹ {Number(inv.receiptData?.deduction || 0).toLocaleString()}</p></div>
+                            <div><p className="text-[9px] font-bold text-gray-400 uppercase">Receipt Amount</p><p className="text-sm font-black text-gray-800">₹ {formatAmount(inv.receiptData?.receiptAmount)}</p></div>
+                            <div><p className="text-[9px] font-bold text-gray-400 uppercase">TDS Amount</p><p className="text-sm font-black text-gray-800">₹ {formatAmount(inv.receiptData?.tds)}</p></div>
+                            <div><p className="text-[9px] font-bold text-gray-400 uppercase">Deduction Amount</p><p className="text-sm font-black text-red-700">₹ {formatAmount(inv.receiptData?.deduction)}</p></div>
                             {Number(inv.receiptData?.deduction || 0) > 0 && <div><p className="text-[9px] font-bold text-gray-400 uppercase">Deduction Remark</p><p className="text-sm font-bold text-red-700 italic">{inv.receiptData?.deductionRemark || "NOT PROVIDED"}</p></div>}
                           </div>
 
                           <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-sm flex justify-between items-center shadow-sm">
                             <div className="flex items-center gap-3 text-emerald-800 font-black uppercase text-[11px] tracking-tighter"><div className="bg-emerald-600 text-white p-2 rounded-full"><Receipt className="h-5 w-5" /></div> Total Collection Amount</div>
-                            <div className="text-2xl font-black text-emerald-900 font-mono">₹ {(Number(inv.receiptData?.receiptAmount || 0) + Number(inv.receiptData?.tds || 0) + Number(inv.receiptData?.deduction || 0)).toLocaleString()}</div>
+<div className="text-2xl font-black text-emerald-900 font-mono">₹ {formatAmount(Number(inv.receiptData?.receiptAmount || 0) + Number(inv.receiptData?.tds || 0) + Number(inv.receiptData?.deduction || 0))}</div>
                           </div>
 
                           <div className="border border-gray-300 rounded-sm overflow-hidden bg-gray-50">
@@ -239,13 +240,13 @@ const firmMap = useMemo(() => {
                     {inv.items?.[0]?.desc} {inv.items?.length > 1 && `(+ ${inv.items.length - 1} more)`}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r text-center font-mono">{inv.items?.[0]?.hsn}</TableCell>
-                  <TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-gray-700">{(inv.totals?.totalQty || 0).toLocaleString()}</TableCell>
-                  <TableCell className="p-0 px-2 text-[10px] border-r text-right font-mono">{(inv.items?.[0]?.rate || 0).toLocaleString()}</TableCell>
-                  <TableCell className="p-0 px-2 text-[10px] border-r text-right font-mono">{(inv.totals?.taxableAmount || 0).toLocaleString()}</TableCell>
-                  <TableCell className="p-0 px-2 text-[10px] border-r text-right text-gray-500">{inv.isInterstate ? "0.00" : (inv.totals?.cgst || 0).toLocaleString()}</TableCell>
-                  <TableCell className="p-0 px-2 text-[10px] border-r text-right text-gray-500">{inv.isInterstate ? "0.00" : (inv.totals?.sgst || 0).toLocaleString()}</TableCell>
-                  <TableCell className="p-0 px-2 text-[10px] border-r text-right text-gray-500">{inv.isInterstate ? (inv.totals?.igst || 0).toLocaleString() : "0.00"}</TableCell>
-                  <TableCell className="p-0 px-2 text-[10px] text-right font-black text-blue-900 bg-blue-50/10 font-mono">{(inv.totals?.grossAmount || 0).toLocaleString()}</TableCell>
+<TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-gray-700">{(inv.totals?.totalQty || 0).toLocaleString()}</TableCell>
+                  <TableCell className="p-0 px-2 text-[10px] border-r text-right font-mono">{formatAmount(inv.items?.[0]?.rate)}</TableCell>
+                  <TableCell className="p-0 px-2 text-[10px] border-r text-right font-mono">{formatAmount(inv.totals?.taxableAmount)}</TableCell>
+                  <TableCell className="p-0 px-2 text-[10px] border-r text-right text-gray-500">{inv.isInterstate ? "0.00" : formatAmount(inv.totals?.cgst)}</TableCell>
+                  <TableCell className="p-0 px-2 text-[10px] border-r text-right text-gray-500">{inv.isInterstate ? "0.00" : formatAmount(inv.totals?.sgst)}</TableCell>
+                  <TableCell className="p-0 px-2 text-[10px] border-r text-right text-gray-500">{inv.isInterstate ? formatAmount(inv.totals?.igst) : "0.00"}</TableCell>
+                  <TableCell className="p-0 px-2 text-[10px] text-right font-black text-blue-900 bg-blue-50/10 font-mono">{formatAmount(inv.totals?.grossAmount)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

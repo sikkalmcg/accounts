@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { getRecordPlantIds } from "@/lib/plant-master";
+import { formatAmount } from "@/lib/number-utils";
 
 const FULLY_PAID_TOLERANCE = 10;
 
@@ -347,20 +348,20 @@ const firmMap = useMemo(() => {
                 <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono font-black text-blue-800">{row.invoiceNo}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">{row.invoiceDate || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 truncate max-w-[160px] font-semibold text-blue-900 uppercase">{row.description}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono">{(row.taxableAmount || 0).toLocaleString()}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{(row.cgst || 0).toLocaleString()}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{(row.sgst || 0).toLocaleString()}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{(row.igst || 0).toLocaleString()}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-black text-blue-900 bg-blue-50/20">{(row.totalPayable || 0).toLocaleString()}</TableCell>
+<TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono">{formatAmount(row.taxableAmount)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{formatAmount(row.cgst)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{formatAmount(row.sgst)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{formatAmount(row.igst)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-black text-blue-900 bg-blue-50/20">{formatAmount(row.totalPayable)}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-bold uppercase text-center">{row.paymentType || "-"}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-emerald-700 bg-emerald-50/20">{(row.paidAmount || 0).toLocaleString()}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-orange-700">{(row.tds || 0).toLocaleString()}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-purple-700">{(row.deduction || 0).toLocaleString()}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-emerald-700 bg-emerald-50/20">{formatAmount(row.paidAmount)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-orange-700">{formatAmount(row.tds)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-purple-700">{formatAmount(row.deduction)}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 italic truncate max-w-[140px]">{row.deductionRemark || "---"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">{row.paymentDate || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center truncate max-w-[100px]">{row.bankingUtr || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">{row.voucherNo || "-"}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-black text-red-700 bg-red-50/10">{(row.balanceAmount || 0).toLocaleString()}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-black text-red-700 bg-red-50/10">{formatAmount(row.balanceAmount)}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] text-center">
                   <ViewButton row={row} />
                 </TableCell>
@@ -378,9 +379,9 @@ const firmMap = useMemo(() => {
           <span>{sortedData.length} Record(s)</span>
         </div>
         <div className="flex items-center gap-8 pr-4">
-          <div className="flex flex-col items-end"><span className="opacity-50 text-[8px]">Total Payable</span><span className="text-[12px] font-black text-blue-300">₹ {sortedData.reduce((s, r) => s + (r.totalPayable || 0), 0).toLocaleString()}</span></div>
-          <div className="flex flex-col items-end border-l border-white/20 pl-6"><span className="opacity-50 text-[8px]">Total Paid</span><span className="text-[12px] font-black text-emerald-400">₹ {sortedData.reduce((s, r) => s + (r.paidAmount || 0), 0).toLocaleString()}</span></div>
-          <div className="flex flex-col items-end border-l border-white/20 pl-6"><span className="opacity-50 text-[8px]">Outstanding</span><span className="text-[12px] font-black text-red-400">₹ {sortedData.reduce((s, r) => s + (r.balanceAmount || 0), 0).toLocaleString()}</span></div>
+<div className="flex flex-col items-end"><span className="opacity-50 text-[8px]">Total Payable</span><span className="text-[12px] font-black text-blue-300">₹ {formatAmount(sortedData.reduce((s, r) => s + (r.totalPayable || 0), 0))}</span></div>
+          <div className="flex flex-col items-end border-l border-white/20 pl-6"><span className="opacity-50 text-[8px]">Total Paid</span><span className="text-[12px] font-black text-emerald-400">₹ {formatAmount(sortedData.reduce((s, r) => s + (r.paidAmount || 0), 0))}</span></div>
+          <div className="flex flex-col items-end border-l border-white/20 pl-6"><span className="opacity-50 text-[8px]">Outstanding</span><span className="text-[12px] font-black text-red-400">₹ {formatAmount(sortedData.reduce((s, r) => s + (r.balanceAmount || 0), 0))}</span></div>
         </div>
       </div>
     </div>
@@ -413,14 +414,14 @@ function ViewButton({ row }: { row: any }) {
             <div className="p-3 grid grid-cols-4 gap-x-6 gap-y-2 text-[11px]">
               <div><label className="text-gray-400 block uppercase font-bold text-[8px]">Invoice No</label><span className="font-black text-blue-700 font-mono">{row.invoiceNo}</span></div>
               <div><label className="text-gray-400 block uppercase font-bold text-[8px]">Vendor</label><span className="font-bold uppercase truncate">{row.vendorName}</span></div>
-              <div><label className="text-gray-400 block uppercase font-bold text-[8px]">Total Payable</label><span className="font-black">₹ {(row.totalPayable || 0).toLocaleString()}</span></div>
-              <div><label className="text-gray-400 block uppercase font-bold text-[8px]">Available Balance</label><span className={`font-black ${row.balanceAmount < FULLY_PAID_TOLERANCE ? "text-emerald-700" : "text-red-700"}`}>₹ {(row.balanceAmount || 0).toLocaleString()}</span></div>
+              <div><label className="text-gray-400 block uppercase font-bold text-[8px]">Total Payable</label><span className="font-black">₹ {formatAmount(row.totalPayable)}</span></div>
+              <div><label className="text-gray-400 block uppercase font-bold text-[8px]">Available Balance</label><span className={`font-black ${row.balanceAmount < FULLY_PAID_TOLERANCE ? "text-emerald-700" : "text-red-700"}`}>₹ {formatAmount(row.balanceAmount)}</span></div>
             </div>
             <div className="px-3 pb-3 grid grid-cols-4 gap-x-6 gap-y-1 text-[11px] border-t border-gray-100 pt-2">
-              <div><label className="text-gray-400 block uppercase font-bold text-[8px]">Taxable</label><span className="font-mono">₹ {(row.taxableAmount || 0).toLocaleString()}</span></div>
-              <div><label className="text-gray-400 block uppercase font-bold text-[8px]">CGST</label><span className="font-mono">₹ {(row.cgst || 0).toLocaleString()}</span></div>
-              <div><label className="text-gray-400 block uppercase font-bold text-[8px]">SGST</label><span className="font-mono">₹ {(row.sgst || 0).toLocaleString()}</span></div>
-              <div><label className="text-gray-400 block uppercase font-bold text-[8px]">IGST</label><span className="font-mono">₹ {(row.igst || 0).toLocaleString()}</span></div>
+              <div><label className="text-gray-400 block uppercase font-bold text-[8px]">Taxable</label><span className="font-mono">₹ {formatAmount(row.taxableAmount)}</span></div>
+              <div><label className="text-gray-400 block uppercase font-bold text-[8px]">CGST</label><span className="font-mono">₹ {formatAmount(row.cgst)}</span></div>
+              <div><label className="text-gray-400 block uppercase font-bold text-[8px]">SGST</label><span className="font-mono">₹ {formatAmount(row.sgst)}</span></div>
+              <div><label className="text-gray-400 block uppercase font-bold text-[8px]">IGST</label><span className="font-mono">₹ {formatAmount(row.igst)}</span></div>
             </div>
           </div>
 
@@ -451,9 +452,9 @@ function ViewButton({ row }: { row: any }) {
                     <TableRow key={p.id || idx} className="h-8 hover:bg-blue-50/30 border-b border-gray-100">
                       <TableCell className="p-0 text-center text-[10px] border-r text-gray-400">{idx + 1}</TableCell>
                       <TableCell className="p-0 px-2 text-[10px] border-r font-bold uppercase">{p.paymentType}</TableCell>
-                      <TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-700">₹ {(Number(p.payAmount) || 0).toLocaleString()}</TableCell>
-                      <TableCell className="p-0 px-2 text-[10px] border-r text-right">₹ {(Number(p.tds) || 0).toLocaleString()}</TableCell>
-                      <TableCell className="p-0 px-2 text-[10px] border-r text-right">₹ {(Number(p.deduction) || 0).toLocaleString()}</TableCell>
+<TableCell className="p-0 px-2 text-[10px] border-r text-right font-bold text-emerald-700">₹ {formatAmount(p.payAmount)}</TableCell>
+                      <TableCell className="p-0 px-2 text-[10px] border-r text-right">₹ {formatAmount(p.tds)}</TableCell>
+                      <TableCell className="p-0 px-2 text-[10px] border-r text-right">₹ {formatAmount(p.deduction)}</TableCell>
                       <TableCell className="p-0 px-2 text-[10px] border-r italic">{p.deductionRemark || "---"}</TableCell>
                       <TableCell className="p-0 px-2 text-[10px] border-r font-mono text-center">{p.paymentDate || "-"}</TableCell>
                       <TableCell className="p-0 px-2 text-[10px] border-r font-mono text-center truncate max-w-[100px]">{p.bankingUtr || "-"}</TableCell>
@@ -473,7 +474,7 @@ function ViewButton({ row }: { row: any }) {
               </div>
               <div>
                 <p className="text-[9px] font-black uppercase text-gray-500">Current Available Balance</p>
-                <p className={`text-lg font-black ${row.balanceAmount < FULLY_PAID_TOLERANCE ? "text-emerald-800" : "text-red-800"}`}>₹ {(row.balanceAmount || 0).toLocaleString()}</p>
+                <p className={`text-lg font-black ${row.balanceAmount < FULLY_PAID_TOLERANCE ? "text-emerald-800" : "text-red-800"}`}>₹ {formatAmount(row.balanceAmount)}</p>
               </div>
             </div>
             {row.balanceAmount < FULLY_PAID_TOLERANCE && (

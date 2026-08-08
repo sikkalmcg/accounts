@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ObjectId } from 'mongodb';
 import { getDb } from '@/lib/mongodb';
 import { getFallbackDb } from '@/lib/fallbackDb';
+import { roundObjectNumbers } from '@/lib/number-utils';
 
 const valid = (value: string) => /^[a-zA-Z0-9_-]+$/.test(value);
 const idFilter = (id: string) => ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { id };
@@ -9,7 +10,9 @@ const idFilter = (id: string) => ObjectId.isValid(id) ? { _id: new ObjectId(id) 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ collection: string; id: string }> }) {
   const { collection, id } = await params;
   if (!valid(collection)) return NextResponse.json({ error: 'Invalid collection' }, { status: 400 });
-  const data = await request.json(); delete data.id; delete data._id;
+  const data = roundObjectNumbers(await request.json());
+  delete data.id;
+  delete data._id;
   let db;
   try {
     db = await getDb();
@@ -25,7 +28,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ collection: string; id: string }> }) {
   const { collection, id } = await params;
   if (!valid(collection)) return NextResponse.json({ error: 'Invalid collection' }, { status: 400 });
-  const data = await request.json();
+  const data = roundObjectNumbers(await request.json());
   delete data.id;
   delete data._id;
   delete data.createdAt;

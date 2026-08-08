@@ -18,6 +18,7 @@ import { getRecordPlantIds } from "@/lib/plant-master";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
+import { formatAmount, roundToTwo, sanitizeAmountInput } from "@/lib/number-utils";
 
 interface InvoiceItem {
   id: string;
@@ -245,12 +246,12 @@ const options: PricingOption[] = snap.docs.map(doc => {
     }
   };
 
-  const totals = useMemo(() => {
-    const taxableAmount = items.reduce((acc, i) => acc + (i.amount || 0), 0);
+const totals = useMemo(() => {
+    const taxableAmount = roundToTwo(items.reduce((acc, i) => acc + (i.amount || 0), 0));
     const totalQty = items.reduce((acc, i) => acc + (Number(i.qty) || 0), 0);
     
     if (isNonTax) {
-      return { taxableAmount, totalQty, cgst: 0, sgst: 0, igst: 0, grossAmount: taxableAmount, isInterstate: false, avgGst: 0 };
+      return { taxableAmount, totalQty, cgst: 0, sgst: 0, igst: 0, grossAmount: roundToTwo(taxableAmount), isInterstate: false, avgGst: 0 };
     }
 
 const selectedFirm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
@@ -275,13 +276,13 @@ const selectedFirm = firms?.find(f => getRecordPlantIds(f).includes(plantId));
       }
     });
 
-    return { 
+return { 
       taxableAmount, 
       totalQty, 
-      cgst, 
-      sgst, 
-      igst, 
-      grossAmount: taxableAmount + cgst + sgst + igst,
+      cgst: roundToTwo(cgst), 
+      sgst: roundToTwo(sgst), 
+      igst: roundToTwo(igst), 
+      grossAmount: roundToTwo(taxableAmount + cgst + sgst + igst),
       isInterstate,
       avgGst: totalGstPercent
     };
@@ -318,14 +319,16 @@ let updated = { ...i, [field]: val };
           }
         }
         if (field === 'rate') {
+          // Restrict manual rate entry to a maximum of 2 decimal places
+          updated.rate = sanitizeAmountInput(val);
           updated.isFixedCharge = true;
         }
         // If the rate is manually entered (fixed charge), taxable amount is the rate itself.
         // Otherwise, it's qty * rate.
         if (updated.isFixedCharge) {
-          updated.amount = Number(updated.rate) || 0;
+          updated.amount = roundToTwo(Number(updated.rate) || 0);
         } else {
-          updated.amount = (Number(updated.qty) || 0) * (Number(updated.rate) || 0);
+          updated.amount = roundToTwo((Number(updated.qty) || 0) * (Number(updated.rate) || 0));
         }
         return updated;
       }
@@ -680,7 +683,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                           title={row.isFixedCharge ? "Fixed charge - editable" : "Basic Rate from VK13 - read only"}
                         />
                       </TableCell>
-                      <TableCell className="p-0 border-r bg-gray-50/50 text-right text-[11px] px-2 font-mono font-bold pr-4">{row.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                      <TableCell className="p-0 border-r bg-gray-50/50 text-right text-[11px] px-2 font-mono font-bold pr-4">{formatAmount(row.amount)}</TableCell>
                       {!isLockedByTime && (
                         <TableCell className="p-0 text-center">
                           <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => items.length > 1 && setItems(items.filter(i => i.id !== row.id))}><Trash2 className="h-3 w-3" /></Button>
@@ -713,34 +716,34 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
               <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-white shadow-inner">
                 <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700 uppercase">Calculation Summary (INR)</div>
                 <div className="p-3 space-y-1.5 text-[11px]">
-                  {isNonTax ? (
+{isNonTax ? (
                     <>
-                      <div className="flex justify-between border-b pb-1"><span>Invoice Amount</span><span className="font-mono font-bold">{totals.taxableAmount.toLocaleString()}</span></div>
+                      <div className="flex justify-between border-b pb-1"><span>Invoice Amount</span><span className="font-mono font-bold">{formatAmount(totals.taxableAmount)}</span></div>
                       <div className="p-2 border border-blue-100 bg-blue-50 italic text-blue-800">Non-Tax Transaction - No GST applicable</div>
                     </>
                   ) : isRCM ? (
                     <>
-                      <div className="flex justify-between border-b pb-1"><span>Invoice Amount (Excl. GST)</span><span className="font-mono font-bold">{totals.taxableAmount.toLocaleString()}</span></div>
+                      <div className="flex justify-between border-b pb-1"><span>Invoice Amount (Excl. GST)</span><span className="font-mono font-bold">{formatAmount(totals.taxableAmount)}</span></div>
                       <div className="p-2 border border-orange-200 bg-orange-50 italic text-orange-700 text-[10px]">
                         GST is payable by the recipient under Reverse Charge Mechanism (RCM)
                       </div>
                     </>
                   ) : (
                     <>
-                      <div className="flex justify-between border-b pb-1"><span>Taxable Amount</span><span className="font-mono font-bold">{totals.taxableAmount.toLocaleString()}</span></div>
+                      <div className="flex justify-between border-b pb-1"><span>Taxable Amount</span><span className="font-mono font-bold">{formatAmount(totals.taxableAmount)}</span></div>
                       {totals.isInterstate ? (
-                        <div className="flex justify-between text-blue-800"><span>Integrated GST ({totals.avgGst}%)</span><span className="font-mono font-bold">{totals.igst.toLocaleString()}</span></div>
+                        <div className="flex justify-between text-blue-800"><span>Integrated GST ({totals.avgGst}%)</span><span className="font-mono font-bold">{formatAmount(totals.igst)}</span></div>
                       ) : (
                         <>
-                          <div className="flex justify-between text-emerald-700"><span>Central GST ({totals.avgGst / 2}%)</span><span className="font-mono font-bold">{totals.cgst.toLocaleString()}</span></div>
-                          <div className="flex justify-between text-emerald-700"><span>State GST ({totals.avgGst / 2}%)</span><span className="font-mono font-bold">{totals.sgst.toLocaleString()}</span></div>
+                          <div className="flex justify-between text-emerald-700"><span>Central GST ({totals.avgGst / 2}%)</span><span className="font-mono font-bold">{formatAmount(totals.cgst)}</span></div>
+                          <div className="flex justify-between text-emerald-700"><span>State GST ({totals.avgGst / 2}%)</span><span className="font-mono font-bold">{formatAmount(totals.sgst)}</span></div>
                         </>
                       )}
                     </>
                   )}
                   <div className="flex justify-between pt-2 border-t text-sm font-black text-emerald-900 uppercase">
                     <span>{isNonTax ? "Net Total Amount" : isRCM ? "Net Payable (Excl. GST)" : "Gross Payable Amount"}</span>
-                    <span className="font-mono text-lg">₹ {totals.grossAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span className="font-mono text-lg">₹ {formatAmount(totals.grossAmount)}</span>
                   </div>
                 </div>
               </div>

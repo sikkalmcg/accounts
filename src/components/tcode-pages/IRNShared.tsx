@@ -13,15 +13,7 @@ import { getRecordPlantIds } from "@/lib/plant-master";
 /*  Formatting Helpers                                                 */
 /* ------------------------------------------------------------------ */
 
-/** Fixed 2-decimal amount string (e.g. "1,234.56") */
-export const fmtAmount = (num: any) => Number(num || 0).toFixed(2);
-
-/** Locale-aware 2-decimal amount string with commas */
-export const fmtAmountLoc = (num: any) =>
-  Number(num || 0).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+import { formatCurrency } from "@/lib/number-utils";
 
 /** Converts a DD-MMM-YYYY date string to epoch milliseconds (0 if invalid) */
 export const sapDateToTime = (invoiceDate: string) => {
@@ -279,11 +271,11 @@ const firmMap = useMemo(() => {
               <TableCell className="p-0 px-2 text-[11px] border-r text-center font-semibold">{inv.docType || "-"}</TableCell>
               <TableCell className="p-0 px-2 text-[11px] border-r text-center">{inv.inventoryType || "-"}</TableCell>
               <TableCell className="p-0 px-2 text-[11px] border-r text-center uppercase">{inv.docCategory || "-"}</TableCell>
-              <TableCell className="p-0 px-2 text-[11px] border-r text-right font-mono pr-3">₹ {fmtAmountLoc(inv.totals?.taxableAmount)}</TableCell>
-              <TableCell className="p-0 px-2 text-[11px] border-r text-right font-mono pr-3 text-gray-600">₹ {fmtAmountLoc(inv.totals?.cgst)}</TableCell>
-              <TableCell className="p-0 px-2 text-[11px] border-r text-right font-mono pr-3 text-gray-600">₹ {fmtAmountLoc(inv.totals?.sgst)}</TableCell>
-              <TableCell className="p-0 px-2 text-[11px] border-r text-right font-mono pr-3 text-gray-600">₹ {fmtAmountLoc(inv.totals?.igst)}</TableCell>
-              <TableCell className="p-0 px-2 text-[11px] text-right font-black text-emerald-800 pr-3 bg-blue-50/10">₹ {fmtAmountLoc(inv.totals?.grossAmount)}</TableCell>
+              <TableCell className="p-0 px-2 text-[11px] border-r text-right font-mono pr-3">₹ {formatCurrency(inv.totals?.taxableAmount)}</TableCell>
+              <TableCell className="p-0 px-2 text-[11px] border-r text-right font-mono pr-3 text-gray-600">₹ {formatCurrency(inv.totals?.cgst)}</TableCell>
+              <TableCell className="p-0 px-2 text-[11px] border-r text-right font-mono pr-3 text-gray-600">₹ {formatCurrency(inv.totals?.sgst)}</TableCell>
+              <TableCell className="p-0 px-2 text-[11px] border-r text-right font-mono pr-3 text-gray-600">₹ {formatCurrency(inv.totals?.igst)}</TableCell>
+              <TableCell className="p-0 px-2 text-[11px] text-right font-black text-emerald-800 pr-3 bg-blue-50/10">₹ {formatCurrency(inv.totals?.grossAmount)}</TableCell>
               <TableCell className="p-0 px-2 text-[10px] border-r font-mono font-bold text-blue-900 break-all max-w-[240px]">{inv.irnNumber || "-"}</TableCell>
               <TableCell className="p-0 px-2 text-[10px] border-r font-mono">{inv.ackNo || "-"}</TableCell>
               <TableCell className="p-0 px-2 text-[11px] border-r font-mono">{inv.ackDate || "-"}</TableCell>
