@@ -76,9 +76,13 @@ const isNonTax = invoice.docType?.toUpperCase() === "NON-TAX INVOICE";
         </div>
       )}
 <div className="relative z-10 flex-1 flex flex-col">
-        <div className="border-y-2 border-black py-1.5 flex justify-between px-2 font-bold text-[14px] text-black mb-3">
-          <span className="text-center flex-1 uppercase tracking-[0.2em]">{docTypeLabel.header}</span>
-        </div>
+        <div className="py-1.5 flex justify-between px-2 font-bold text-[16px] text-black mb-3">
+  <span className="text-center flex-1 uppercase tracking-[0.2em]">
+    <span className="border-b-2 border-black pb-1 inline-block">
+      {docTypeLabel.header}
+    </span>
+  </span>
+</div>
 
         <div className="flex justify-between items-start mb-4">
           <div className="flex gap-4 items-start">
