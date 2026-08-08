@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getFinancialYears } from "@/lib/date-utils";
 import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
+import { formatAmount } from "@/lib/number-utils";
 import PlantMultiSelect from "./PlantMultiSelect";
 
 // Helper to calculate current Indian Financial Year (e.g. FY 2024-25) safely
@@ -86,19 +87,22 @@ export default function FB03() {
     allReceipts?.forEach(r => {
       const invNo = r.invoiceNo;
       if (!map[invNo]) {
-        map[invNo] = { receiptAmount: 0, tds: 0, deduction: 0, reversedAmount: 0, reversedTds: 0, reversedDeduction: 0, paymentDate: r.paymentDate, paymentAdviceNo: r.paymentAdviceNo, bankingUtr: r.bankingUtr };
+        map[invNo] = { receiptAmount: 0, tds: 0, deduction: 0, interest: 0, reversedAmount: 0, reversedTds: 0, reversedDeduction: 0, reversedInterest: 0, paymentDate: r.paymentDate, paymentAdviceNo: r.paymentAdviceNo, bankingUtr: r.bankingUtr };
       }
       const amount = Number(r.receiptAmount) || 0;
       const tds = Number(r.tds) || 0;
       const deduction = Number(r.deduction) || 0;
+      const interest = Number(r.interest) || 0;
       if (r.status === "Reversed") {
         map[invNo].reversedAmount += amount;
         map[invNo].reversedTds += tds;
         map[invNo].reversedDeduction += deduction;
+        map[invNo].reversedInterest += interest;
       } else {
         map[invNo].receiptAmount += amount;
         map[invNo].tds += tds;
         map[invNo].deduction += deduction;
+        map[invNo].interest += interest;
       }
     });
     return map;
@@ -117,7 +121,7 @@ export default function FB03() {
     });
 
     return base.map(inv => {
-      const receipt = invoiceReceiptMap[inv.invoiceNumber] || { receiptAmount: 0, tds: 0, deduction: 0, reversedAmount: 0, reversedTds: 0, reversedDeduction: 0 };
+const receipt = invoiceReceiptMap[inv.invoiceNumber] || { receiptAmount: 0, tds: 0, deduction: 0, interest: 0, reversedAmount: 0, reversedTds: 0, reversedDeduction: 0, reversedInterest: 0 };
       const gross = inv.totals?.grossAmount || 0;
       const totalCollection = (receipt.receiptAmount || 0) + (receipt.tds || 0) + (receipt.deduction || 0);
       const totalReversed = (receipt.reversedAmount || 0) + (receipt.reversedTds || 0) + (receipt.reversedDeduction || 0);
@@ -126,6 +130,7 @@ export default function FB03() {
         receiptAmount: receipt.receiptAmount,
         tdsAmount: receipt.tds,
         deductionAmount: receipt.deduction,
+        interestAmount: (receipt.interest || 0) - (receipt.reversedInterest || 0),
         paymentDate: receipt.paymentDate,
         paymentAdviceNo: receipt.paymentAdviceNo,
         bankingUtr: receipt.bankingUtr,
@@ -141,13 +146,15 @@ export default function FB03() {
   const displayedData = useMemo(() => showAllInvoices ? processedData : pendingInvoices, [showAllInvoices, processedData, pendingInvoices]);
 
   const summary = useMemo(() => {
-    return processedData.reduce((acc, curr) => ({
+return processedData.reduce((acc, curr) => ({
       total: acc.total + (curr.totals?.grossAmount || 0),
       receipt: acc.receipt + (curr.receiptAmount || 0),
       tds: acc.tds + (curr.tdsAmount || 0),
       deduction: acc.deduction + (curr.deductionAmount || 0),
+      interest: acc.interest + (curr.interestAmount || 0),
+      collected: acc.collected + (curr.receiptAmount || 0) + (curr.tdsAmount || 0) + (curr.deductionAmount || 0),
       balance: acc.balance + curr.balanceAmount
-    }), { total: 0, receipt: 0, tds: 0, deduction: 0, balance: 0 });
+    }), { total: 0, receipt: 0, tds: 0, deduction: 0, interest: 0, collected: 0, balance: 0 });
   }, [processedData]);
 
   const sortedData = useMemo(() => {
@@ -269,26 +276,30 @@ export default function FB03() {
         </div>
       </div>
 
-      <div className="p-4 grid grid-cols-5 gap-4">
+<div className="p-4 grid grid-cols-6 gap-4">
         <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-blue-300 transition-colors">
           <div className="bg-blue-50 p-3 rounded-full group-hover:bg-blue-100 transition-colors"><Receipt className="h-6 w-6 text-blue-600" /></div>
-          <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoice Amount</p><p className="text-xl font-black text-gray-800 font-mono">₹ {summary.total.toLocaleString()}</p></div>
+<div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoice Amount</p><p className="text-xl font-black text-gray-800 font-mono">₹ {formatAmount(summary.total)}</p></div>
         </div>
         <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-emerald-300 transition-colors">
           <div className="bg-emerald-50 p-3 rounded-full group-hover:bg-emerald-100 transition-colors"><Wallet className="h-6 w-6 text-emerald-600" /></div>
-          <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Receipt Amount</p><p className="text-xl font-black text-emerald-700 font-mono">₹ {summary.receipt.toLocaleString()}</p></div>
+<div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Receipt Amount</p><p className="text-xl font-black text-emerald-700 font-mono">₹ {formatAmount(summary.receipt)}</p></div>
         </div>
         <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-orange-300 transition-colors">
           <div className="bg-orange-50 p-3 rounded-full group-hover:bg-orange-100 transition-colors"><MinusCircle className="h-6 w-6 text-orange-600" /></div>
-          <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total TDS Amount</p><p className="text-xl font-black text-orange-700 font-mono">₹ {summary.tds.toLocaleString()}</p></div>
+<div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total TDS Amount</p><p className="text-xl font-black text-orange-700 font-mono">₹ {formatAmount(summary.tds)}</p></div>
         </div>
         <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-purple-300 transition-colors">
           <div className="bg-purple-50 p-3 rounded-full group-hover:bg-purple-100 transition-colors"><PlusCircle className="h-6 w-6 text-purple-600" /></div>
-          <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Deduction Amount</p><p className="text-xl font-black text-purple-700 font-mono">₹ {summary.deduction.toLocaleString()}</p></div>
+<div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Deduction Amount</p><p className="text-xl font-black text-purple-700 font-mono">₹ {formatAmount(summary.deduction)}</p></div>
+        </div>
+<div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-amber-300 transition-colors">
+          <div className="bg-amber-50 p-3 rounded-full group-hover:bg-amber-100 transition-colors"><PlusCircle className="h-6 w-6 text-amber-600" /></div>
+<div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Interest Amount</p><p className="text-xl font-black text-amber-700 font-mono">₹ {formatAmount(summary.interest)}</p></div>
         </div>
         <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-red-300 transition-colors">
           <div className="bg-red-50 p-3 rounded-full group-hover:bg-red-100 transition-colors"><ArrowRight className="h-6 w-6 text-red-600" /></div>
-          <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Balance Amount</p><p className="text-xl font-black text-red-700 font-mono">₹ {summary.balance.toLocaleString()}</p></div>
+<div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Balance Amount</p><p className="text-xl font-black text-red-700 font-mono">₹ {formatAmount(summary.balance)}</p></div>
         </div>
       </div>
 
@@ -320,13 +331,7 @@ export default function FB03() {
                     </>
                   )}
                   {hasIgst && <TableHead className="w-28 text-right text-[10px] font-bold border-r border-[#b5c7de]">IGST</TableHead>}
-                  <TableHead onClick={() => handleSort('totals.grossAmount')} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-blue-50/50"><div className="flex items-center justify-end">Gross Payable <SortIcon col="totals.grossAmount" /></div></TableHead>
-                  <TableHead onClick={() => handleSort('receiptAmount')} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">Receipt Amt</TableHead>
-                  <TableHead onClick={() => handleSort('tdsAmount')} className="w-28 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">TDS Amt</TableHead>
-                  <TableHead onClick={() => handleSort('deductionAmount')} className="w-28 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">Deduction Amt</TableHead>
-                  <TableHead className="w-32 text-[10px] font-bold border-r border-[#b5c7de]">Pay Date</TableHead>
-                  <TableHead className="w-32 text-[10px] font-bold border-r border-[#b5c7de]">Advice No.</TableHead>
-                  <TableHead className="w-32 text-[10px] font-bold border-r border-[#b5c7de]">Bank UTR</TableHead>
+<TableHead onClick={() => handleSort('totals.grossAmount')} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-blue-50/50"><div className="flex items-center justify-end">Gross Payable <SortIcon col="totals.grossAmount" /></div></TableHead>
                   <TableHead onClick={() => handleSort('balanceAmount')} className="w-32 text-right text-[10px] font-bold text-red-700 bg-red-50/30">Balance</TableHead>
                 </TableRow>
               </TableHeader>
@@ -356,13 +361,7 @@ export default function FB03() {
                       </>
                     )}
                     {hasIgst && <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{(row.totals?.igst || 0).toLocaleString()}</TableCell>}
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-black text-blue-900 bg-blue-50/20">{(row.totals?.grossAmount || 0).toLocaleString()}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-emerald-700">{(row.receiptAmount || 0).toLocaleString()}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-orange-700">{(row.tdsAmount || 0).toLocaleString()}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-purple-700">{(row.deductionAmount || 0).toLocaleString()}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-center font-mono">{row.paymentDate || "---"}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-center font-mono">{row.paymentAdviceNo || "---"}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-center font-mono">{row.bankingUtr || "---"}</TableCell>
+<TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-black text-blue-900 bg-blue-50/20">{(row.totals?.grossAmount || 0).toLocaleString()}</TableCell>
                     <TableCell className={`p-0 px-2 text-[10px] text-right font-black ${row.balanceAmount <= 1 && showAllInvoices ? 'text-gray-500' : 'text-red-700'} bg-red-50/10`}>{(row.balanceAmount || 0).toLocaleString()}</TableCell>
                   </TableRow>
                 ))}
@@ -372,7 +371,9 @@ export default function FB03() {
           <div className="bg-[#333e4f] p-2 flex justify-between items-center text-white text-[10px] font-bold uppercase tracking-widest shadow-inner sticky bottom-0 z-20">
             <div className="flex items-center gap-6"><span>ALV Grid Status: {sortedData.length} Document(s) Displayed</span></div>
             <div className="flex items-center gap-10 pr-4">
-              <div className="flex flex-col items-end"><span className="opacity-50 text-[8px]">Net Payable</span><span className="text-[12px] font-black text-blue-300">₹ {displayedData.reduce((s, r) => s + (r.totals?.grossAmount || 0), 0).toLocaleString()}</span></div>
+              <div className="flex flex-col items-end"><span className="opacity-50 text-[8px]">Total Taxable</span><span className="text-[12px] font-black text-sky-300">₹ {displayedData.reduce((s, r) => s + (r.totals?.taxableAmount || 0), 0).toLocaleString()}</span></div>
+              <div className="flex flex-col items-end border-l border-white/20 pl-6"><span className="opacity-50 text-[8px]">Total GST</span><span className="text-[12px] font-black text-emerald-300">₹ {displayedData.reduce((s, r) => s + (r.totals?.cgst || 0) + (r.totals?.sgst || 0) + (r.totals?.igst || 0), 0).toLocaleString()}</span></div>
+              <div className="flex flex-col items-end border-l border-white/20 pl-6"><span className="opacity-50 text-[8px]">Net Payable</span><span className="text-[12px] font-black text-blue-300">₹ {displayedData.reduce((s, r) => s + (r.totals?.grossAmount || 0), 0).toLocaleString()}</span></div>
               <div className="flex flex-col items-end border-l border-white/20 pl-6"><span className="opacity-50 text-[8px]">Outstanding</span><span className="text-[12px] font-black text-red-400">₹ {displayedData.reduce((s, r) => s + (r.balanceAmount || 0), 0).toLocaleString()}</span></div>
             </div>
           </div>

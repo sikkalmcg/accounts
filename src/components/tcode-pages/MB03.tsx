@@ -231,10 +231,11 @@ export default function MB03() {
     });
 
     return base.map(inv => {
-      const receipt = {
+const receipt = {
         receiptAmount: inv.receiptAmount || 0,
         tds: inv.tdsAmount || 0,
         deduction: inv.deductionAmount || 0,
+        interest: inv.interestAmount || 0,
         deductionRemark: inv.deductionRemark || "",
         paymentDate: inv.paymentDate || "",
         paymentAdviceNo: inv.paymentAdviceNo || "",
@@ -260,9 +261,10 @@ export default function MB03() {
         ...inv,
         invoiceNumber: inv.invoiceNumber || inv.invoiceNo,
         invoiceDate: formatSystemDate(inv.invoiceDate),
-        receiptAmount: receipt.receiptAmount,
+receiptAmount: receipt.receiptAmount,
         tdsAmount: receipt.tds,
         deductionAmount: receipt.deduction,
+        interestAmount: receipt.interest,
         deductionRemark: receipt.deductionRemark,
         paymentDate: formatSystemDate(receipt.paymentDate),
         paymentAdviceNo: receipt.paymentAdviceNo,
@@ -280,16 +282,22 @@ export default function MB03() {
   }, [allInvoices, isAdmin, assignedPlantId, filterPlant, filterBillTo, filterConsignor, fromDate, toDate, consignorPlantMap, firmMap, customerMap]);
 
   // Summary Calculation
-  const summary = useMemo(() => {
+const summary = useMemo(() => {
     return processedData.reduce(
-      (acc, curr) => ({
+(acc, curr) => ({
         total: acc.total + (curr.totals?.grossAmount || curr.grossAmount || 0),
         receipt: acc.receipt + (curr.receiptAmount || 0),
         tds: acc.tds + (curr.tdsAmount || 0),
         deduction: acc.deduction + (curr.deductionAmount || 0),
+        interest: acc.interest + (curr.interestAmount || 0),
+        collected:
+          acc.collected +
+          (curr.receiptAmount || 0) +
+          (curr.tdsAmount || 0) +
+          (curr.deductionAmount || 0),
         balance: acc.balance + (curr.balanceAmount || 0),
       }),
-      { total: 0, receipt: 0, tds: 0, deduction: 0, balance: 0 }
+      { total: 0, receipt: 0, tds: 0, deduction: 0, interest: 0, collected: 0, balance: 0 }
     );
   }, [processedData]);
 
@@ -331,7 +339,7 @@ export default function MB03() {
       [
         "#", "Plant", "Invoice No", "Consignor", "Invoice Date", "Working Month", "Doc Type", "Charge Type",
          "Bill-to Party Name", "Item Description", "Taxable Amt", "CGST", "SGST", "IGST",
-        "Gross Amount", "Receipt Amt", "TDS Amt", "Deduction Amt",
+"Gross Amount", "Receipt Amt", "TDS Amt", "Interest Amt", "Deduction Amt",
         "Deduction Remark", "Payment Date", "Bank UTR", "Payment Advice", "Balance",
       ].join(","),
       ...sortedData.map((row, idx) =>
@@ -351,8 +359,9 @@ export default function MB03() {
           row.totals?.sgst || 0,
           row.totals?.igst || 0,
           row.totals?.grossAmount || row.grossAmount || 0,
-          row.receiptAmount || 0,
+row.receiptAmount || 0,
           row.tdsAmount || 0,
+          row.interestAmount || 0,
           row.deductionAmount || 0,
           `"${row.deductionRemark || ""}"`,
           row.paymentDate || "",
@@ -531,7 +540,7 @@ export default function MB03() {
       </div>
 
       {/* Summary Cards */}
-      <div className="p-4 grid grid-cols-5 gap-4">
+      <div className="p-4 grid grid-cols-6 gap-4">
         <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-blue-300 transition-colors">
           <div className="bg-blue-50 p-3 rounded-full group-hover:bg-blue-100 transition-colors">
             <Receipt className="h-6 w-6 text-blue-600" />
@@ -566,6 +575,15 @@ export default function MB03() {
           <div>
             <p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Deduction Amount</p>
             <p className="text-xl font-black text-purple-700 font-mono">₹ {formatAmount(summary.deduction)}</p>
+          </div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-amber-300 transition-colors">
+          <div className="bg-amber-50 p-3 rounded-full group-hover:bg-amber-100 transition-colors">
+            <PlusCircle className="h-6 w-6 text-amber-600" />
+          </div>
+          <div>
+            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Interest Amount</p>
+            <p className="text-xl font-black text-amber-700 font-mono">₹ {formatAmount(summary.interest)}</p>
           </div>
         </div>
         <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-red-300 transition-colors">
@@ -686,12 +704,20 @@ export default function MB03() {
                   Receipt Amt <SortIcon col="receiptAmount" />
                 </div>
               </TableHead>
-              <TableHead
+<TableHead
                 onClick={() => handleSort("tdsAmount")}
                 className="w-24 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-orange-50/30"
               >
                 <div className="flex items-center justify-end">
                   TDS Amt <SortIcon col="tdsAmount" />
+                </div>
+              </TableHead>
+              <TableHead
+                onClick={() => handleSort("interestAmount")}
+                className="w-24 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-amber-50/30"
+              >
+                <div className="flex items-center justify-end">
+                  Int. Amt <SortIcon col="interestAmount" />
                 </div>
               </TableHead>
               <TableHead
@@ -728,7 +754,7 @@ export default function MB03() {
             {isInvoicesLoading ? (
               <TableRow>
                 <TableCell
-                  colSpan={25}
+                  colSpan={26}
                   className="text-center py-20 text-[11px] uppercase tracking-widest animate-pulse"
                 >
                   Loading Payment Records...
@@ -737,7 +763,7 @@ export default function MB03() {
             ) : sortedData.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={25}
+                  colSpan={26}
                   className="text-center py-20 text-[11px] font-bold text-orange-600 uppercase"
                 >
                   No payment records found for the selected criteria
@@ -804,8 +830,11 @@ export default function MB03() {
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-emerald-700 bg-emerald-50/20">
                     {formatAmount(row.receiptAmount)}
                   </TableCell>
-                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-orange-700 bg-orange-50/20">
+<TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-orange-700 bg-orange-50/20">
                     {formatAmount(row.tdsAmount)}
+                  </TableCell>
+                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-amber-700 bg-amber-50/20">
+                    {formatAmount(row.interestAmount)}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-purple-700 bg-purple-50/20">
                     {formatAmount(row.deductionAmount)}

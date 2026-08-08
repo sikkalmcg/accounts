@@ -107,9 +107,10 @@ export async function GET(request: NextRequest) {
         const invoiceNo = normalizeValue(invoice.invoiceNumber || invoice.invoiceNo || invoice.invoice || '');
         const relevantReceipts = (receiptsByInvoice.get(invoiceNo) || []).filter((receipt: any) => receipt.status !== 'Reversed');
 
-        const receiptAmount = relevantReceipts.reduce((sum, receipt) => sum + (Number(receipt.receiptAmount) || 0), 0);
+const receiptAmount = relevantReceipts.reduce((sum, receipt) => sum + (Number(receipt.receiptAmount) || 0), 0);
         const tds = relevantReceipts.reduce((sum, receipt) => sum + (Number(receipt.tds) || 0), 0);
         const deduction = relevantReceipts.reduce((sum, receipt) => sum + (Number(receipt.deduction) || 0), 0);
+        const interest = relevantReceipts.reduce((sum, receipt) => sum + (Number(receipt.interest) || 0), 0);
         const grossAmount = Number(invoice.totals?.grossAmount || invoice.grossAmount || 0);
         const balanceAmount = grossAmount - receiptAmount - tds - deduction;
         const isPaymentComplete = balanceAmount < FULLY_PAID_TOLERANCE;
@@ -125,9 +126,10 @@ export async function GET(request: NextRequest) {
         return {
           ...invoice,
           invoiceNumber: invoice.invoiceNumber || invoice.invoiceNo || invoice.invoice,
-          receiptAmount,
+receiptAmount,
           tdsAmount: tds,
           deductionAmount: deduction,
+          interestAmount: interest,
           balanceAmount,
           paymentDate,
           paymentAdviceNo,
