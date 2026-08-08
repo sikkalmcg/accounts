@@ -64,8 +64,11 @@ export default function FB03() {
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
   const { data: plants } = useCollection(plantsQuery);
 
-  const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
+const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
   const { data: customers } = useCollection(customersQuery);
+
+  const firmsQuery = useMemoDatabase(() => collection(db, "firms"), [db]);
+  const { data: firms } = useCollection(firmsQuery);
 
   // 4. Derived Logic
   const filteredPlants = useMemo(() => {
@@ -73,13 +76,37 @@ export default function FB03() {
     return plants?.filter(p => p.plantId === assignedPlantId) || [];
   }, [plants, isAdmin, assignedPlantId]);
 
-  // Customers assigned to the currently selected Plant
+// Customers assigned to the currently selected Plant
   const filteredCustomers = useMemo(() => {
     if (!customers) return [];
     if (filterPlants.length !== 1) return customers;
     const singlePlant = filterPlants[0];
     return customers.filter(c => getRecordPlantIds(c).includes(singlePlant));
   }, [customers, filterPlants]);
+
+  // Lookup maps for consignor (firm) and bill-to party (customer) names
+  const firmMap = useMemo(() => {
+    const map: Record<string, any> = {};
+    firms?.forEach(f => {
+      const ids = Array.isArray(f.assignedPlantIds) && f.assignedPlantIds.length > 0
+        ? f.assignedPlantIds
+        : (f.plantId ? [f.plantId] : []);
+      ids.forEach((id: string) => { map[id] = f; });
+    });
+    return map;
+  }, [firms]);
+
+  const customerMap = useMemo(() => {
+    const map: Record<string, any> = {};
+    customers?.forEach(c => {
+      const aliases = [c.customerId, c.code, c.id, c.customerCode].filter(Boolean);
+      aliases.forEach(alias => {
+        const key = (alias ?? "").toString().trim().toUpperCase();
+        if (key) map[key] = c;
+      });
+    });
+    return map;
+  }, [customers]);
 
   // Aggregate receipts by Invoice Number
   const invoiceReceiptMap = useMemo(() => {
@@ -120,11 +147,15 @@ export default function FB03() {
       return true;
     });
 
-    return base.map(inv => {
+return base.map(inv => {
 const receipt = invoiceReceiptMap[inv.invoiceNumber] || { receiptAmount: 0, tds: 0, deduction: 0, interest: 0, reversedAmount: 0, reversedTds: 0, reversedDeduction: 0, reversedInterest: 0 };
       const gross = inv.totals?.grossAmount || 0;
       const totalCollection = (receipt.receiptAmount || 0) + (receipt.tds || 0) + (receipt.deduction || 0);
       const totalReversed = (receipt.reversedAmount || 0) + (receipt.reversedTds || 0) + (receipt.reversedDeduction || 0);
+      const firm = firmMap[inv.plantId];
+      const billToCandidates = [inv.billTo, inv.customerCode, inv.customerId, inv.billToParty, inv.billToCode].filter(Boolean);
+      const billToKey = billToCandidates.map(value => (value ?? "").toString().trim().toUpperCase()).find(Boolean) || "";
+      const consignee = customerMap[billToKey] || customerMap[(inv.billTo ?? "").toString().trim().toUpperCase()] || customerMap[(inv.customerId ?? "").toString().trim().toUpperCase()] || customerMap[(inv.customerCode ?? "").toString().trim().toUpperCase()];
       return {
         ...inv,
         receiptAmount: receipt.receiptAmount,
@@ -134,10 +165,12 @@ const receipt = invoiceReceiptMap[inv.invoiceNumber] || { receiptAmount: 0, tds:
         paymentDate: receipt.paymentDate,
         paymentAdviceNo: receipt.paymentAdviceNo,
         bankingUtr: receipt.bankingUtr,
-        balanceAmount: gross - totalCollection + totalReversed
+        balanceAmount: gross - totalCollection + totalReversed,
+        consignorName: firm?.name || "N/A",
+        billToName: consignee?.name || inv.billToName || inv.customerName || billToCandidates[0] || "N/A"
       };
     });
-  }, [allInvoices, isAdmin, assignedPlantId, filterPlants, filterConsignee, filterFY, invoiceReceiptMap]);
+  }, [allInvoices, isAdmin, assignedPlantId, filterPlants, filterConsignee, filterFY, invoiceReceiptMap, firmMap, customerMap]);
 
   // Filter for pending invoices (balance > 1)
   const pendingInvoices = useMemo(() => processedData.filter(i => i.balanceAmount > 1), [processedData]);
@@ -191,7 +224,7 @@ return processedData.reduce((acc, curr) => ({
   const handleExport = () => {
     if (sortedData.length === 0) return;
     const csvContent = [
-      ["#", "Plant", "Invoice No", "Inv. Date", "Bill Month", "Charge type", "Item Description", "Taxable Amt", "CGST", "SGST", "IGST", "Gross Payable", "Receipt Amt", "TDS Amt", "Deduction Amt", "Balance", "Pay Date", "Advice No", "UTR"].join(","),
+["#", "Plant", "Invoice No", "Inv. Date", "Bill Month", "Charge type", "Consignor", "Bill-to Party Name", "Taxable Amt", "CGST", "SGST", "IGST", "Gross Payable", "Receipt Amt", "TDS Amt", "Deduction Amt", "Balance", "Pay Date", "Advice No", "UTR"].join(","),
       ...sortedData.map((row, idx) => [
         idx + 1,
         row.plantId,
@@ -199,7 +232,8 @@ return processedData.reduce((acc, curr) => ({
         row.invoiceDate,
         row.billMonth,
         `"${row.docCategory || ""}"`,
-        `"${row.items?.[0]?.descName || row.items?.[0]?.desc || ""}"`,
+        `"${row.consignorName || ""}"`,
+        `"${row.billToName || ""}"`,
         row.totals?.taxableAmount || 0,
         row.totals?.cgst || 0,
         row.totals?.sgst || 0,
@@ -319,9 +353,10 @@ return processedData.reduce((acc, curr) => ({
                   <TableHead onClick={() => handleSort('plantId')} className="w-24 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Plant <SortIcon col="plantId" /></div></TableHead>
                   <TableHead onClick={() => handleSort('invoiceNumber')} className="w-40 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Invoice No <SortIcon col="invoiceNumber" /></div></TableHead>
                   <TableHead onClick={() => handleSort('invoiceDate')} className="w-32 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Inv. Date <SortIcon col="invoiceDate" /></div></TableHead>
-                  <TableHead className="w-24 text-[10px] font-bold border-r border-[#b5c7de]">Bill Month</TableHead>
+<TableHead className="w-24 text-[10px] font-bold border-r border-[#b5c7de]">Bill Month</TableHead>
                   <TableHead className="w-40 text-[10px] font-bold border-r border-[#b5c7de]">Charge type</TableHead>
-                  <TableHead className="text-[10px] font-bold border-r border-[#b5c7de]">Item Description</TableHead>
+                  <TableHead className="w-44 text-[10px] font-bold border-r border-[#b5c7de]">Consignor</TableHead>
+                  <TableHead className="w-56 text-[10px] font-bold border-r border-[#b5c7de]">Bill-to Party Name</TableHead>
 
                   <TableHead onClick={() => handleSort('totals.taxableAmount')} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center justify-end">Taxable Amt <SortIcon col="totals.taxableAmount" /></div></TableHead>
                   {hasCsgst && (
@@ -347,10 +382,14 @@ return processedData.reduce((acc, curr) => ({
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono font-black text-blue-800">{row.invoiceNumber}</TableCell>
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">{row.invoiceDate}</TableCell>
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase">{row.billMonth}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 truncate max-w-[150px] uppercase italic text-gray-600">{row.docCategory}</TableCell>
+<TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 truncate max-w-[150px] uppercase italic text-gray-600">{row.docCategory}</TableCell>
 
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 truncate max-w-[250px] font-semibold text-blue-900 uppercase">
-                      {row.items?.[0]?.descName || row.items?.[0]?.desc || "---"}
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 whitespace-normal font-semibold text-gray-800">
+                      {row.consignorName}
+                    </TableCell>
+
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 whitespace-normal font-semibold text-blue-900">
+                      {row.billToName}
                     </TableCell>
 
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono">{(row.totals?.taxableAmount || 0).toLocaleString()}</TableCell>

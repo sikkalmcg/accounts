@@ -1,9 +1,13 @@
-# TODO: Add Interest Amount box to FB03 and MB03
+# Task Steps
 
-## Steps
-1. [x] Add `interestAmount` aggregation to `/api/payment-complete/route.ts`
-2. [x] FB03.tsx: aggregate interest in `invoiceReceiptMap`, map to `processedData`, add to `summary`
-3. [x] FB03.tsx: remove "Net Collected Amount" card, add "Total Interest Amount" card to right of "Total Deduction Amount"
-4. [x] MB03.tsx: read `interestAmount`, add to `summary`
-5. [x] MB03.tsx: remove "Net Collected Amount" card, add "Total Interest Amount" card to right of "Total Deduction Amount"
-6. [x] Type-check / build to verify
+## MB03.tsx
+- [x] Move "Bill-to Party Name" column to the right of "Consignor"
+- [x] Remove "Item Description" column
+- [x] Update CSV export header and data to match new order (consignor → bill-to, drop item description)
+
+## FB03.tsx
+- [x] Add `firms` query and lookup maps (firmMap/customerMap)
+- [x] Add `consignorName` and `billToName` fields to processedData
+- [x] Add "Consignor" and "Bill-to Party Name" columns (near Charge type)
+- [x] Remove "Item Description" column
+- [x] Update CSV export to add consignor/bill-to and remove item description

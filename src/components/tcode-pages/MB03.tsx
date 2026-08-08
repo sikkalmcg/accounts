@@ -231,7 +231,7 @@ export default function MB03() {
     });
 
     return base.map(inv => {
-const receipt = {
+      const receipt = {
         receiptAmount: inv.receiptAmount || 0,
         tds: inv.tdsAmount || 0,
         deduction: inv.deductionAmount || 0,
@@ -261,7 +261,7 @@ const receipt = {
         ...inv,
         invoiceNumber: inv.invoiceNumber || inv.invoiceNo,
         invoiceDate: formatSystemDate(inv.invoiceDate),
-receiptAmount: receipt.receiptAmount,
+        receiptAmount: receipt.receiptAmount,
         tdsAmount: receipt.tds,
         deductionAmount: receipt.deduction,
         interestAmount: receipt.interest,
@@ -282,9 +282,9 @@ receiptAmount: receipt.receiptAmount,
   }, [allInvoices, isAdmin, assignedPlantId, filterPlant, filterBillTo, filterConsignor, fromDate, toDate, consignorPlantMap, firmMap, customerMap]);
 
   // Summary Calculation
-const summary = useMemo(() => {
+  const summary = useMemo(() => {
     return processedData.reduce(
-(acc, curr) => ({
+      (acc, curr) => ({
         total: acc.total + (curr.totals?.grossAmount || curr.grossAmount || 0),
         receipt: acc.receipt + (curr.receiptAmount || 0),
         tds: acc.tds + (curr.tdsAmount || 0),
@@ -337,9 +337,9 @@ const summary = useMemo(() => {
     if (sortedData.length === 0) return;
     const csvContent = [
       [
-        "#", "Plant", "Invoice No", "Consignor", "Invoice Date", "Working Month", "Doc Type", "Charge Type",
-         "Bill-to Party Name", "Item Description", "Taxable Amt", "CGST", "SGST", "IGST",
-"Gross Amount", "Receipt Amt", "TDS Amt", "Interest Amt", "Deduction Amt",
+        "#", "Plant", "Invoice No", "Consignor", "Bill-to Party Name", "Invoice Date", "Working Month", "Doc Type", "Charge Type",
+        "Taxable Amt", "CGST", "SGST", "IGST",
+        "Gross Amount", "Receipt Amt", "TDS Amt", "Interest Amt", "Deduction Amt",
         "Deduction Remark", "Payment Date", "Bank UTR", "Payment Advice", "Balance",
       ].join(","),
       ...sortedData.map((row, idx) =>
@@ -347,19 +347,18 @@ const summary = useMemo(() => {
           idx + 1,
           row.plantId,
           row.invoiceNumber,
+          `"${row.consignorName}"`,
+          `"${row.billToName}"`,
           row.invoiceDate,
           row.billMonth || "",
           row.docType || "",
           row.docCategory || "",
-          `"${row.billToName}"`,
-          `"${row.consignorName}"`,
-          `"${row.items?.[0]?.desc || ""}"`,
           row.totals?.taxableAmount || 0,
           row.totals?.cgst || 0,
           row.totals?.sgst || 0,
           row.totals?.igst || 0,
           row.totals?.grossAmount || row.grossAmount || 0,
-row.receiptAmount || 0,
+          row.receiptAmount || 0,
           row.tdsAmount || 0,
           row.interestAmount || 0,
           row.deductionAmount || 0,
@@ -646,6 +645,9 @@ row.receiptAmount || 0,
               <TableHead className="w-44 text-[10px] font-bold border-r border-[#b5c7de]">
                 Consignor
               </TableHead>
+              <TableHead className="w-52 text-[10px] font-bold border-r border-[#b5c7de]">
+                Bill-to Party Name
+              </TableHead>
               <TableHead
                 onClick={() => handleSort("billMonth")}
                 className="w-32 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"
@@ -664,12 +666,6 @@ row.receiptAmount || 0,
                 <div className="flex items-center">
                   Charge Type <SortIcon col="docCategory" />
                 </div>
-              </TableHead>
-              <TableHead className="w-52 text-[10px] font-bold border-r border-[#b5c7de]">
-                Bill-to Party Name
-              </TableHead>
-              <TableHead className="w-48 text-[10px] font-bold border-r border-[#b5c7de]">
-                Item Description
               </TableHead>
               <TableHead
                 onClick={() => handleSort("totals.taxableAmount")}
@@ -704,7 +700,7 @@ row.receiptAmount || 0,
                   Receipt Amt <SortIcon col="receiptAmount" />
                 </div>
               </TableHead>
-<TableHead
+              <TableHead
                 onClick={() => handleSort("tdsAmount")}
                 className="w-24 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-orange-50/30"
               >
@@ -790,6 +786,9 @@ row.receiptAmount || 0,
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 whitespace-normal">
                     {row.consignorName}
                   </TableCell>
+                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-semibold whitespace-normal">
+                    {row.billToName}
+                  </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center text-blue-700">
                     {row.billMonth || "-"}
                   </TableCell>
@@ -798,19 +797,6 @@ row.receiptAmount || 0,
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase text-center">
                     {row.docCategory || "-"}
-                  </TableCell>
-                  
-
-                  {/* Bill to Party Name cell */}
-                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-semibold whitespace-normal">
-                    {row.billToName}
-                  </TableCell>
-
-                  
-
-                  {/* Item Description cell */}
-                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 whitespace-normal">
-                    {row.items?.[0]?.desc || "-"}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono">
                     {formatAmount(row.totals?.taxableAmount)}
@@ -830,7 +816,7 @@ row.receiptAmount || 0,
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-emerald-700 bg-emerald-50/20">
                     {formatAmount(row.receiptAmount)}
                   </TableCell>
-<TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-orange-700 bg-orange-50/20">
+                  <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-orange-700 bg-orange-50/20">
                     {formatAmount(row.tdsAmount)}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-amber-700 bg-amber-50/20">
@@ -913,7 +899,7 @@ row.receiptAmount || 0,
           <span>Plant: {filterPlant.includes("ALL") ? "All" : filterPlant.join(', ')}</span>
         </div>
         <div className="flex items-center gap-8 pr-4">
-<div className="flex flex-col items-end">
+          <div className="flex flex-col items-end">
             <span className="opacity-50 text-[8px]">Total Gross</span>
             <span className="text-[12px] font-black text-blue-300">
               ₹ {formatAmount(summary.total)}
