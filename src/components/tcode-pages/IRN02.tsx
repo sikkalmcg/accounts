@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import Image from "next/image";
 import { toSAPDate, toInputDate } from "@/lib/date-utils";
+import { SapDateInput } from "@/components/ui/sap-date-input";
 import { cn } from "@/lib/utils";
 import { validateDuplicateWithExclusion } from "@/lib/duplicate-validator";
 import { matchesDateRange, IRNResultGrid } from "./IRNShared";
@@ -351,10 +352,9 @@ const firm = firms?.find((f) => getRecordPlantIds(f).includes(editingInvoice.pla
                 </div>
                 <div className="sap-selection-row">
                   <label className="sap-label w-40">ACK Date</label>
-                  <Input
-                    type="date"
+                  <SapDateInput
                     value={irnData.ackDate}
-                    onChange={(e) => setIrnData({ ...irnData, ackDate: e.target.value })}
+                    onChange={(val) => setIrnData({ ...irnData, ackDate: val })}
                     disabled={isLockedByTime}
                     className={cn("w-48", isLockedByTime && "bg-gray-50")}
                   />

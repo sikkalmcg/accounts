@@ -9,10 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Image from "next/image";
 import { toSAPDate } from "@/lib/date-utils";
+import { SapDateInput } from "@/components/ui/sap-date-input";
 import { getRecordPlantIds } from "@/lib/plant-master";
 import { formatAmount } from "@/lib/number-utils";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { InvoicePreview } from "./VF03";
+import { IRNPreviewDialog } from "./IRNShared";
 import { validateDuplicate } from "@/lib/duplicate-validator";
 
 export default function IRN01() {
@@ -203,7 +203,7 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(selectedInvoice.plan
               <div className="p-4 space-y-4">
                 <div className="sap-selection-row"><label className="sap-label w-40">IRN Number</label><Input value={irnData.irnNumber} onChange={e => setIrnData({...irnData, irnNumber: e.target.value})} className="font-mono text-[11px] tracking-widest" /></div>
                 <div className="sap-selection-row"><label className="sap-label w-40">ACK Number</label><Input value={irnData.ackNo} onChange={e => setIrnData({...irnData, ackNo: e.target.value})} className="font-mono w-64" /></div>
-                <div className="sap-selection-row"><label className="sap-label w-40">ACK Date</label><Input type="date" value={irnData.ackDate} onChange={e => setIrnData({...irnData, ackDate: e.target.value})} className="w-48" /></div>
+<div className="sap-selection-row"><label className="sap-label w-40">ACK Date</label><SapDateInput value={irnData.ackDate} onChange={val => setIrnData({...irnData, ackDate: val})} className="w-48" /></div>
               </div>
             </div>
             <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-white">
@@ -261,16 +261,9 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(selectedInvoice.plan
                 <TableCell className="p-0 text-center text-gray-400 text-[10px] border-r group-hover:text-blue-600">{i + 1}</TableCell>
                 <TableCell className="p-0 border-r text-center px-1"><Button onClick={() => setSelectedInvoice(inv)} variant="ghost" size="sm" className="h-6 w-full text-[9px] font-black uppercase text-emerald-700 hover:bg-emerald-100 rounded-none border border-emerald-200">Generate IRN</Button></TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r text-center font-bold text-gray-600">{inv.plantId}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r font-black font-mono text-blue-900">
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <span className="cursor-pointer hover:underline">{inv.invoiceNumber}</span>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[820px] max-h-[90vh] overflow-y-auto p-0 border-gray-400 shadow-2xl rounded-none">
-                      <InvoicePreview invoice={inv} copyLabel="PREVIEW" firms={firms} customerMap={customerMap} />
-                    </PopoverContent>
-                  </Popover>
-                </TableCell>
+                  <TableCell className="p-0 px-2 text-[11px] border-r font-black font-mono text-blue-900">
+                    <IRNPreviewDialog invoice={inv} firms={firms} customerMap={customerMap} />
+                  </TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r font-mono">{inv.invoiceDate}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r text-center">{inv.billYear}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r truncate font-semibold uppercase">{customerMap[inv.shipTo]?.name || customerMap[inv.billTo]?.name || inv.billTo}</TableCell>

@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Loader2, Plus, Trash2, SaveAll, AlertCircle } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { SapCombobox } from "@/components/ui/sap-combobox";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import PlantMultiSelect from "./PlantMultiSelect";
@@ -278,21 +279,20 @@ export default function VOF01() {
                         {idx + 1}
                       </TableCell>
                       <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
-                        <Select
+                        <SapCombobox
+                          options={[
+                            "Tax Invoice",
+                            "Non-Tax Invoice",
+                            "Credit Note",
+                            "Debit Note",
+                            "Delivery Challan",
+                          ]}
                           value={row.documentType}
-                          onValueChange={(v) => updateRow(row.id, "documentType", v)}
-                        >
-                          <SelectTrigger className={`h-7 border-none bg-transparent text-xs rounded-none px-2 shadow-none focus:bg-[#fff9c4] ${isInvalid ? "ring-1 ring-inset ring-red-400 bg-red-50" : ""}`}>
-                            <SelectValue placeholder="Select Document Type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Tax Invoice">Tax Invoice</SelectItem>
-                            <SelectItem value="Non-Tax Invoice">Non-Tax Invoice</SelectItem>
-                            <SelectItem value="Credit Note">Credit Note</SelectItem>
-                            <SelectItem value="Debit Note">Debit Note</SelectItem>
-                            <SelectItem value="Delivery Challan">Delivery Challan</SelectItem>
-                          </SelectContent>
-                        </Select>
+                          onChange={(v) => updateRow(row.id, "documentType", v)}
+                          placeholder="Select or type Document Type"
+                          className={isInvalid ? "ring-1 ring-inset ring-red-400" : ""}
+                          inputClassName={isInvalid ? "bg-red-50" : ""}
+                        />
                       </TableCell>
                       <TableCell className={`p-0 border-r ${isInvalid ? "bg-red-50" : ""}`}>
                         <Input

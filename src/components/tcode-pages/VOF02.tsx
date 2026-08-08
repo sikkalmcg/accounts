@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Search, Trash2, Loader2, Pencil, AlertCircle, X } from "lucide-react";
 import PlantMultiSelect from "./PlantMultiSelect";
+import { SapCombobox } from "@/components/ui/sap-combobox";
 
 type EditForm = {
   id: string;
@@ -340,11 +341,17 @@ export default function VOF02() {
               <div className="sap-selection-row">
                 <label className="sap-label">Document Type</label>
                 <div className="sap-input-wrapper w-full max-w-full">
-                  <Input
-                    className="h-7 rounded-none border-gray-400 text-xs"
+                  <SapCombobox
+                    options={[
+                      "Tax Invoice",
+                      "Non-Tax Invoice",
+                      "Credit Note",
+                      "Debit Note",
+                      "Delivery Challan",
+                    ]}
                     value={editing?.documentType || ""}
-                    onChange={e => updateField("documentType", e.target.value.toUpperCase())}
-                    placeholder="e.g. TAX INVOICE"
+                    onChange={(v) => updateField("documentType", v.toUpperCase())}
+                    placeholder="Select or type Document Type"
                   />
                 </div>
               </div>

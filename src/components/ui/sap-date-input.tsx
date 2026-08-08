@@ -95,7 +95,7 @@ export const SapDateInput = forwardRef<HTMLInputElement, SapDateInputProps>(
             placeholder={placeholder || "DD-MMM-YYYY"}
             aria-invalid={isInvalid || undefined}
             className={cn(
-              "pr-10", // Make space for the icon
+              "pr-9", // Make space for the icon
               isInvalid && "border-red-500 ring-1 ring-inset ring-red-400 focus-visible:ring-red-400"
             )}
             {...props}
@@ -104,14 +104,15 @@ export const SapDateInput = forwardRef<HTMLInputElement, SapDateInputProps>(
             <Button
               type="button"
               variant="ghost"
+              size="icon"
               disabled={disabled || readOnly}
               className={cn(
-                "absolute right-0 h-full px-3 py-2 text-muted-foreground hover:bg-transparent",
+                "absolute right-0 top-0 h-6 w-7 shrink-0 cursor-pointer rounded-none border-l border-gray-400 bg-gray-50 text-gray-600 hover:bg-[#fff9c4] hover:text-gray-800 focus-visible:outline-none focus-visible:ring-0",
                 isInvalid && "text-red-500"
               )}
               aria-label="Open calendar"
             >
-              <CalendarIcon className="h-4 w-4" />
+              <CalendarIcon className="h-3.5 w-3.5" />
             </Button>
           </PopoverTrigger>
         </div>
