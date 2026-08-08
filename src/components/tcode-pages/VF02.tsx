@@ -300,7 +300,7 @@ return {
 
 let updated = { ...i, [field]: val };
         if (field === 'desc') {
-          const opt = availableOptions.find(o => o.materialCode === val);
+          const opt = availableOptions?.find(o => o.materialCode === val);
           if (opt) {
             const isManualRate = !opt.price || (typeof opt.price === 'number' && opt.price <= 0) || String(opt.price).trim().toUpperCase() === 'FIX';
             updated.descName = opt.materialName || opt.materialCode;
@@ -647,7 +647,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
 <TableCell className="p-0 border-r" >
                         <Select value={row.desc} onValueChange={v => updateItem(row.id, 'desc', v)} disabled={isIrnGenerated}>
                           <SelectTrigger className="h-full border-none bg-transparent text-xs rounded-none px-2 shadow-none focus:bg-[#fff9c4] [&>span]:line-clamp-none [&>span]:whitespace-normal"><SelectValue>{row.descName || "Select material..."}</SelectValue></SelectTrigger>
-<SelectContent>{availableOptions.map(o => <SelectItem key={o.materialCode} value={o.materialCode}>{o.materialName || o.materialCode}</SelectItem>)}</SelectContent>
+<SelectContent>{availableOptions?.map((o, i) => <SelectItem key={`${o.materialCode}-${i}`} value={o.materialCode}>{o.materialName || o.materialCode}</SelectItem>)}</SelectContent>
                         </Select>
                       </TableCell>
                       <TableCell className="p-0 border-r">

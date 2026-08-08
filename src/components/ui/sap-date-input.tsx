@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, useState, useEffect } from "react";
-import { format } from "date-fns";
+import { format, parseISO, isValid } from "date-fns";
 import { Calendar as CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -12,40 +12,37 @@ import { toSAPDate, parseSAPDate, toIsoDate, INPUT_DATE_FORMAT } from "@/lib/dat
 
 export interface SapDateInputProps
   extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange" | "onBlur" | "value"> {
-  value?: string; // Expects "yyyy-MM-dd"
-  onChange?: (value: string) => void; // Sends "yyyy-MM-dd"
+  value?: string; // Expects "YYYY-MM-DD"
+  onChange?: (value: string) => void; // Sends "YYYY-MM-DD"
   onBlur?: (e: React.FocusEvent<HTMLInputElement>) => void;
 }
 
-/**
- * SapDateInput
- *
- * A SAP-style date input that:
- *  - Displays dates in `DD-MMM-YYYY` (e.g. 04-Jun-2026)
- *  - Uses `DD-MMM-YYYY` as the default placeholder
- *  - Accepts manual keyboard entry in `DD-MMM-YYYY` and validates it strictly
- *  - Allows calendar selection via the calendar icon / native picker
- *  - Keeps the internal value in `YYYY-MM-DD` so all existing
- *    save/validation/query logic remains unchanged.
- */
 export const SapDateInput = forwardRef<HTMLInputElement, SapDateInputProps>(
   ({ className, value, onChange, placeholder, disabled, readOnly, onBlur, ...props }, ref) => {
-    const [displayValue, setDisplayValue] = useState(value ? toSAPDate(value) : "");
+    const [displayValue, setDisplayValue] = useState("");
     const [isPickerOpen, setPickerOpen] = useState(false);
     const [isInvalid, setIsInvalid] = useState(false);
 
-    // Keep the visible DD-MMM-YYYY value in sync with the controlled ISO value.
+    // Sync input text with prop value when external value changes
     useEffect(() => {
-      setDisplayValue(value ? toSAPDate(value) : "");
-      if (!value) setIsInvalid(false);
+      if (value) {
+        const parsed = parseISO(value);
+        if (isValid(parsed)) {
+          setDisplayValue(toSAPDate(value));
+          setIsInvalid(false);
+          return;
+        }
+      }
+      setDisplayValue(value || "");
+      setIsInvalid(false);
     }, [value]);
 
     const handleDateSelect = (date: Date | undefined) => {
-      if (date) {
+      if (date && isValid(date)) {
         const iso = format(date, INPUT_DATE_FORMAT);
         setDisplayValue(toSAPDate(iso));
         setIsInvalid(false);
-        if (onChange) onChange(iso);
+        onChange?.(iso);
       }
       setPickerOpen(false);
     };
@@ -54,32 +51,41 @@ export const SapDateInput = forwardRef<HTMLInputElement, SapDateInputProps>(
       const raw = e.target.value;
       setDisplayValue(raw);
 
-      // Allow partial input while typing; only validate when a full date is present.
       if (raw.trim() === "") {
         setIsInvalid(false);
-        if (onChange) onChange("");
+        onChange?.("");
         return;
       }
 
       const iso = toIsoDate(raw);
       if (iso) {
         setIsInvalid(false);
-        if (onChange) onChange(iso);
-        setDisplayValue(toSAPDate(iso));
+        onChange?.(iso);
       } else {
-        // Full-length input that fails validation -> mark invalid.
         setIsInvalid(raw.trim().length >= 10);
       }
     };
 
     const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-      // On blur, snap back to the last valid value (or clear).
-      setDisplayValue(value ? toSAPDate(value) : "");
-      setIsInvalid(false);
+      if (value) {
+        const iso = toIsoDate(displayValue) || value;
+        setDisplayValue(toSAPDate(iso));
+      } else if (displayValue) {
+        const iso = toIsoDate(displayValue);
+        if (iso) {
+          setDisplayValue(toSAPDate(iso));
+        } else {
+          setIsInvalid(true);
+        }
+      }
       onBlur?.(e);
     };
 
-    const selectedDate = value ? parseSAPDate(toSAPDate(value)) || undefined : undefined;
+    const getCalendarDate = () => {
+      if (!value) return undefined;
+      const parsed = parseSAPDate(toSAPDate(value));
+      return parsed && isValid(parsed) ? parsed : undefined;
+    };
 
     return (
       <Popover open={isPickerOpen} onOpenChange={setPickerOpen}>
@@ -95,8 +101,8 @@ export const SapDateInput = forwardRef<HTMLInputElement, SapDateInputProps>(
             placeholder={placeholder || "DD-MMM-YYYY"}
             aria-invalid={isInvalid || undefined}
             className={cn(
-              "pr-9", // Make space for the icon
-              isInvalid && "border-red-500 ring-1 ring-inset ring-red-400 focus-visible:ring-red-400"
+              "pr-10",
+              isInvalid && "border-destructive text-destructive focus-visible:ring-destructive"
             )}
             {...props}
           />
@@ -104,25 +110,24 @@ export const SapDateInput = forwardRef<HTMLInputElement, SapDateInputProps>(
             <Button
               type="button"
               variant="ghost"
-              size="icon"
               disabled={disabled || readOnly}
               className={cn(
-                "absolute right-0 top-0 h-6 w-7 shrink-0 cursor-pointer rounded-none border-l border-gray-400 bg-gray-50 text-gray-600 hover:bg-[#fff9c4] hover:text-gray-800 focus-visible:outline-none focus-visible:ring-0",
-                isInvalid && "text-red-500"
+                "absolute right-0 h-full px-3 py-2 text-muted-foreground hover:bg-transparent",
+                isInvalid && "text-destructive"
               )}
               aria-label="Open calendar"
             >
-              <CalendarIcon className="h-3.5 w-3.5" />
+              <CalendarIcon className="h-4 w-4" />
             </Button>
           </PopoverTrigger>
         </div>
-        <PopoverContent className="w-auto p-0" align="start">
+        <PopoverContent className="w-auto p-0 border border-gray-200 shadow-md rounded-lg" align="end" sideOffset={4}>
           <Calendar
             mode="single"
-            selected={selectedDate}
+            selected={getCalendarDate()}
             onSelect={handleDateSelect}
             initialFocus
-            disabled={(d) => d.getFullYear() > 9999}
+            defaultMonth={getCalendarDate() || new Date()}
           />
         </PopoverContent>
       </Popover>
@@ -131,4 +136,3 @@ export const SapDateInput = forwardRef<HTMLInputElement, SapDateInputProps>(
 );
 
 SapDateInput.displayName = "SapDateInput";
-
