@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Trash2, Loader2, Upload, CheckCircle2, Search, Lock, AlertTriangle } from "lucide-react";
 import { parseGSTIN } from "@/lib/gst-utils";
 import { roundToTwo, formatCurrency } from "@/lib/number-utils";
+import { SapDateInput } from "@/components/ui/sap-date-input";
 
 type ReceiptType = "Payment Receipt" | "Invoice Receipt" | "Stock Receipt";
 
@@ -17,7 +18,7 @@ const initialPaymentData = {
   invoiceNo: "",
   date: "",
   consigneeName: "",
-  itemDescription: "",
+  chargeType: "",
   billMonth: "",
   invoiceType: "",
   taxableAmount: 0,
@@ -208,7 +209,7 @@ export default function MIGO() {
 
       if (snap.empty) {
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Invoice ${paymentData.invoiceNo} not found in Plant ${plantId}`, isError: true } }));
-        setPaymentData(p => ({ ...p, date: "", consigneeName: "", consignorName: "", itemDescription: "", billMonth: "", invoiceType: "", taxableAmount: 0, taxAmount: 0, cgst: 0, sgst: 0, igst: 0 })); // Reset new fields
+        setPaymentData(p => ({ ...p, date: "", consigneeName: "", consignorName: "", chargeType: "", billMonth: "", invoiceType: "", taxableAmount: 0, taxAmount: 0, cgst: 0, sgst: 0, igst: 0 })); // Reset new fields
         return;
       }
 
@@ -256,34 +257,49 @@ export default function MIGO() {
 
       setIsPaymentBlocked(isBlocked);
 
-      if (inv.status === "Cancelled" || isFullyPaid) {
+const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consignor name (fallback)
+      const billToName = customerMap[inv.billTo]?.name || inv.billTo || "N/A";
+      // Prefer the invoice's own consignor fields; fall back to the firm name.
+      const resolvedConsignor = inv.consignorName || inv.snapshotFirm?.name || inv.snapshotFirm?.firmName || firm?.name || "N/A";
+      const totalTax = (inv.totals?.cgst || 0) + (inv.totals?.sgst || 0) + (inv.totals?.igst || 0);
+
+      // Common invoice details to populate into placeholders
+      const invoiceDetailsToPopulate = {
+        date: inv.invoiceDate || "",
+        consigneeName: billToName, // Party
+        consignorName: resolvedConsignor,
+        chargeType: inv.chargeType || inv.docCategory || inv.docType || "N/A",
+        billMonth: inv.billMonth || "N/A",
+        invoiceType: inv.docType || inv.docCategory || "Tax Invoice",
+        taxableAmount: inv.totals?.taxableAmount || 0,
+        grossAmount: grossAmount,
+        cgst: inv.totals?.cgst || 0,
+        sgst: inv.totals?.sgst || 0,
+        igst: inv.totals?.igst || 0,
+        currentOutstandingBalance: currentOutstanding,
+      };
+
+      if (inv.status === "Cancelled") {
+        // Cancelled invoice: keep the form locked and fields blank
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: PAYMENT_BLOCKED_MESSAGE, isError: true } }));
-        // Reset payment data fields if invoice is fully paid or cancelled, and lock the form
-        setPaymentData(p => ({ ...p, date: "", consigneeName: "", consignorName: "", itemDescription: "", billMonth: "", invoiceType: "", taxableAmount: 0, taxAmount: 0, grossAmount: 0, cgst: 0, sgst: 0, igst: 0, receiptAmount: "0", tds: "0", deduction: "0", interest: "0", deductionRemark: "", remark: "", paymentMode: "Banking", bankingUtr: "", paymentAdviceNo: "", proofData: "", paymentDate: "", currentOutstandingBalance: currentOutstanding, isFullyPaid: true }));
+        setIsPaymentBlocked(true);
+        setPaymentData(p => ({ ...p, ...invoiceDetailsToPopulate, isFullyPaid: true, receiptAmount: "0", tds: "0", deduction: "0", interest: "0", deductionRemark: "", remark: "", paymentMode: "Banking", bankingUtr: "", paymentAdviceNo: "", proofData: "", paymentDate: "" }));
         return;
       }
 
-      const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consignor name
-
-      const billToName = customerMap[inv.billTo]?.name || inv.billTo || "N/A";
-      const totalTax = (inv.totals?.cgst || 0) + (inv.totals?.sgst || 0) + (inv.totals?.igst || 0);
+      if (isFullyPaid) {
+        // Fully paid invoice: populate complete data into placeholders AND keep it non-editable
+        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: PAYMENT_BLOCKED_MESSAGE, isError: true } }));
+        setIsPaymentBlocked(true);
+        setPaymentData(p => ({ ...p, ...invoiceDetailsToPopulate, isFullyPaid: true, receiptAmount: "0", tds: "0", deduction: "0", interest: "0", deductionRemark: "", remark: "", paymentMode: "Banking", bankingUtr: "", paymentAdviceNo: "", proofData: "", paymentDate: "" }));
+        return;
+      }
 
       setInvoiceDocId(snap.docs[0].id); // Store invoice doc ID for update
       setPaymentData(prev => ({
         ...prev,
-        date: inv.invoiceDate || "",
-        consigneeName: billToName, // Renamed to Party
-        consignorName: firm?.name || "N/A", // New field
-        itemDescription: inv.items?.[0]?.desc || "N/A", // New field
-        billMonth: inv.billMonth || "N/A", // New field
+        ...invoiceDetailsToPopulate,
         isFullyPaid: isFullyPaid,
-        invoiceType: inv.docType || inv.docCategory || "Tax Invoice",
-        taxableAmount: inv.totals?.taxableAmount || 0,
-        grossAmount: grossAmount,
-        cgst: inv.totals?.cgst || 0, // New field
-        sgst: inv.totals?.sgst || 0, // New field
-        igst: inv.totals?.igst || 0, // New field
-        currentOutstandingBalance: currentOutstanding,
       }));
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Details for Invoice ${paymentData.invoiceNo} fetched successfully`, isError: false } }));
     } catch (e) {
@@ -359,6 +375,12 @@ export default function MIGO() {
       }
       if (!paymentData.paymentDate) {
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Payment Date is mandatory", isError: true } }));
+        return;
+      }
+
+      // Rule: When Payment Mode is Banking, Banking UTR is mandatory
+      if (paymentData.paymentMode === "Banking" && !paymentData.bankingUtr?.trim()) {
+        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Banking UTR is mandatory when Payment Mode is Banking", isError: true } }));
         return;
       }
 
@@ -491,15 +513,14 @@ export default function MIGO() {
                 <div className="sap-selection-row">
                   <label className="sap-label">Invoice Number</label>
                   <div className="sap-input-wrapper relative">
-                    <Input 
+<Input 
                       value={paymentData.invoiceNo} 
                       onChange={e => setPaymentData({...paymentData, invoiceNo: e.target.value})} 
                       onKeyDown={e => e.key === 'Enter' && fetchInvoiceDetails()}
                       placeholder="Enter and press Enter..."
                       className="pr-8"
-                      disabled={paymentData.isFullyPaid || isFetchingInvoice}
                     />
-                    <button onClick={fetchInvoiceDetails} className="absolute right-2 text-gray-400 hover:text-blue-600" disabled={paymentData.isFullyPaid}><Search className="h-3.5 w-3.5" /></button>
+                    <button onClick={fetchInvoiceDetails} className="absolute right-2 text-gray-400 hover:text-blue-600"><Search className="h-3.5 w-3.5" /></button>
                   </div>
                 </div>
                 <div className="sap-selection-row"><label className="sap-label">Invoice Date</label><Input value={paymentData.date} readOnly className="bg-gray-100" /></div>
@@ -507,8 +528,8 @@ export default function MIGO() {
                 <div className="sap-selection-row"><label className="sap-label">Consignor</label><Input value={paymentData.consignorName} readOnly className="bg-gray-100 font-bold" /></div>
                 {/* Renamed field: Party */}
                 <div className="sap-selection-row"><label className="sap-label">Party</label><Input value={paymentData.consigneeName} readOnly className="bg-gray-100 font-bold" /></div>
-                {/* New field: Item Description */}
-                <div className="sap-selection-row"><label className="sap-label">Item Description</label><Input value={paymentData.itemDescription} readOnly className="bg-gray-100" /></div>
+{/* Charge Type */}
+                <div className="sap-selection-row"><label className="sap-label">Charge Type</label><Input value={paymentData.chargeType} readOnly className="bg-gray-100 uppercase" /></div>
                 {/* New field: Bill Month */}
                 <div className="sap-selection-row"><label className="sap-label">Bill Month</label><Input value={paymentData.billMonth} readOnly className="bg-gray-100 uppercase" /></div>
                 <div className="sap-selection-row"><label className="sap-label">Invoice Type</label><Input value={paymentData.invoiceType} readOnly className="bg-gray-100 uppercase" /></div>
@@ -604,7 +625,7 @@ export default function MIGO() {
                 )}
 <div className="sap-selection-row">
                   <label className="sap-label">Payment Date</label>
-                  <Input type="date" value={paymentData.paymentDate} onChange={e => setPaymentData({...paymentData, paymentDate: e.target.value})} disabled={paymentData.isFullyPaid || isPaymentBlocked || !paymentData.invoiceNo} />
+                  <SapDateInput value={paymentData.paymentDate} onChange={val => setPaymentData({...paymentData, paymentDate: val})} disabled={paymentData.isFullyPaid || isPaymentBlocked || !paymentData.invoiceNo} />
                 </div>
               </div>
             </div>
@@ -670,7 +691,7 @@ export default function MIGO() {
                 </div>
                 <div className="sap-selection-row"><label className="sap-label">Inventory Type</label><Select value={receiptHeader.inventoryType} onValueChange={v => setReceiptHeader({...receiptHeader, inventoryType: v})}><SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="" /></SelectTrigger><SelectContent><SelectItem value="Service Invoice">Service Invoice</SelectItem><SelectItem value="Supply Invoice">Supply Invoice</SelectItem></SelectContent></Select></div>
                 <div className="sap-selection-row"><label className="sap-label">Invoice Number</label><Input value={receiptHeader.invoiceNo} onChange={e => setReceiptHeader({...receiptHeader, invoiceNo: e.target.value})} /></div>
-                <div className="sap-selection-row"><label className="sap-label">Date</label><Input type="date" value={receiptHeader.date} onChange={e => setReceiptHeader({...receiptHeader, date: e.target.value})} /></div> {/* This is for Invoice Entry */}
+<div className="sap-selection-row"><label className="sap-label">Date</label><SapDateInput value={receiptHeader.date} onChange={val => setReceiptHeader({...receiptHeader, date: val})} /></div> {/* This is for Invoice Entry */}
                 <div className="sap-selection-row">
                   <label className="sap-label">Document Type</label> {/* Renamed from Invoice Type */}
                   <Select value={receiptHeader.documentType} onValueChange={v => setReceiptHeader({...receiptHeader, documentType: v})}> {/* Renamed field */}
