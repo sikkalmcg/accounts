@@ -11,8 +11,8 @@ export const DUPLICATE_ERROR_MESSAGES: Record<string, string> = {
   vendorCode: "Vendor ID already exists. Please use a unique Vendor ID.",
   vendorId: "Vendor ID already exists. Please use a unique Vendor ID.",
   firmId: "Firm ID already exists. Please use a unique Vendor ID.",
-  irnNumber: "IRN Number already exists. Duplicate IRN Numbers are not permitted.",
-  ackNo: "ACK Number already exists. Duplicate ACK Numbers are not permitted.",
+  irnNumber: "IRN Number already exists. Duplicate IRN Numbers are not allowed across all plants.",
+  ackNo: "ACK Number already exists. Duplicate ACK Numbers are not allowed across all plants.",
   productName: "Material Name already exists. Please enter a unique Product Name.",
   materialCode: "Material Code already exists. Please enter a unique Material Code.",
 };

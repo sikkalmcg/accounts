@@ -11,6 +11,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import Image from "next/image";
 import { toSAPDate, toInputDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
+import { validateDuplicateWithExclusion } from "@/lib/duplicate-validator";
 import { matchesDateRange, IRNResultGrid } from "./IRNShared";
 import { getRecordPlantIds } from "@/lib/plant-master";
 import { formatAmount } from "@/lib/number-utils";
@@ -134,17 +135,44 @@ export default function IRN02() {
   };
 
 // 8. Save Modified IRN
-  const handleSave = useCallback(async () => {
+const handleSave = useCallback(async () => {
     if (!editingInvoice || isLockedByTime) return;
+
+    // Mandatory fields: IRN Number, ACK Number, ACK Date, QR Code
+    const missing: string[] = [];
+    if (!irnData.irnNumber?.trim()) missing.push("IRN Number");
+    if (!irnData.ackNo?.trim()) missing.push("ACK Number");
+    if (!irnData.ackDate?.trim()) missing.push("ACK Date");
+    if (!irnData.qrData?.trim()) missing.push("QR Code");
+    if (missing.length > 0) {
+      window.dispatchEvent(new CustomEvent("sap-status", {
+        detail: { text: `Validation Error: Missing mandatory field(s): ${missing.join(", ")}`, isError: true },
+      }));
+      return;
+    }
 
     setIsSaving(true);
     try {
+      // Duplicate validation across all plants, excluding the current record
+      const irnError = await validateDuplicateWithExclusion(db, "sales_invoices", "irnNumber", irnData.irnNumber, editingInvoice.id);
+      if (irnError) {
+        window.dispatchEvent(new CustomEvent("sap-status", { detail: { text: irnError, isError: true } }));
+        setIsSaving(false);
+        return;
+      }
+      const ackError = await validateDuplicateWithExclusion(db, "sales_invoices", "ackNo", irnData.ackNo, editingInvoice.id);
+      if (ackError) {
+        window.dispatchEvent(new CustomEvent("sap-status", { detail: { text: ackError, isError: true } }));
+        setIsSaving(false);
+        return;
+      }
+
       // Sync Invoice Date with ACK Date as per requirement (IRN Date and Invoice Date always identical)
       const syncedDate = toSAPDate(irnData.ackDate);
 
       updateDocumentNonBlocking(doc(db, "sales_invoices", editingInvoice.id), {
-        irnNumber: irnData.irnNumber,
-        ackNo: irnData.ackNo,
+        irnNumber: irnData.irnNumber.trim().toUpperCase(),
+        ackNo: irnData.ackNo.trim().toUpperCase(),
         ackDate: syncedDate,
         invoiceDate: syncedDate, // Ensure Invoice Date is updated to match ACK Date
         qrData: irnData.qrData,
@@ -159,8 +187,8 @@ export default function IRN02() {
           inv.id === editingInvoice.id
             ? {
                 ...inv,
-                irnNumber: irnData.irnNumber,
-                ackNo: irnData.ackNo,
+                irnNumber: irnData.irnNumber.trim().toUpperCase(),
+                ackNo: irnData.ackNo.trim().toUpperCase(),
                 ackDate: syncedDate,
                 invoiceDate: syncedDate, // Ensure Invoice Date is updated to match ACK Date
                 qrData: irnData.qrData,

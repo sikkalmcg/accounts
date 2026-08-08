@@ -13,6 +13,7 @@ import { getRecordPlantIds } from "@/lib/plant-master";
 import { formatAmount } from "@/lib/number-utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { InvoicePreview } from "./VF03";
+import { validateDuplicate } from "@/lib/duplicate-validator";
 
 export default function IRN01() {
   const db = useDatabase();
@@ -71,31 +72,65 @@ export default function IRN01() {
     );
   }, [allInvoices, search, isAdmin, assignedPlantId, customerMap]);
 
-  const handleExecute = useCallback(() => {
-    if (!selectedInvoice || !irnData.irnNumber || !irnData.ackNo) {
-      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: IRN and ACK details are mandatory", isError: true } }));
+  const handleExecute = useCallback(async () => {
+    if (!selectedInvoice) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: No invoice selected", isError: true } }));
       return;
     }
+
+    // Mandatory fields: IRN Number, ACK Number, ACK Date, QR Code
+    const missing: string[] = [];
+    if (!irnData.irnNumber?.trim()) missing.push("IRN Number");
+    if (!irnData.ackNo?.trim()) missing.push("ACK Number");
+    if (!irnData.ackDate?.trim()) missing.push("ACK Date");
+    if (!irnData.qrData?.trim()) missing.push("QR Code");
+    if (missing.length > 0) {
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: `Validation Error: Missing mandatory field(s): ${missing.join(", ")}`, isError: true }
+      }));
+      return;
+    }
+
     setIsGenerating(true);
-    
-    // Sync Invoice Date with ACK Date as per requirement
-    const syncedDate = toSAPDate(irnData.ackDate);
+    try {
+      // Duplicate validation across all plants (collection-level, regardless of selected plant)
+      const irnError = await validateDuplicate(db, "sales_invoices", "irnNumber", irnData.irnNumber);
+      if (irnError) {
+        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: irnError, isError: true } }));
+        setIsGenerating(false);
+        return;
+      }
+      const ackError = await validateDuplicate(db, "sales_invoices", "ackNo", irnData.ackNo);
+      if (ackError) {
+        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: ackError, isError: true } }));
+        setIsGenerating(false);
+        return;
+      }
 
-    updateDocumentNonBlocking(doc(db, "sales_invoices", selectedInvoice.id), {
-      ...irnData,
-      invoiceDate: syncedDate, // Ensure Invoice Date is updated to match ACK Date
-      ackDate: syncedDate,
-      irnStatus: "Generated",
-      irnUpdatedAt: new Date().toISOString(),
-      irnGeneratedBy: userName
-    });
+      // Sync Invoice Date with ACK Date as per requirement
+      const syncedDate = toSAPDate(irnData.ackDate);
 
-    window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `IRN generated for invoice ${selectedInvoice.invoiceNumber}`, isError: false } }));
-    setTimeout(() => {
-      setSelectedInvoice(null);
-      setIrnData({ irnNumber: "", ackNo: "", ackDate: new Date().toISOString().split('T')[0], qrData: "" });
+      updateDocumentNonBlocking(doc(db, "sales_invoices", selectedInvoice.id), {
+        irnNumber: irnData.irnNumber.trim().toUpperCase(),
+        ackNo: irnData.ackNo.trim().toUpperCase(),
+        ackDate: syncedDate,
+        invoiceDate: syncedDate, // Ensure Invoice Date is updated to match ACK Date
+        qrData: irnData.qrData,
+        irnStatus: "Generated",
+        irnUpdatedAt: new Date().toISOString(),
+        irnGeneratedBy: userName
+      });
+
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `IRN generated for invoice ${selectedInvoice.invoiceNumber}`, isError: false } }));
+      setTimeout(() => {
+        setSelectedInvoice(null);
+        setIrnData({ irnNumber: "", ackNo: "", ackDate: new Date().toISOString().split('T')[0], qrData: "" });
+        setIsGenerating(false);
+      }, 500);
+    } catch (e) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "System Error: IRN generation failed", isError: true } }));
       setIsGenerating(false);
-    }, 500);
+    }
   }, [db, selectedInvoice, irnData, userName]);
 
   if (selectedInvoice) {
