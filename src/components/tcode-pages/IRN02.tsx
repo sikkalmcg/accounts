@@ -6,7 +6,6 @@ import { collection, query, where, getDocs, doc } from "@/database/mongo";
 import { Search, Loader2, QrCode, FileEdit, Trash2, AlertTriangle, Lock, Save, RotateCcw, ArrowLeft, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import Image from "next/image";
 import { toSAPDate, toInputDate } from "@/lib/date-utils";
@@ -16,6 +15,7 @@ import { validateDuplicateWithExclusion } from "@/lib/duplicate-validator";
 import { matchesDateRange, IRNResultGrid } from "./IRNShared";
 import { getRecordPlantIds } from "@/lib/plant-master";
 import { formatAmount } from "@/lib/number-utils";
+import PlantMultiSelect from "./PlantMultiSelect";
 
 export default function IRN02() {
   const db = useDatabase();
@@ -26,11 +26,14 @@ export default function IRN02() {
   const [userName, setUserName] = useState("USER");
 
   // 2. Filter State
-  const [filterPlant, setFilterPlant] = useState("");
+  const [filterPlants, setFilterPlants] = useState<string[]>([]);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [isExecuted, setIsExecuted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Top global search bar (digits & text) across the results grid
+  const [globalSearch, setGlobalSearch] = useState("");
 
   // 3. Result Data
   const [results, setResults] = useState<any[]>([]);
@@ -68,8 +71,11 @@ export default function IRN02() {
       const sysAdmin = parsed.username === "ajaysomra" || parsed.role === "admin";
       setIsAdmin(sysAdmin);
       setUserName(parsed.name || parsed.username || "USER");
+      const assignedIds =
+        parsed.assignedPlantIds ||
+        (parsed.assignedPlantId ? [parsed.assignedPlantId] : []);
       setAssignedPlantId(parsed.assignedPlantId || "");
-      if (!sysAdmin && parsed.assignedPlantId) setFilterPlant(parsed.assignedPlantId);
+      if (!sysAdmin && assignedIds.length > 0) setFilterPlants([...assignedIds]);
     }
   }, []);
 
@@ -87,17 +93,20 @@ export default function IRN02() {
     return plants?.filter((p) => p.plantId === assignedPlantId) || [];
   }, [plants, isAdmin, assignedPlantId]);
 
-  // 6. Execute / Search Handler
+// 6. Execute / Search Handler
   const handleExecute = useCallback(async () => {
-    if (!filterPlant) {
-      window.dispatchEvent(new CustomEvent("sap-status", { detail: { text: "Error: Plant is mandatory", isError: true } }));
+    if (filterPlants.length === 0) {
+      window.dispatchEvent(new CustomEvent("sap-status", { detail: { text: "Error: At least one Plant is mandatory", isError: true } }));
       return;
     }
 
     setIsLoading(true);
     setIsExecuted(true);
     try {
-      const q = query(collection(db, "sales_invoices"), where("plantId", "==", filterPlant));
+      const q =
+        filterPlants.length === 1
+          ? query(collection(db, "sales_invoices"), where("plantId", "==", filterPlants[0]))
+          : query(collection(db, "sales_invoices"), where("plantId", "in", filterPlants));
       const snap = await getDocs(q);
       const data = snap.docs
         .map((d) => ({ ...d.data(), id: d.id }))
@@ -117,7 +126,7 @@ export default function IRN02() {
     } finally {
       setIsLoading(false);
     }
-  }, [db, filterPlant, fromDate, toDate]);
+  }, [db, filterPlants, fromDate, toDate]);
 
   // 7. Modify Entry
   const openEdit = (inv: any) => {
@@ -226,21 +235,62 @@ const handleSave = useCallback(async () => {
     return () => window.removeEventListener("sap-execute", onExec);
   }, [editingInvoice, handleSave, handleExecute]);
 
-  // 9. Reset Filters
+// 9. Reset Filters
   const handleReset = useCallback(() => {
-    setFilterPlant("");
+    setFilterPlants([]);
     setToDate("");
     setFromDate("");
+    setGlobalSearch("");
     setIsExecuted(false);
     setResults([]);
     cancelEdit();
   }, []);
 
-  useEffect(() => {
+useEffect(() => {
     const onCancel = () => handleReset();
     window.addEventListener("sap-cancel", onCancel);
     return () => window.removeEventListener("sap-cancel", onCancel);
   }, [handleReset]);
+
+  // Global search across all grid fields (digits & text)
+  const searchedResults = useMemo(() => {
+    const q = globalSearch.trim().toLowerCase();
+    if (!q) return results;
+    return results.filter((inv: any) => {
+      const firm = inv.snapshotFirm || firms?.find((f) => getRecordPlantIds(f).includes(inv.plantId)) || {};
+      const billToCust = inv.snapshotBillTo || customerMap[inv.billTo] || {};
+      const haystack = [
+        inv.plantId,
+        inv.invoiceNumber,
+        inv.invoiceDate,
+        inv.irnNumber,
+        inv.ackNo,
+        inv.ackDate,
+        inv.docType,
+        inv.inventoryType,
+        inv.docCategory,
+        inv.irnGeneratedBy,
+        inv.irnModifiedBy,
+        inv.consignorName,
+        firm?.name,
+        firm?.gstin,
+        firm?.stateName,
+        firm?.state,
+        billToCust?.name,
+        billToCust?.gstin,
+        billToCust?.stateName,
+        inv.totals?.taxableAmount,
+        inv.totals?.cgst,
+        inv.totals?.sgst,
+        inv.totals?.igst,
+        inv.totals?.grossAmount,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [results, globalSearch, firms, customerMap]);
 
   // 10. Render Edit Mode
   if (editingInvoice) {
@@ -427,23 +477,43 @@ const firm = firms?.find((f) => getRecordPlantIds(f).includes(editingInvoice.pla
     <div className="w-full flex flex-col bg-white min-h-full select-text">
       <div className="sap-header-title">IRN02 - Change E-Invoicing Data</div>
 
+      {/* Top Search Bar — searches across all digits & text in the results grid */}
+      <div className="bg-[#e7ebf1] border-b border-[#b5c7de] px-4 py-1 flex items-center justify-between gap-4">
+        <div className="relative flex items-center bg-white border border-gray-400 h-6 w-[420px] px-1 group focus-within:border-blue-500">
+          <Search className="h-3.5 w-3.5 text-gray-400 mr-1 shrink-0" />
+          <input
+            value={globalSearch}
+            onChange={(e) => setGlobalSearch(e.target.value)}
+            className="w-full h-full text-xs outline-none"
+            placeholder="Search across all records (invoice no, plant, IRN, ACK, customer, firm, amounts)..."
+          />
+          {globalSearch && (
+            <button
+              onClick={() => setGlobalSearch("")}
+              className="text-gray-400 hover:text-red-600 ml-1 shrink-0"
+              title="Clear search"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+        <div className="text-[11px] font-bold text-blue-700 uppercase tracking-tighter">
+          {isExecuted ? (globalSearch ? `Filtered: ${searchedResults.length} of ${results.length}` : `Records: ${results.length}`) : "Enter criteria & execute"}
+        </div>
+      </div>
+
       <div className="sap-selection-area">
         <div className="max-w-5xl mx-auto grid grid-cols-3 gap-x-10 gap-y-6">
-          <div className="sap-selection-row">
-            <label className="sap-label">Plant *</label>
+<div className="sap-selection-row">
+            <label className="sap-label">Plant(s) *</label>
             <div className="sap-input-wrapper max-w-[280px]">
-              <Select value={filterPlant} onValueChange={setFilterPlant} disabled={!isAdmin}>
-                <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
-                  <SelectValue placeholder="Select Plant" />
-                </SelectTrigger>
-                <SelectContent>
-                  {filteredPlants.map((p) => (
-                    <SelectItem key={p.id} value={p.plantId}>
-                      {p.plantId} - {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <PlantMultiSelect
+                plants={filteredPlants}
+                selected={filterPlants}
+                onChange={setFilterPlants}
+                placeholder="Select Plant(s)"
+                disabled={!isAdmin}
+              />
             </div>
           </div>
           <div className="sap-selection-row">
@@ -485,7 +555,7 @@ const firm = firms?.find((f) => getRecordPlantIds(f).includes(editingInvoice.pla
           </div>
         ) : (
           <IRNResultGrid
-            invoices={results}
+            invoices={searchedResults}
             firms={firms}
             customerMap={customerMap}
             isLoading={isLoading}
@@ -509,7 +579,7 @@ const firm = firms?.find((f) => getRecordPlantIds(f).includes(editingInvoice.pla
           <span className="opacity-50">|</span>
           <span>Records: {results.length}</span>
           <span className="opacity-50">|</span>
-          <span>Plant: {filterPlant || "NONE"}</span>
+<span>Plants: {filterPlants.length > 0 ? filterPlants.join(", ") : "NONE"}</span>
         </div>
       </div>
     </div>
