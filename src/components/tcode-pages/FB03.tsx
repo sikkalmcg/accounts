@@ -1,16 +1,18 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, } from "@/components/ui/table";
 import { useDatabase, useCollection, useMemoDatabase } from "@/database";
 import { collection, query, orderBy } from "@/database/mongo";
-import { ArrowUpDown, ChevronUp, ChevronDown, LayoutDashboard, Receipt, Wallet, ArrowRight, Download, MinusCircle, PlusCircle } from "lucide-react";
+import { ArrowUpDown, ChevronUp, ChevronDown, LayoutDashboard, Receipt, Wallet, ArrowRight, Download, MinusCircle, PlusCircle, Printer, X, } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { getFinancialYears } from "@/lib/date-utils";
 import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
 import { formatAmount } from "@/lib/number-utils";
 import PlantMultiSelect from "./PlantMultiSelect";
+import { InvoicePreview } from "./VF03";
 
 // Helper to calculate current Indian Financial Year (e.g. FY 2024-25) safely
 const getCurrentFY = () => {
@@ -53,6 +55,7 @@ export default function FB03() {
   const [showDetail, setShowDetail] = useState(false);
   const [showAllInvoices, setShowAllInvoices] = useState(false); // Toggle between pending and all invoices
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
 
   // 3. Data Fetching
   const invoicesQuery = useMemoDatabase(() => query(collection(db, "sales_invoices"), orderBy("createdAt", "desc")), [db]);
@@ -260,6 +263,31 @@ return processedData.reduce((acc, curr) => ({
     window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Excel Export triggered successfully", isError: false } }));
   };
 
+  const handlePrint = () => {
+    const printWindow = window.open('', '_blank');
+    const content = document.getElementById('invoice-print-area')?.innerHTML;
+    if (printWindow && content) {
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Print Invoice - SIKKA LMC</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+            <style>
+              @page { size: A4 portrait; margin: 0; }
+              @media print {
+                body { padding: 0; margin: 0; background: white; -webkit-print-color-adjust: exact; }
+                .no-print { display: none; }
+                .page-break { page-break-after: always; }
+              }
+            </style>
+          </head>
+          <body onload="window.print(); window.close();">${content}</body>
+        </html>
+      `);
+      printWindow.document.close();
+    }
+  };
+
   return (
     <div className="w-full flex flex-col bg-white min-h-full select-text">
       <div className="sap-header-title">FB03 - Invoice Payment Status Control Center</div>
@@ -350,15 +378,15 @@ return processedData.reduce((acc, curr) => ({
               <TableHeader className="sap-alv-header">
                 <TableRow className="h-8 border-b-[#b5c7de]">
                   <TableHead className="w-12 text-center text-[10px] font-bold border-r border-[#b5c7de]">#</TableHead>
-                  <TableHead onClick={() => handleSort('plantId')} className="w-24 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Plant <SortIcon col="plantId" /></div></TableHead>
-                  <TableHead onClick={() => handleSort('invoiceNumber')} className="w-40 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Invoice No <SortIcon col="invoiceNumber" /></div></TableHead>
-                  <TableHead onClick={() => handleSort('invoiceDate')} className="w-32 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Inv. Date <SortIcon col="invoiceDate" /></div></TableHead>
-<TableHead className="w-24 text-[10px] font-bold border-r border-[#b5c7de]">Bill Month</TableHead>
+                  <TableHead onClick={() => handleSort('plantId')} className="w-24 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Plant <SortIcon col="plantId"/></div></TableHead>
+                  <TableHead onClick={() => handleSort('invoiceNumber')} className="w-40 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Invoice No <SortIcon col="invoiceNumber"/></div></TableHead>
+                  <TableHead onClick={() => handleSort('invoiceDate')} className="w-32 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Inv. Date <SortIcon col="invoiceDate"/></div></TableHead>
+                  <TableHead className="w-24 text-[10px] font-bold border-r border-[#b5c7de]">Bill Month</TableHead>
                   <TableHead className="w-40 text-[10px] font-bold border-r border-[#b5c7de]">Charge type</TableHead>
                   <TableHead className="w-44 text-[10px] font-bold border-r border-[#b5c7de]">Consignor</TableHead>
                   <TableHead className="w-56 text-[10px] font-bold border-r border-[#b5c7de]">Bill-to Party Name</TableHead>
 
-                  <TableHead onClick={() => handleSort('totals.taxableAmount')} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center justify-end">Taxable Amt <SortIcon col="totals.taxableAmount" /></div></TableHead>
+                  <TableHead onClick={() => handleSort('totals.taxableAmount')} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center justify-end">Taxable Amt <SortIcon col="totals.taxableAmount"/></div></TableHead>
                   {hasCsgst && (
                     <>
                       <TableHead className="w-28 text-right text-[10px] font-bold border-r border-[#b5c7de]">CGST</TableHead>
@@ -366,8 +394,13 @@ return processedData.reduce((acc, curr) => ({
                     </>
                   )}
                   {hasIgst && <TableHead className="w-28 text-right text-[10px] font-bold border-r border-[#b5c7de]">IGST</TableHead>}
-<TableHead onClick={() => handleSort('totals.grossAmount')} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-blue-50/50"><div className="flex items-center justify-end">Gross Payable <SortIcon col="totals.grossAmount" /></div></TableHead>
-                  <TableHead onClick={() => handleSort('balanceAmount')} className="w-32 text-right text-[10px] font-bold text-red-700 bg-red-50/30">Balance</TableHead>
+                  <TableHead onClick={() => handleSort('totals.grossAmount')} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-blue-50/50"><div className="flex items-center justify-end">Gross Payable <SortIcon col="totals.grossAmount"/></div></TableHead>
+                  <TableHead onClick={() => handleSort('receiptAmount')} className="w-28 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-emerald-50/30"><div className="flex items-center justify-end">Receipt Amt <SortIcon col="receiptAmount"/></div></TableHead>
+                  <TableHead onClick={() => handleSort('tdsAmount')} className="w-24 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-orange-50/30"><div className="flex items-center justify-end">TDS Amt <SortIcon col="tdsAmount"/></div></TableHead>
+                  <TableHead onClick={() => handleSort('deductionAmount')} className="w-24 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-purple-50/30"><div className="flex items-center justify-end">Ded. Amt <SortIcon col="deductionAmount"/></div></TableHead>
+                  <TableHead onClick={() => handleSort('interestAmount')} className="w-24 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-amber-50/30"><div className="flex items-center justify-end">Int. Amt <SortIcon col="interestAmount"/></div></TableHead>
+                  <TableHead onClick={() => handleSort('paymentDate')} className="w-28 text-center text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center justify-center">Payment Date <SortIcon col="paymentDate"/></div></TableHead>
+                  <TableHead onClick={() => handleSort('balanceAmount')} className="w-32 text-right text-[10px] font-bold text-red-700 bg-red-50/30 cursor-pointer hover:bg-gray-200"><div className="flex items-center justify-end">Balance <SortIcon col="balanceAmount"/></div></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -379,7 +412,12 @@ return processedData.reduce((acc, curr) => ({
                   <TableRow key={row.id} className={`h-8 hover:bg-blue-50/30 transition-colors border-b border-gray-100 group ${row.balanceAmount <= 1 && showAllInvoices ? 'bg-gray-50/50 text-gray-500' : ''}`}>
                     <TableCell className="p-0 text-center text-[10px] border-r border-gray-100 text-gray-400 group-hover:text-blue-600">{idx + 1}</TableCell>
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-bold text-center">{row.plantId}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono font-black text-blue-800">{row.invoiceNumber}</TableCell>
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono font-black text-blue-800">
+                      <button
+                        className="text-left w-full h-full hover:underline"
+                        onClick={() => setSelectedInvoice(row)}
+                      >{row.invoiceNumber}</button>
+                    </TableCell>
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">{row.invoiceDate}</TableCell>
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase">{row.billMonth}</TableCell>
 <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 truncate max-w-[150px] uppercase italic text-gray-600">{row.docCategory}</TableCell>
@@ -400,8 +438,13 @@ return processedData.reduce((acc, curr) => ({
                       </>
                     )}
                     {hasIgst && <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{(row.totals?.igst || 0).toLocaleString()}</TableCell>}
-<TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-black text-blue-900 bg-blue-50/20">{(row.totals?.grossAmount || 0).toLocaleString()}</TableCell>
-                    <TableCell className={`p-0 px-2 text-[10px] text-right font-black ${row.balanceAmount <= 1 && showAllInvoices ? 'text-gray-500' : 'text-red-700'} bg-red-50/10`}>{(row.balanceAmount || 0).toLocaleString()}</TableCell>
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-black text-blue-900 bg-blue-50/20">{formatAmount(row.totals?.grossAmount)}</TableCell>
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-emerald-700 bg-emerald-50/20">{formatAmount(row.receiptAmount)}</TableCell>
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-orange-700 bg-orange-50/20">{formatAmount(row.tdsAmount)}</TableCell>
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-purple-700 bg-purple-50/20">{formatAmount(row.deductionAmount)}</TableCell>
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-amber-700 bg-amber-50/20">{formatAmount(row.interestAmount)}</TableCell>
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">{row.paymentDate || "-"}</TableCell>
+                    <TableCell className={`p-0 px-2 text-[10px] text-right font-black ${row.balanceAmount <= 1 && showAllInvoices ? 'text-gray-500' : 'text-red-700'} bg-red-50/10`}>{formatAmount(row.balanceAmount)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -418,6 +461,33 @@ return processedData.reduce((acc, curr) => ({
           </div>
         </div>
       )}
+
+      {/* Invoice Preview Dialog */}
+      {selectedInvoice && (
+        <Dialog open={!!selectedInvoice} onOpenChange={(open) => !open && setSelectedInvoice(null)}>
+          <DialogContent className="max-w-[850px] max-h-[98vh] overflow-y-auto p-0 rounded-none border-none shadow-2xl">
+            <div className="bg-[#333e4f] p-2 flex justify-between items-center text-white sticky top-0 z-50">
+              <DialogTitle className="text-[11px] font-bold uppercase tracking-widest pl-2">
+                Document Output: {selectedInvoice.invoiceNumber}
+              </DialogTitle>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handlePrint} className="h-7 rounded-none bg-emerald-600 hover:bg-emerald-700 gap-2 text-[10px] font-bold px-4">
+                  <Printer className="h-3.5 w-3.5" /> PRINT COPIES
+                </Button>
+                <button onClick={() => setSelectedInvoice(null)} className="h-7 w-7 text-white hover:bg-white/10 rounded-none flex items-center justify-center">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <div className="bg-white" id="invoice-print-area">
+              <InvoicePreview invoice={selectedInvoice} copyLabel="ORIGINAL: FOR RECIPIENT" firms={firms} customerMap={customerMap} />
+              <div className="page-break"></div>
+              <InvoicePreview invoice={selectedInvoice} copyLabel="DUPLICATE: FOR CONSIGNEE" firms={firms} customerMap={customerMap} />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
     </div>
   );
 }
