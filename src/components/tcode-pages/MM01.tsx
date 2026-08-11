@@ -67,6 +67,18 @@ export default function MM01() {
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [userData, setUserData] = useState<any>(null);
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem("sikka_user");
+    if (storedUser) {
+      try {
+        setUserData(JSON.parse(storedUser));
+      } catch (e) {
+        console.error("Failed to parse user data from localStorage", e);
+      }
+    }
+  }, []);
 
   // Fetch Plants
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
@@ -79,6 +91,13 @@ export default function MM01() {
   // Fetch existing materials
   const materialsQuery = useMemoDatabase(() => collection(db, "materials"), [db]);
   const { data: materials } = useCollection(materialsQuery);
+
+  const allowedPlantIds = useMemo(() => {
+    if (userData?.role === 'admin' || userData?.username === 'ajaysomra') {
+      return undefined; // Admin can see all
+    }
+    return userData?.assignedPlantIds || [];
+  }, [userData]);
 
   // Filter billing types based on selected Plants + Inventory Type (Handles both plantIds array & plantId string)
   const filteredBillingTypes = useMemo(() => {
@@ -363,6 +382,7 @@ const validateRows = useCallback(
                   onChange={(ids) => setHeader(prev => ({ ...prev, plantIds: ids, documentType: "", documentCategory: "" }))}
                   isLoading={isPlantsLoading}
                   placeholder="Select Plant(s)..."
+                  allowedPlantIds={allowedPlantIds}
                 />
               </div>
             </div>

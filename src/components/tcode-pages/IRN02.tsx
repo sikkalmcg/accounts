@@ -22,7 +22,7 @@ export default function IRN02() {
 
   // 1. User Context
   const [isAdmin, setIsAdmin] = useState(false);
-  const [assignedPlantId, setAssignedPlantId] = useState("");
+  const [assignedPlantIds, setAssignedPlantIds] = useState<string[]>([]);
   const [userName, setUserName] = useState("USER");
 
   // 2. Filter State
@@ -71,11 +71,9 @@ export default function IRN02() {
       const sysAdmin = parsed.username === "ajaysomra" || parsed.role === "admin";
       setIsAdmin(sysAdmin);
       setUserName(parsed.name || parsed.username || "USER");
-      const assignedIds =
-        parsed.assignedPlantIds ||
-        (parsed.assignedPlantId ? [parsed.assignedPlantId] : []);
-      setAssignedPlantId(parsed.assignedPlantId || "");
-      if (!sysAdmin && assignedIds.length > 0) setFilterPlants([...assignedIds]);
+      const plantIds = Array.isArray(parsed.assignedPlantIds) ? parsed.assignedPlantIds : [];
+      setAssignedPlantIds(plantIds);
+      if (!sysAdmin && plantIds.length > 0) setFilterPlants([...plantIds]);
     }
   }, []);
 
@@ -88,10 +86,10 @@ export default function IRN02() {
     return diffHours > 24;
   }, [editingInvoice, isAdmin]);
 
-  const filteredPlants = useMemo(() => {
-    if (isAdmin) return plants || [];
-    return plants?.filter((p) => p.plantId === assignedPlantId) || [];
-  }, [plants, isAdmin, assignedPlantId]);
+  const allowedPlantIds = useMemo(() => {
+    if (isAdmin) return undefined;
+    return assignedPlantIds;
+  }, [isAdmin, assignedPlantIds]);
 
 // 6. Execute / Search Handler
   const handleExecute = useCallback(async () => {
@@ -508,11 +506,11 @@ const firm = firms?.find((f) => getRecordPlantIds(f).includes(editingInvoice.pla
             <label className="sap-label">Plant(s) *</label>
             <div className="sap-input-wrapper max-w-[280px]">
               <PlantMultiSelect
-                plants={filteredPlants}
+                plants={plants || []}
                 selected={filterPlants}
                 onChange={setFilterPlants}
                 placeholder="Select Plant(s)"
-                disabled={!isAdmin}
+                allowedPlantIds={allowedPlantIds}
               />
             </div>
           </div>

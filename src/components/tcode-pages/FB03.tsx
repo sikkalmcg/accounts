@@ -28,7 +28,7 @@ export default function FB03() {
   const db = useDatabase();
   
   // 1. User Context & Permissions
-  const [assignedPlantId, setAssignedPlantId] = useState("");
+  const [assignedPlantIds, setAssignedPlantIds] = useState<string[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   
   useEffect(() => {
@@ -36,7 +36,7 @@ export default function FB03() {
     if (stored) {
       const parsed = JSON.parse(stored);
       setIsAdmin(parsed.username === "ajaysomra" || parsed.role === 'admin');
-      setAssignedPlantId(parsed.assignedPlantId || "");
+      setAssignedPlantIds(Array.isArray(parsed.assignedPlantIds) ? parsed.assignedPlantIds : []);
     }
   }, []);
 
@@ -74,10 +74,10 @@ const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
   const { data: firms } = useCollection(firmsQuery);
 
   // 4. Derived Logic
-  const filteredPlants = useMemo(() => {
-    if (isAdmin) return plants || [];
-    return plants?.filter(p => p.plantId === assignedPlantId) || [];
-  }, [plants, isAdmin, assignedPlantId]);
+  const allowedPlantIds = useMemo(() => {
+    if (isAdmin) return undefined; // Admin can see all, so no restrictions
+    return assignedPlantIds;
+  }, [isAdmin, assignedPlantIds]);
 
 // Customers assigned to the currently selected Plant
   const filteredCustomers = useMemo(() => {
@@ -142,7 +142,7 @@ const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
   const processedData = useMemo(() => {
     if (!allInvoices) return [];
     let base = allInvoices.filter(inv => {
-      if (!isAdmin && inv.plantId !== assignedPlantId) return false;
+      if (!isAdmin && assignedPlantIds.length > 0 && !assignedPlantIds.includes(inv.plantId)) return false;
       if (inv.status === "Cancelled") return false;
       if (filterPlants.length > 0 && !filterPlants.includes(inv.plantId)) return false;
       if (filterConsignee !== "ALL" && inv.billTo !== filterConsignee) return false;
@@ -173,7 +173,7 @@ const receipt = invoiceReceiptMap[inv.invoiceNumber] || { receiptAmount: 0, tds:
         billToName: consignee?.name || inv.billToName || inv.customerName || billToCandidates[0] || "N/A"
       };
     });
-  }, [allInvoices, isAdmin, assignedPlantId, filterPlants, filterConsignee, filterFY, invoiceReceiptMap, firmMap, customerMap]);
+  }, [allInvoices, isAdmin, assignedPlantIds, filterPlants, filterConsignee, filterFY, invoiceReceiptMap, firmMap, customerMap]);
 
   // Filter for pending invoices (balance > 1)
   const pendingInvoices = useMemo(() => processedData.filter(i => i.balanceAmount > 1), [processedData]);
@@ -296,10 +296,11 @@ return processedData.reduce((acc, curr) => ({
         <div className="space-y-1">
           <label className="text-[10px] font-bold text-gray-500 uppercase">Plant(s)</label>
           <PlantMultiSelect
-            plants={filteredPlants}
+            plants={plants || []}
             selected={filterPlants}
             onChange={setFilterPlants}
             placeholder="Select Plant(s)..."
+            allowedPlantIds={allowedPlantIds}
           />
         </div>
         <div className="space-y-1">

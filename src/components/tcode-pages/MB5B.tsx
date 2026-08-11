@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useCollection, useMemoDatabase } from "@/database";
 import { collection } from "@/database/mongo";
@@ -59,6 +59,18 @@ export default function MB5B() {
   const [filterToDate, setFilterToDate] = useState("");
   const [showReport, setShowReport] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [userData, setUserData] = useState<any>(null);
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem("sikka_user");
+    if (storedUser) {
+      try {
+        setUserData(JSON.parse(storedUser));
+      } catch (e) {
+        console.error("Failed to parse user data from localStorage", e);
+      }
+    }
+  }, []);
 
 const { data: plants } = useCollection(useMemoDatabase(() => collection(null as any, "plants"), []));
   const { data: customers } = useCollection(useMemoDatabase(() => collection(null as any, "customers"), []));
@@ -473,7 +485,13 @@ const { data: plants } = useCollection(useMemoDatabase(() => collection(null as 
         <div className="bg-[#e7ebf1] border-b border-[#b5c7de] p-4 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 items-end">
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-gray-500 uppercase">Plant</label>
-            <PlantMultiSelect plants={plants} selected={filterPlants} onChange={setFilterPlants} placeholder="Select Plants" />
+            <PlantMultiSelect
+              plants={plants}
+              selected={filterPlants}
+              onChange={setFilterPlants}
+              placeholder="Select Plants"
+              allowedPlantIds={userData?.assignedPlantIds}
+            />
           </div>
 
           <div className="space-y-1">

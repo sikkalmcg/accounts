@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import Image from "next/image";
+import PlantMultiSelect from "./PlantMultiSelect"; // Import PlantMultiSelect
 import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
 import { formatAmount } from "@/lib/number-utils";
 import { InvoicePreview } from "./VF03";
@@ -78,6 +79,7 @@ export default function MB03() {
 
   // 1. User Context & Permissions
   const [assignedPlantId, setAssignedPlantId] = useState("");
+  const [assignedPlantIds, setAssignedPlantIds] = useState<string[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
@@ -86,11 +88,12 @@ export default function MB03() {
       const parsed = JSON.parse(stored);
       setIsAdmin(parsed.username === "ajaysomra" || parsed.role === 'admin');
       setAssignedPlantId(parsed.assignedPlantId || "");
+      setAssignedPlantIds(Array.isArray(parsed.assignedPlantIds) ? parsed.assignedPlantIds : []);
     }
   }, []);
 
   // 2. Filter State
-  const [filterPlant, setFilterPlant] = useState<string[]>(["ALL"]);
+  const [filterPlant, setFilterPlant] = useState<string[]>([]); // Initialize as empty array for multi-select
   const [filterBillTo, setFilterBillTo] = useState("ALL");
   const [filterConsignor, setFilterConsignor] = useState("ALL");
 
@@ -155,9 +158,9 @@ export default function MB03() {
 
   // 5. Derived Logic
   const filteredPlants = useMemo(() => {
-    if (isAdmin) return plants || [];
-    return plants?.filter(p => p.plantId === assignedPlantId) || [];
-  }, [plants, isAdmin, assignedPlantId]);
+    if (isAdmin) return plants || []; // If admin, all plants are available for selection
+    return plants?.filter(p => assignedPlantIds.includes(p.plantId)) || [];
+  }, [plants, isAdmin, assignedPlantIds]);
 
   // Customers assigned to the currently selected Plant
   const filteredCustomers = useMemo(() => {
@@ -213,8 +216,14 @@ export default function MB03() {
     const loadCompletedPayments = async () => {
       setIsInvoicesLoading(true);
       try {
+        // Validate Mandatory Filters before making API call
+        if (filterPlant.length === 0) {
+          window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: At least one Plant must be selected", isError: true } }));
+          setIsInvoicesLoading(false);
+          return;
+        }
         const params = new URLSearchParams();
-        if (!filterPlant.includes('ALL')) params.set('plantIds', filterPlant.join(','));
+        if (filterPlant.length > 0) params.set('plantIds', filterPlant.join(','));
         
         const fromISO = parseInvoiceDateToISO(fromDate);
         const toISO = parseInvoiceDateToISO(toDate);
@@ -247,9 +256,9 @@ export default function MB03() {
     const toISO = parseInvoiceDateToISO(toDate);
 
     let base = allInvoices.filter(inv => {
-      if (!isAdmin && assignedPlantId && inv.plantId !== assignedPlantId) return false;
-      if (inv.status === "Cancelled") return false;
-      if (!filterPlant.includes("ALL") && !filterPlant.includes(inv.plantId)) return false;
+      // Plant filtering is handled by the API call based on filterPlant state.
+      // No need for client-side plant filtering here if API already filters.
+      if (inv.status === "Cancelled") return false; // Always filter out cancelled invoices
       
       // Bill-To Filter
       if (filterBillTo !== "ALL") {
@@ -330,7 +339,7 @@ export default function MB03() {
         billToGstin: consignee?.gstin || "N/A",
       };
     });
-  }, [allInvoices, isAdmin, assignedPlantId, filterPlant, filterBillTo, filterConsignor, fromDate, toDate, consignorPlantMap, firmMap, customerMap]);
+  }, [allInvoices, isAdmin, assignedPlantIds, filterPlant, filterBillTo, filterConsignor, fromDate, toDate, consignorPlantMap, firmMap, customerMap]);
 
   // Summary Calculation
   const summary = useMemo(() => {
@@ -440,44 +449,14 @@ export default function MB03() {
       <div className="bg-[#e7ebf1] border-b border-[#b5c7de] p-3 grid grid-cols-5 gap-4 items-end">
         
         {/* 1. Plant */}
-        <div className="space-y-1">
+        <div className="space-y-1 col-span-1">
           <label className="text-[10px] font-bold text-gray-500 uppercase">Plant</label>
-          <Dialog>
-            <DialogTrigger className={buttonVariants({ variant: 'outline', className: "h-6 w-full rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4] justify-start" })}>
-              {filterPlant.includes("ALL") ? "All Plants" : `${filterPlant.length} plant(s) selected`}
-            </DialogTrigger>
-            <DialogContent>
-              <DialogTitle>Select Plants</DialogTitle>
-              <div className="flex flex-col space-y-2 max-h-80 overflow-y-auto">
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    id="plant-all"
-                    checked={filterPlant.includes("ALL")}
-                    onChange={(e) => setFilterPlant(e.target.checked ? ["ALL"] : [])}
-                  />
-                  <label htmlFor="plant-all" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                    All Plants
-                  </label>
-                </div>
-                {filteredPlants.map(p => (
-                  <div key={p.id || p.plantId} className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      id={`plant-${p.plantId}`}
-                      checked={filterPlant.includes(p.plantId)}
-                      onChange={(e) => {
-                        const plantId = p.plantId;
-                        const newSelection = e.target.checked ? [...filterPlant.filter(fp => fp !== "ALL"), plantId] : filterPlant.filter(fp => fp !== plantId);
-                        setFilterPlant(newSelection.length === 0 ? ["ALL"] : newSelection);
-                      }}
-                    />
-                    <label htmlFor={`plant-${p.plantId}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">{p.plantId} - {p.name}</label>
-                  </div>
-                ))}
-              </div>
-            </DialogContent>
-          </Dialog>
+          <PlantMultiSelect
+            plants={filteredPlants} // Use filteredPlants (authorized plants) as options
+            selected={filterPlant}
+            onChange={setFilterPlant}
+            placeholder="Select Plant(s)..."
+          />
         </div>
 
         {/* 2. Consignor (Moved immediately to the left of Bill-to Party Name) */}

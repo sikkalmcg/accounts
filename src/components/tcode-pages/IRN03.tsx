@@ -57,9 +57,8 @@ export default function IRN03() {
   }, []);
 
   const filteredPlants = useMemo(() => {
-    if (isAdmin) return plants || [];
-    return plants?.filter((p) => p.plantId === assignedPlantId) || [];
-  }, [plants, isAdmin, assignedPlantId]);
+    return plants || [];
+  }, [plants]);
 
   // 5. Execute / Search Handler
   const handleExecute = useCallback(async () => {
@@ -182,7 +181,7 @@ useEffect(() => {
           <div className="sap-selection-row">
             <label className="sap-label">Plant *</label>
             <div className="sap-input-wrapper max-w-[280px]">
-              <Select value={filterPlant} onValueChange={setFilterPlant} disabled={!isAdmin}>
+              <Select value={filterPlant} onValueChange={setFilterPlant}>
                 <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
                   <SelectValue placeholder="Select Plant" />
                 </SelectTrigger>
