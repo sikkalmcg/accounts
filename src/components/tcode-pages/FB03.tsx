@@ -8,7 +8,7 @@ import { ArrowUpDown, ChevronUp, ChevronDown, LayoutDashboard, Receipt, Wallet, 
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { getFinancialYears } from "@/lib/date-utils";
+import { getFinancialYears, toSAPDate } from "@/lib/date-utils";
 import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
 import { formatAmount } from "@/lib/number-utils";
 import PlantMultiSelect from "./PlantMultiSelect";
@@ -161,11 +161,11 @@ const receipt = invoiceReceiptMap[inv.invoiceNumber] || { receiptAmount: 0, tds:
       const consignee = customerMap[billToKey] || customerMap[(inv.billTo ?? "").toString().trim().toUpperCase()] || customerMap[(inv.customerId ?? "").toString().trim().toUpperCase()] || customerMap[(inv.customerCode ?? "").toString().trim().toUpperCase()];
       return {
         ...inv,
-        receiptAmount: receipt.receiptAmount,
-        tdsAmount: receipt.tds,
+        invoiceDate: toSAPDate(inv.invoiceDate),
+        receiptAmount: receipt.receiptAmount,        tdsAmount: receipt.tds,
         deductionAmount: receipt.deduction,
         interestAmount: (receipt.interest || 0) - (receipt.reversedInterest || 0),
-        paymentDate: receipt.paymentDate,
+        paymentDate: receipt.paymentDate ? toSAPDate(receipt.paymentDate) : null,
         paymentAdviceNo: receipt.paymentAdviceNo,
         bankingUtr: receipt.bankingUtr,
         balanceAmount: gross - totalCollection + totalReversed,
