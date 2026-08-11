@@ -7,10 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2, Loader2, Upload, CheckCircle2, Search, Lock, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Loader2, Upload, CheckCircle2, Search, Lock, AlertTriangle, XCircle } from "lucide-react";
 import { parseGSTIN } from "@/lib/gst-utils";
 import { roundToTwo, formatCurrency } from "@/lib/number-utils";
 import { SapDateInput } from "@/components/ui/sap-date-input";
+import imageCompression from "browser-image-compression";
+import { PDFDocument } from "pdf-lib";
 
 type ReceiptType = "Payment Receipt" | "Invoice Receipt" | "Stock Receipt";
 
@@ -39,9 +41,13 @@ const initialPaymentData = {
   proofData: "",
   consignorName: "",
   paymentDate: "",
-currentOutstandingBalance: 0, // New field to store the actual outstanding balance of the invoice
+  currentOutstandingBalance: 0, // New field to store the actual outstanding balance of the invoice
   isFullyPaid: false, // New field to indicate if the invoice is fully paid
   grossAmount: 0, // Added for runtime balance calculation
+  paymentProofFile: null as File | null,
+  isPdfPasswordProtected: false,
+  pdfPassword: "",
+  pdfPasswordError: "",
 };
 
 const LC_BALANCE_TOLERANCE = 10; // Configurable tolerance for small balance write-offs (₹10.00 rule).
@@ -79,18 +85,16 @@ export default function MIGO() {
   }, [customers]);
 
   // --- Payment Receipt State ---
-  const [consignorName, setConsignorName] = useState(""); // New field
   const [paymentData, setPaymentData] = useState(initialPaymentData);
   const [invoiceDocId, setInvoiceDocId] = useState<string | null>(null); // To store the ID of the fetched invoice
   const [isPaymentBlocked, setIsPaymentBlocked] = useState(false); // Lock Receipt Details when Balance Amount < ₹10.00
 
   // --- Invoice/Stock Receipt State ---
   const [receiptHeader, setReceiptHeader] = useState({
-    inventoryType: "", // Already exists, but ensure it's available for Invoice Entry
+    inventoryType: "",
     invoiceNo: "",
     date: "",
-    documentType: "Tax Invoice", // Renamed from invoiceType
-    // inventoryType: "", // This is already in the general selection, no need to duplicate here
+    documentType: "Tax Invoice",
     vendorId: "",
     vendorGstin: "",
     address: "",
@@ -99,32 +103,123 @@ export default function MIGO() {
     pin: "",
     gstRate: "18",
     proofData: "",
-    firmId: "", // Moved firmId here as it's part of receiptHeader
+    firmId: "",
   });
 
   const [items, setItems] = useState<any[]>([{ id: '1', desc: '', matCode: '', hsn: '', qty: '', rate: '', amount: 0 }]);
 
   // --- Shared Logic ---
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf"];
+    if (!allowedTypes.includes(file.type)) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Unsupported file type. Please upload an image or PDF.", isError: true } }));
+      return;
+    }
 
     if (file.size > 2 * 1024 * 1024) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: File exceeds 2MB limit", isError: true } }));
       return;
     }
 
+    let processedFile = file;
+    if (file.type.startsWith("image/") && file.size > 400 * 1024) {
+      try {
+        const compressedFile = await imageCompression(file, {
+          maxSizeMB: 0.3, // Compress to just under 300KB
+          maxWidthOrHeight: 1920,
+          useWebWorker: true,
+        });
+        processedFile = compressedFile;
+      } catch (error) {
+        console.error("Image compression error:", error);
+        // If compression fails, use the original file if it's within limits, or show error.
+      }
+    }
+
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      const result = ev.target?.result as string;
-      if (receiptType === "Payment Receipt") {
-        setPaymentData(prev => ({ ...prev, proofData: result }));
+    reader.onload = async (ev) => {
+      const result = ev.target?.result as ArrayBuffer;
+
+      if (file.type === "application/pdf") {
+        try {
+          await PDFDocument.load(result, { ignoreEncryption: true });
+          setPaymentData(prev => ({
+            ...prev,
+            proofData: URL.createObjectURL(processedFile),
+            paymentProofFile: processedFile,
+            isPdfPasswordProtected: false,
+            pdfPassword: "",
+            pdfPasswordError: "",
+          }));
+        } catch (error: any) {
+          if (error.name === 'EncryptedPDFError') {
+            setPaymentData(prev => ({
+              ...prev,
+              proofData: URL.createObjectURL(processedFile),
+              paymentProofFile: processedFile,
+              isPdfPasswordProtected: true,
+              pdfPassword: "",
+              pdfPasswordError: "",
+            }));
+          } else {
+            window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Could not process PDF.", isError: true } }));
+          }
+        }
       } else {
-        setReceiptHeader(prev => ({ ...prev, proofData: result }));
+        const blob = new Blob([result], { type: file.type });
+        setPaymentData(prev => ({
+          ...prev,
+          proofData: URL.createObjectURL(blob),
+          paymentProofFile: processedFile,
+          isPdfPasswordProtected: false,
+          pdfPassword: "",
+          pdfPasswordError: "",
+        }));
       }
     };
-    reader.readAsDataURL(file);
+    reader.readAsArrayBuffer(processedFile);
+  };
+  
+  const validatePdfPassword = async () => {
+    if (!paymentData.paymentProofFile || !paymentData.isPdfPasswordProtected || !paymentData.pdfPassword) {
+      if(paymentData.isPdfPasswordProtected) {
+        setPaymentData(prev => ({ ...prev, pdfPasswordError: "Password is required." }));
+      }
+      return false;
+    }
+  
+    try {
+      const fileBytes = await paymentData.paymentProofFile.arrayBuffer();
+      await PDFDocument.load(fileBytes, { password: paymentData.pdfPassword });
+      setPaymentData(prev => ({ ...prev, pdfPasswordError: "" }));
+      return true;
+    } catch (error) {
+      setPaymentData(prev => ({ ...prev, pdfPasswordError: "Incorrect PDF password. Please enter the correct password." }));
+      return false;
+    }
+  };
+
+  const removeProof = () => {
+    setPaymentData(prev => ({
+      ...prev,
+      proofData: "",
+      paymentProofFile: null,
+      isPdfPasswordProtected: false,
+      pdfPassword: "",
+      pdfPasswordError: "",
+    }));
+    if (fileRef.current) {
+      fileRef.current.value = "";
+    }
+  };
+
+  const handleAmountChange = (field: "receiptAmount" | "tds", value: string) => {
+    const sanatizedValue = value.replace(/^0+(?=\d)/, '');
+    setPaymentData(prev => ({ ...prev, [field]: sanatizedValue }));
   };
 
   const resetAll = useCallback(() => {
@@ -143,7 +238,6 @@ export default function MIGO() {
 
   // --- Payment Receipt Logic ---
 
-  // Derived state for payment calculations and display
   const { actualInterest, amountToReduceBalance, remainingInvoiceBalance, balanceDisplayString } = useMemo(() => {
     if (receiptType !== "Payment Receipt") {
         return { actualInterest: 0, amountToReduceBalance: 0, remainingInvoiceBalance: 0, balanceDisplayString: "" };
@@ -158,22 +252,17 @@ export default function MIGO() {
     let calculatedInterest = 0;
     let calculatedAmountToReduceBalance = totalEnteredAmount;
 
-    // Requirement 2: Interest Amount Handling
     if (totalEnteredAmount > currentOutstanding) {
         calculatedInterest = totalEnteredAmount - currentOutstanding;
-        calculatedAmountToReduceBalance = currentOutstanding; // Cap amount reducing balance at current outstanding
+        calculatedAmountToReduceBalance = currentOutstanding;
     }
 
-    // Requirement 3: Balance Amount Calculation
     const calculatedRemainingInvoiceBalance = currentOutstanding - calculatedAmountToReduceBalance;
 
-    // Requirement 3: Interest Display Rule & Requirement 6: Small Balance Tolerance
     let displayString = "";
     if (calculatedRemainingInvoiceBalance > 0 && calculatedRemainingInvoiceBalance < LC_BALANCE_TOLERANCE) {
         displayString = '₹0.00 (Settled)';
     } else if (calculatedRemainingInvoiceBalance <= 0) {
-        // Spec: If Total Received Amount >= Gross Payable Value, Balance Amount = 0.00
-        // (interest/excess is captured in the Interest field instead)
         displayString = `₹0.00`;
     } else {
         displayString = `₹${formatCurrency(calculatedRemainingInvoiceBalance)}`;
@@ -187,11 +276,10 @@ export default function MIGO() {
     };
   }, [paymentData.currentOutstandingBalance, paymentData.receiptAmount, paymentData.tds, paymentData.deduction, receiptType]);
 
-// --- Payment Receipt History ---
   const [receiptHistory, setReceiptHistory] = useState<any[]>([]);
   const [loadingReceiptHistory, setLoadingReceiptHistory] = useState(false);
 
-  const [isFetchingInvoice, setIsFetchingInvoice] = useState(false); // New state for loading indicator
+  const [isFetchingInvoice, setIsFetchingInvoice] = useState(false);
 
   const fetchInvoiceDetails = async () => {
     if (!plantId || !paymentData.invoiceNo) {
@@ -199,7 +287,7 @@ export default function MIGO() {
       return;
     }
 
-    setIsFetchingInvoice(true); // Start loading
+    setIsFetchingInvoice(true);
     try {
       const q = query(collection(db, "sales_invoices"), 
         where("invoiceNumber", "==", paymentData.invoiceNo),
@@ -209,16 +297,13 @@ export default function MIGO() {
 
       if (snap.empty) {
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Invoice ${paymentData.invoiceNo} not found in Plant ${plantId}`, isError: true } }));
-        setPaymentData(p => ({ ...p, date: "", consigneeName: "", consignorName: "", chargeType: "", billMonth: "", invoiceType: "", taxableAmount: 0, taxAmount: 0, cgst: 0, sgst: 0, igst: 0 })); // Reset new fields
+        setPaymentData(p => ({ ...p, date: "", consigneeName: "", consignorName: "", chargeType: "", billMonth: "", invoiceType: "", taxableAmount: 0, taxAmount: 0, cgst: 0, sgst: 0, igst: 0 }));
         return;
       }
 
-      // Requirement: Payment Receipt data source is FB03 (posted) + MBST (cancelled/reversed) payment_receipts.
-      // Balance Amount = Invoice Net Amount (gross) – Total Posted (FB03) + Total Reversed (MBST).
       const inv = snap.docs[0].data();
       const grossAmount = inv.totals?.grossAmount || 0;
 
-      // Fetch all Payment Receipts for this invoice (both posted & reversed) to compute the available Balance Amount.
       let postedTotal = 0;
       let reversedTotal = 0;
       let receiptHistoryData: any[] = [];
@@ -245,28 +330,24 @@ export default function MIGO() {
           return sum;
         }, 0);
       } catch (e) {
-        // Fall back to zero totals if history fetch fails
         postedTotal = 0;
         reversedTotal = 0;
         setReceiptHistory([]);
       }
 
       const currentOutstanding = grossAmount - postedTotal + reversedTotal;
-      const isFullyPaid = currentOutstanding < LC_BALANCE_TOLERANCE; // Balance Amount < ₹10.00 blocks payment
-      const isBlocked = currentOutstanding < LC_BALANCE_TOLERANCE; // Lock Receipt Details
+      const isFullyPaid = currentOutstanding < LC_BALANCE_TOLERANCE;
+      const isBlocked = currentOutstanding < LC_BALANCE_TOLERANCE;
 
       setIsPaymentBlocked(isBlocked);
 
-const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consignor name (fallback)
+      const firm = firms?.find(f => f.plantId === inv.plantId);
       const billToName = customerMap[inv.billTo]?.name || inv.billTo || "N/A";
-      // Prefer the invoice's own consignor fields; fall back to the firm name.
       const resolvedConsignor = inv.consignorName || inv.snapshotFirm?.name || inv.snapshotFirm?.firmName || firm?.name || "N/A";
-      const totalTax = (inv.totals?.cgst || 0) + (inv.totals?.sgst || 0) + (inv.totals?.igst || 0);
-
-      // Common invoice details to populate into placeholders
+      
       const invoiceDetailsToPopulate = {
         date: inv.invoiceDate || "",
-        consigneeName: billToName, // Party
+        consigneeName: billToName,
         consignorName: resolvedConsignor,
         chargeType: inv.chargeType || inv.docCategory || inv.docType || "N/A",
         billMonth: inv.billMonth || "N/A",
@@ -279,23 +360,14 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
         currentOutstandingBalance: currentOutstanding,
       };
 
-      if (inv.status === "Cancelled") {
-        // Cancelled invoice: keep the form locked and fields blank
+      if (inv.status === "Cancelled" || isFullyPaid) {
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: PAYMENT_BLOCKED_MESSAGE, isError: true } }));
         setIsPaymentBlocked(true);
-        setPaymentData(p => ({ ...p, ...invoiceDetailsToPopulate, isFullyPaid: true, receiptAmount: "0", tds: "0", deduction: "0", interest: "0", deductionRemark: "", remark: "", paymentMode: "Banking", bankingUtr: "", paymentAdviceNo: "", proofData: "", paymentDate: "" }));
+        setPaymentData(p => ({ ...p, ...invoiceDetailsToPopulate, isFullyPaid: true, receiptAmount: "0", tds: "0", deduction: "0", interest: "0", deductionRemark: "", remark: "", paymentMode: "Banking", bankingUtr: "", paymentAdviceNo: "", proofData: "", paymentDate: "", paymentProofFile: null, isPdfPasswordProtected: false, pdfPassword: "", pdfPasswordError: "" }));
         return;
       }
 
-      if (isFullyPaid) {
-        // Fully paid invoice: populate complete data into placeholders AND keep it non-editable
-        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: PAYMENT_BLOCKED_MESSAGE, isError: true } }));
-        setIsPaymentBlocked(true);
-        setPaymentData(p => ({ ...p, ...invoiceDetailsToPopulate, isFullyPaid: true, receiptAmount: "0", tds: "0", deduction: "0", interest: "0", deductionRemark: "", remark: "", paymentMode: "Banking", bankingUtr: "", paymentAdviceNo: "", proofData: "", paymentDate: "" }));
-        return;
-      }
-
-      setInvoiceDocId(snap.docs[0].id); // Store invoice doc ID for update
+      setInvoiceDocId(snap.docs[0].id);
       setPaymentData(prev => ({
         ...prev,
         ...invoiceDetailsToPopulate,
@@ -305,10 +377,8 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
     } catch (e) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "System Error: Failed to fetch invoice details", isError: true } }));
     }
-    setIsFetchingInvoice(false); // End loading
+    setIsFetchingInvoice(false);
   };
-
-  // --- Invoice/Stock Receipt Logic ---
 
   const handleVendorSelect = (id: string) => {
     const v = vendors?.find(vend => vend.vendorId === id);
@@ -330,7 +400,7 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
     setItems(prev => prev.map(i => {
       if (i.id === id) {
         const updated = { ...i, [field]: val };
-        if (field === 'qty' || field === 'rate' || field === 'desc') { // Recalculate if desc changes and rate/qty are already set
+        if (field === 'qty' || field === 'rate' || field === 'desc') {
           updated.amount = roundToTwo((Number(updated.qty) || 0) * (Number(updated.rate) || 0));
         }
         return updated;
@@ -343,14 +413,13 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
     const qty = items.reduce((acc, i) => acc + (Number(i.qty) || 0), 0);
     const amount = items.reduce((acc, i) => acc + (i.amount || 0), 0);
     
-    // GST Logic
     const selectedFirm = firms?.find(f => f.firmId === receiptHeader.firmId);
     const firmStateCode = selectedFirm?.gstin?.substring(0, 2);
     const isSameState = firmStateCode === receiptHeader.stateCode;
     const rate = Number(receiptHeader.gstRate) / 100;
     
     let cgst = 0, sgst = 0, igst = 0;
-    if (receiptHeader.documentType === "Tax Invoice") { // Renamed field
+    if (receiptHeader.documentType === "Tax Invoice") {
       if (isSameState) {
         cgst = roundToTwo((amount * rate) / 2);
         sgst = roundToTwo((amount * rate) / 2);
@@ -359,17 +428,17 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
       }
     }
 
-    return { qty, amount, cgst, sgst, igst, total: roundToTwo(amount + cgst + sgst + igst), isNonTax: receiptHeader.documentType === "Non-Tax Invoice" }; // Add isNonTax flag
+    return { qty, amount, cgst, sgst, igst, total: roundToTwo(amount + cgst + sgst + igst), isNonTax: receiptHeader.documentType === "Non-Tax Invoice" };
   }, [items, receiptHeader, firms]);
 
-  const handleExecute = useCallback(() => {
-    if (!plantId || !receiptType || !inventoryType) { // inventoryType is now mandatory
+  const handleExecute = async () => {
+    if (!plantId || !receiptType || !inventoryType) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Plant and Type are mandatory", isError: true } }));
       return;
     }
 
     if (receiptType === "Payment Receipt") {
-      if (paymentData.isFullyPaid || isPaymentBlocked) { // Requirement: Balance Amount < ₹10.00 locks the Receipt Details & disables payment processing
+      if (paymentData.isFullyPaid || isPaymentBlocked) {
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: PAYMENT_BLOCKED_MESSAGE, isError: true } }));
         return;
       }
@@ -377,41 +446,41 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Payment Date is mandatory", isError: true } }));
         return;
       }
-
-      // Rule: When Payment Mode is Banking, Banking UTR is mandatory
       if (paymentData.paymentMode === "Banking" && !paymentData.bankingUtr?.trim()) {
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Banking UTR is mandatory when Payment Mode is Banking", isError: true } }));
         return;
       }
-
-      // Rule: If deduction exists, Deduction Remark is mandatory
       if (Number(paymentData.deduction) > 0 && !paymentData.deductionRemark) {
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Deduction Remark is mandatory", isError: true } }));
         return;
       }
-
-      // Requirement 3: Balance Amount Calculation & Requirement 6: Small Balance Tolerance
-      if (remainingInvoiceBalance > LC_BALANCE_TOLERANCE && !paymentData.remark) { // Adjusted condition for remark
+      if (remainingInvoiceBalance > LC_BALANCE_TOLERANCE && !paymentData.remark) {
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Error: Remark is mandatory for remaining balance amount > ₹${LC_BALANCE_TOLERANCE}`, isError: true } }));
         return;
+      }
+      
+      if (paymentData.isPdfPasswordProtected) {
+        const isPasswordValid = await validatePdfPassword();
+        if (!isPasswordValid) {
+          return; // Stop execution if password is required and invalid
+        }
       }
 
       addDocumentNonBlocking(collection(db, "payment_receipts"), { 
         ...paymentData,
-        interest: actualInterest, // Store calculated interest
-        balanceAmount: remainingInvoiceBalance, // Store remaining invoice balance
+        interest: actualInterest,
+        balanceAmount: remainingInvoiceBalance,
         plantId, 
         createdAt: serverTimestamp() 
       });
 
-      // Update the paidAmount on the invoice
       const paidUpdate = (Number(paymentData.receiptAmount) || 0) + (Number(paymentData.tds) || 0) + (Number(paymentData.deduction) || 0);
       const invoiceRef = doc(db, "sales_invoices", invoiceDocId!);
       const currentPaid = paymentData.grossAmount - paymentData.currentOutstandingBalance;
       updateDocumentNonBlocking(invoiceRef, { paidAmount: currentPaid + paidUpdate });
 
     } else { // Invoice or Stock Receipt
-      if (receiptHeader.documentType === "Tax Invoice" && !receiptHeader.vendorGstin) { // Renamed field
+      if (receiptHeader.documentType === "Tax Invoice" && !receiptHeader.vendorGstin) {
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Vendor GSTIN is mandatory for Tax Invoice", isError: true } }));
         return;
       }
@@ -419,7 +488,7 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
       addDocumentNonBlocking(collection(db, col), { 
         ...receiptHeader, 
         plantId, 
-        inventoryType: inventoryType, // Add inventoryType from general selection
+        inventoryType: inventoryType,
         items,
         totals,
         createdAt: serverTimestamp() 
@@ -427,9 +496,9 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
     }
 
     window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `${receiptType} saved successfully`, isError: false } }));
-    resetAll(); // Reset form after successful execution
-  }, [db, plantId, receiptType, inventoryType, paymentData, receiptHeader, items, totals, resetAll, invoiceDocId, isPaymentBlocked]); // resetAll is stable due to useCallback
-
+    resetAll();
+  };
+  
   useEffect(() => {
     const onExec = () => handleExecute();
     const onCan = () => resetAll();
@@ -439,7 +508,7 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
       window.removeEventListener('sap-execute', onExec);
       window.removeEventListener('sap-cancel', onCan);
     };
-  }, [handleExecute]);
+  }, [handleExecute, resetAll]);
 
   return (
     <div className="w-full flex flex-col bg-white min-h-full">
@@ -469,7 +538,7 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
             </div>
             <div className="sap-selection-row">
               <label className="sap-label">Type</label>
-              <div className="sap-input-wrapper max-w-[200px]"> {/* Renamed from Condition Type */}
+              <div className="sap-input-wrapper max-w-[200px]">
                 <Select value={receiptType} onValueChange={(val: any) => setReceiptType(val)}>
                   <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
                     <SelectValue placeholder="" />
@@ -477,12 +546,10 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
                   <SelectContent>
                     <SelectItem value="Payment Receipt">Payment Receipt</SelectItem>
                     <SelectItem value="Invoice Receipt">Invoice Receipt</SelectItem>
-                    {/* <SelectItem value="Stock Receipt">Stock Receipt</SelectItem> */} {/* Removed as per instructions */}
                   </SelectContent>
                 </Select>
               </div>
             </div>
-            {/* New field: Inventory Type */}
             <div className="sap-selection-row">
               <label className="sap-label">Inventory Type</label>
               <div className="sap-input-wrapper max-w-[200px]">
@@ -513,7 +580,7 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
                 <div className="sap-selection-row">
                   <label className="sap-label">Invoice Number</label>
                   <div className="sap-input-wrapper relative">
-<Input 
+                    <Input 
                       value={paymentData.invoiceNo} 
                       onChange={e => setPaymentData({...paymentData, invoiceNo: e.target.value})} 
                       onKeyDown={e => e.key === 'Enter' && fetchInvoiceDetails()}
@@ -524,17 +591,12 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
                   </div>
                 </div>
                 <div className="sap-selection-row"><label className="sap-label">Invoice Date</label><Input value={paymentData.date} readOnly className="bg-gray-100" /></div>
-                {/* New field: Consignor */}
                 <div className="sap-selection-row"><label className="sap-label">Consignor</label><Input value={paymentData.consignorName} readOnly className="bg-gray-100 font-bold" /></div>
-                {/* Renamed field: Party */}
                 <div className="sap-selection-row"><label className="sap-label">Party</label><Input value={paymentData.consigneeName} readOnly className="bg-gray-100 font-bold" /></div>
-{/* Charge Type */}
                 <div className="sap-selection-row"><label className="sap-label">Charge Type</label><Input value={paymentData.chargeType} readOnly className="bg-gray-100 uppercase" /></div>
-                {/* New field: Bill Month */}
                 <div className="sap-selection-row"><label className="sap-label">Bill Month</label><Input value={paymentData.billMonth} readOnly className="bg-gray-100 uppercase" /></div>
                 <div className="sap-selection-row"><label className="sap-label">Invoice Type</label><Input value={paymentData.invoiceType} readOnly className="bg-gray-100 uppercase" /></div>
                 <div className="sap-selection-row"><label className="sap-label">Taxable Amount</label><Input value={paymentData.taxableAmount.toLocaleString()} readOnly className="bg-gray-100 text-right font-mono" /></div>
-                {/* Conditional GST Columns */}
                 {paymentData.cgst > 0 && (
                   <>
                     <div className="sap-selection-row"><label className="sap-label">CGST</label><Input value={paymentData.cgst.toLocaleString()} readOnly className="bg-gray-100 text-right font-mono" /></div>
@@ -544,7 +606,6 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
                 {paymentData.igst > 0 && (
                   <div className="sap-selection-row"><label className="sap-label">IGST</label><Input value={paymentData.igst.toLocaleString()} readOnly className="bg-gray-100 text-right font-mono" /></div>
                 )}
-                {/* Removed Tax Amount */}
               </div>
             </div>
 
@@ -558,7 +619,6 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
                 )}
               </div>
 
-              {/* Balance Amount < ₹10.00 Validation Banner */}
               {isPaymentBlocked && (
                 <div className="px-3 py-2 bg-red-50 border-b border-red-200 flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
@@ -582,11 +642,10 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
                   </div>
                 </div>
                 <div className="sap-selection-row"><label className="sap-label font-bold text-blue-800">Gross Payable Value</label><Input value={`₹${(paymentData.grossAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`} readOnly className="bg-gray-200 text-right font-black text-blue-900 border-blue-300" /></div>
-                <div className="sap-selection-row"><label className="sap-label">Receipt Amount</label><Input type="number" value={paymentData.receiptAmount} onChange={e => setPaymentData({...paymentData, receiptAmount: e.target.value})} className="font-bold text-emerald-700" disabled={paymentData.isFullyPaid || isPaymentBlocked || !paymentData.invoiceNo} /></div>
-                <div className="sap-selection-row"><label className="sap-label">TDS</label><Input type="number" value={paymentData.tds} onChange={e => setPaymentData({...paymentData, tds: e.target.value})} disabled={paymentData.isFullyPaid || isPaymentBlocked || !paymentData.invoiceNo} /></div>
+                <div className="sap-selection-row"><label className="sap-label">Receipt Amount</label><Input type="number" value={paymentData.receiptAmount} onChange={e => handleAmountChange("receiptAmount", e.target.value)} className="font-bold text-emerald-700" disabled={paymentData.isFullyPaid || isPaymentBlocked || !paymentData.invoiceNo} /></div>
+                <div className="sap-selection-row"><label className="sap-label">TDS</label><Input type="number" value={paymentData.tds} onChange={e => handleAmountChange("tds", e.target.value)} disabled={paymentData.isFullyPaid || isPaymentBlocked || !paymentData.invoiceNo} /></div>
                 <div className="sap-selection-row"><label className="sap-label">Deduction</label><Input type="number" value={paymentData.deduction} onChange={e => setPaymentData({...paymentData, deduction: e.target.value})} disabled={paymentData.isFullyPaid || isPaymentBlocked || !paymentData.invoiceNo} /></div>
                 
-                {/* Conditional Deduction Remark */}
                 {Number(paymentData.deduction) > 0 && (
                   <div className="sap-selection-row animate-in fade-in duration-200">
                     <label className="sap-label">Deduction Remark *</label>
@@ -600,7 +659,6 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
                 </div>
                 <div className="sap-selection-row"><label className="sap-label font-bold text-blue-800">Balance Amount</label><Input value={balanceDisplayString} readOnly className="bg-gray-100 text-right font-black text-blue-900 border-blue-300" /></div>
                 
-                {/* Logic: Show Remark only if Remaining Balance > LC_BALANCE_TOLERANCE */}
                 {remainingInvoiceBalance > LC_BALANCE_TOLERANCE && (
                   <div className="sap-selection-row animate-in fade-in duration-200">
                     <label className="sap-label">Remark *</label>
@@ -608,29 +666,49 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
                   </div>
                 )}
 
-                {/* Conditional Banking Fields */}
                 {paymentData.paymentMode === "Banking" && (
                   <>
                     <div className="sap-selection-row"><label className="sap-label">Banking UTR</label><Input value={paymentData.bankingUtr} onChange={e => setPaymentData({...paymentData, bankingUtr: e.target.value})} className="font-mono uppercase" disabled={paymentData.isFullyPaid || isPaymentBlocked} /></div>
                     <div className="sap-selection-row"><label className="sap-label">Payment Advice No.</label><Input value={paymentData.paymentAdviceNo} onChange={e => setPaymentData({...paymentData, paymentAdviceNo: e.target.value})} disabled={paymentData.isFullyPaid || isPaymentBlocked} /></div>
-                    <div className="sap-selection-row">
+                    <div className="sap-selection-row col-span-2">
                       <label className="sap-label">Payment Proof</label>
-                      <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" className="h-7 rounded-none" onClick={() => fileRef.current?.click()} disabled={paymentData.isFullyPaid || isPaymentBlocked || !paymentData.invoiceNo}><Upload className="h-4 w-4 mr-2" /> Select File</Button>
-                        <input type="file" ref={fileRef} className="hidden" accept=".pdf,image/*" onChange={handleFileUpload} />
-                        {paymentData.proofData && <span className="text-[11px] text-emerald-600 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> File Attached</span>}
+                      <div className="flex flex-col gap-2">
+                          {!paymentData.paymentProofFile ? (
+                              <div className="flex items-center gap-2">
+                                  <Button variant="outline" size="sm" className="h-7 rounded-none" onClick={() => fileRef.current?.click()} disabled={paymentData.isFullyPaid || isPaymentBlocked || !paymentData.invoiceNo}><Upload className="h-4 w-4 mr-2" /> Select File</Button>
+                                  <input type="file" ref={fileRef} className="hidden" accept=".pdf,image/*" onChange={handleFileUpload} />
+                              </div>
+                          ) : (
+                              <div className="flex items-center gap-2 text-xs p-2 border rounded-md bg-gray-50">
+                                  <span className="font-mono truncate flex-1">{paymentData.paymentProofFile.name}</span>
+                                  <span className="text-gray-500">{((paymentData.paymentProofFile.size || 0) / 1024).toFixed(2)} KB</span>
+                                  <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={removeProof}><XCircle className="h-4 w-4" /></Button>
+                              </div>
+                          )}
+                          {paymentData.isPdfPasswordProtected && (
+                            <div className="flex flex-col gap-1 animate-in fade-in duration-300">
+                                <Input 
+                                    type="password"
+                                    placeholder="Enter PDF Password"
+                                    value={paymentData.pdfPassword}
+                                    onChange={e => setPaymentData({...paymentData, pdfPassword: e.target.value, pdfPasswordError: ""})}
+                                    onBlur={validatePdfPassword}
+                                    className={`h-7 text-xs ${paymentData.pdfPasswordError ? 'border-red-500' : ''}`}
+                                />
+                                {paymentData.pdfPasswordError && <p className="text-red-600 text-xs mt-1">{paymentData.pdfPasswordError}</p>}
+                            </div>
+                          )}
                       </div>
                     </div>
                   </>
                 )}
-<div className="sap-selection-row">
+                <div className="sap-selection-row">
                   <label className="sap-label">Payment Date</label>
                   <SapDateInput value={paymentData.paymentDate} onChange={val => setPaymentData({...paymentData, paymentDate: val})} disabled={paymentData.isFullyPaid || isPaymentBlocked || !paymentData.invoiceNo} />
                 </div>
               </div>
             </div>
 
-            {/* Receipt History Footer */}
             {receiptHistory.length > 0 && (
               <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-white">
                 <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700 flex items-center justify-between">
@@ -676,7 +754,6 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
           </div>
         )}
 
-        {/* Invoice / Stock Receipt View */}
         {(receiptType === "Invoice Receipt" || receiptType === "Stock Receipt") && (
           <div className="space-y-4 animate-in fade-in duration-300">
             <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
@@ -691,12 +768,12 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
                 </div>
                 <div className="sap-selection-row"><label className="sap-label">Inventory Type</label><Select value={receiptHeader.inventoryType} onValueChange={v => setReceiptHeader({...receiptHeader, inventoryType: v})}><SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="" /></SelectTrigger><SelectContent><SelectItem value="Service Invoice">Service Invoice</SelectItem><SelectItem value="Supply Invoice">Supply Invoice</SelectItem></SelectContent></Select></div>
                 <div className="sap-selection-row"><label className="sap-label">Invoice Number</label><Input value={receiptHeader.invoiceNo} onChange={e => setReceiptHeader({...receiptHeader, invoiceNo: e.target.value})} /></div>
-<div className="sap-selection-row"><label className="sap-label">Date</label><SapDateInput value={receiptHeader.date} onChange={val => setReceiptHeader({...receiptHeader, date: val})} /></div> {/* This is for Invoice Entry */}
+                <div className="sap-selection-row"><label className="sap-label">Date</label><SapDateInput value={receiptHeader.date} onChange={val => setReceiptHeader({...receiptHeader, date: val})} /></div>
                 <div className="sap-selection-row">
-                  <label className="sap-label">Document Type</label> {/* Renamed from Invoice Type */}
-                  <Select value={receiptHeader.documentType} onValueChange={v => setReceiptHeader({...receiptHeader, documentType: v})}> {/* Renamed field */}
+                  <label className="sap-label">Document Type</label>
+                  <Select value={receiptHeader.documentType} onValueChange={v => setReceiptHeader({...receiptHeader, documentType: v})}>
                     <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="" /></SelectTrigger>
-                    <SelectContent><SelectItem value="Tax Invoice">Tax Invoice</SelectItem><SelectItem value="Non-Tax Invoice">Non-Tax Invoice</SelectItem></SelectContent> {/* Options for Document Type */}
+                    <SelectContent><SelectItem value="Tax Invoice">Tax Invoice</SelectItem><SelectItem value="Non-Tax Invoice">Non-Tax Invoice</SelectItem></SelectContent>
                   </Select>
                 </div>
               </div>
@@ -712,7 +789,7 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
                     <SelectContent>{vendors?.map(v => <SelectItem key={v.id} value={v.vendorId}>{v.vendorId} - {v.vendorName}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
-                <div className="sap-selection-row"><label className="sap-label">Vendor GSTIN {receiptHeader.documentType === "Tax Invoice" && "*"}</label><Input value={receiptHeader.vendorGstin} readOnly className="bg-gray-100 font-mono" /></div> {/* Renamed field */}
+                <div className="sap-selection-row"><label className="sap-label">Vendor GSTIN {receiptHeader.documentType === "Tax Invoice" && "*"}</label><Input value={receiptHeader.vendorGstin} readOnly className="bg-gray-100 font-mono" /></div>
                 <div className="sap-selection-row"><label className="sap-label">Address</label><Input value={receiptHeader.address} readOnly className="bg-gray-100" /></div>
                 <div className="sap-selection-row gap-1">
                   <label className="sap-label">State / Code</label>
@@ -727,7 +804,7 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
               <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] flex items-center justify-between">
                 <span className="text-[12px] font-semibold text-gray-700">Line Items</span>
                 <Button size="sm" variant="ghost" className="h-5 text-[10px] hover:bg-white/50" onClick={() => setItems([...items, { id: Math.random().toString(), desc: '', matCode: '', hsn: '', qty: '', rate: '', amount: 0 }])}><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
-              </div> {/* This is for Invoice Entry */}
+              </div>
               <Table>
                 <TableHeader className="bg-[#e7ebf1]">
                   <TableRow className="h-7">
@@ -735,15 +812,15 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
                     <TableHead className="text-[11px] font-bold border-r">Description</TableHead>
                     <TableHead className="text-[11px] font-bold border-r w-24">HSN</TableHead>
                     <TableHead className="text-[11px] font-bold border-r w-20">Qty</TableHead>
-                    <TableHead className="text-[11px] font-bold border-r w-24">Rate</TableHead> {/* This is for Invoice Entry */}
+                    <TableHead className="text-[11px] font-bold border-r w-24">Rate</TableHead>
                     <TableHead className="text-[11px] font-bold border-r w-32 text-right">Amount</TableHead>
                     <TableHead className="w-8"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {items.map((row, idx) => (
+                  {items.map((row) => (
                     <TableRow key={row.id} className="h-7 hover:bg-blue-50/30">
-                      {receiptType === "Invoice Receipt" && ( // Only for Invoice Receipt, not Stock Receipt
+                      {receiptType === "Invoice Receipt" && (
                         <TableCell className="p-0 border-r">
                           <Select value={row.matCode} onValueChange={v => {
                             const m = materials?.find(mat => mat.productName === v || mat.materialCode === v);
@@ -755,7 +832,7 @@ const firm = firms?.find(f => f.plantId === inv.plantId); // Get firm for consig
                           </Select>
                         </TableCell>
                       )}
-                      <TableCell className="p-0 border-r"><Input className="h-full border-none shadow-none focus:bg-[#fff9c4]" value={row.desc} onChange={e => updateItem(row.id, 'desc', e.target.value)} disabled={receiptType === "Invoice Receipt" && row.matCode !== ''} /></TableCell> {/* Disable if material is selected for Invoice Receipt */}
+                      <TableCell className="p-0 border-r"><Input className="h-full border-none shadow-none focus:bg-[#fff9c4]" value={row.desc} onChange={e => updateItem(row.id, 'desc', e.target.value)} disabled={receiptType === "Invoice Receipt" && row.matCode !== ''} /></TableCell>
                       <TableCell className="p-0 border-r"><Input className="h-full border-none shadow-none focus:bg-[#fff9c4]" value={row.hsn} onChange={e => updateItem(row.id, 'hsn', e.target.value)} /></TableCell>
                       <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none shadow-none text-right focus:bg-[#fff9c4]" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} /></TableCell>
                       <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none shadow-none text-right focus:bg-[#fff9c4]" value={row.rate} onChange={e => updateItem(row.id, 'rate', e.target.value)} /></TableCell>

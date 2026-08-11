@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
-import { format, startOfQuarter, parse, isValid } from "date-fns";
+import { useState, useMemo, useEffect, lazy, Suspense } from "react";
+import { format, startOfQuarter, parse, isValid, startOfFinancialYear } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useCollection, useMemoDatabase } from "@/database";
 import { collection } from "@/database/mongo";
-import { ArrowUpDown, ChevronUp, ChevronDown, Download, Receipt, Wallet, ArrowRight, MinusCircle, PlusCircle, Eye, X, Calendar as CalendarIcon } from "lucide-react";
+import { ArrowUpDown, ChevronUp, ChevronDown, Download, Receipt, Wallet, ArrowRight, MinusCircle, PlusCircle, Eye, X, Calendar as CalendarIcon, Printer } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,10 @@ import { Calendar } from "@/components/ui/calendar";
 import Image from "next/image";
 import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
 import { formatAmount } from "@/lib/number-utils";
+import { InvoicePreview } from "./VF03";
+
+// Dynamically import PaymentProofViewer with SSR disabled
+const PaymentProofViewer = lazy(() => import("./PaymentProofViewer"));
 
 // Helper function to safely parse dates (DD-MMM-YYYY or ISO) into Date object
 const parseFlexibleDate = (dateStr: string): Date | null => {
@@ -55,9 +59,23 @@ const parseInvoiceDateToISO = (dateStr: string): string | null => {
   return parsed ? format(parsed, "yyyy-MM-dd") : null;
 };
 
+// Helper function to get the start of the current financial year (April 1st)
+const getFinancialYearStartDate = (date: Date): Date => {
+  const year = date.getFullYear();
+  const month = date.getMonth(); // 0-indexed (April is 3)
+
+  // If month is April (3) or later, FY started this year.
+  // If month is Jan-Mar (0-2), FY started last year.
+  const financialYearStartYear = month >= 3 ? year : year - 1;
+  
+  return new Date(financialYearStartYear, 3, 1); // April 1st
+};
+
 const normalizeKey = (value: unknown): string => (value ?? "").toString().trim().toUpperCase();
 
 export default function MB03() {
+  const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
+
   // 1. User Context & Permissions
   const [assignedPlantId, setAssignedPlantId] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
@@ -82,11 +100,44 @@ export default function MB03() {
   
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
-  // 3. Default Date Range: First day of current quarter -> Today
+    const handlePrint = () => {
+    const printWindow = window.open('', '_blank');
+    const content = document.getElementById('invoice-print-area')?.innerHTML;
+    if (printWindow && content) {
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Print Invoice - SIKKA LMC</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+            <style>
+              @page { size: A4 portrait; margin: 0; }
+              @media print {
+                body { padding: 0; margin: 0; background: white; -webkit-print-color-adjust: exact; }
+                .no-print { display: none; }
+                .page-break { page-break-after: always; }
+                #invoice-print-area { width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important; }
+                .invoice-container { margin: 0 !important; border-top: none !important; border-left: none !important; border-right: none !important; border-bottom: none !important; }
+                .watermark-text { opacity: 0.1 !important; color: #dc2626 !important; }
+              }
+              body { font-family: 'Inter', sans-serif; }
+              table { width: 100%; border-collapse: collapse; }
+              th, td { border: 1px solid #000; padding: 4px 6px; }
+            </style>
+          </head>
+          <body onload="window.print(); window.close();">
+            <div id="invoice-print-area">${content}</div>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+    }
+  };
+
+  // 3. Default Date Range: First day of current financial year -> Today
   useEffect(() => {
     const now = new Date();
-    const quarterStart = startOfQuarter(now);
-    setFromDate(format(quarterStart, "dd-MMM-yyyy"));
+    const finYearStart = getFinancialYearStartDate(now);
+    setFromDate(format(finYearStart, "dd-MMM-yyyy"));
   }, []);
 
   // 4. Master Data Queries
@@ -778,7 +829,12 @@ export default function MB03() {
                     {row.plantId}
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono font-black text-blue-800">
-                    {row.invoiceNumber}
+                    <button
+                      className="text-left w-full h-full hover:underline"
+                      onClick={() => setSelectedInvoice(row)}
+                    >
+                      {row.invoiceNumber}
+                    </button>
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">
                     {row.invoiceDate}
@@ -845,7 +901,7 @@ export default function MB03() {
                             <Eye className="h-3 w-3" />
                           </Button>
                         </DialogTrigger>
-                        <DialogContent className="max-w-lg rounded-none border-gray-400 p-0 overflow-hidden shadow-2xl">
+                        <DialogContent className="max-w-3xl rounded-none border-gray-400 p-0 overflow-hidden shadow-2xl">
                           <div className="bg-[#333e4f] text-white p-3 flex justify-between items-center">
                             <DialogTitle className="text-[11px] font-black uppercase tracking-widest flex items-center gap-2">
                               <Receipt className="h-4 w-4 text-emerald-400" /> Payment Proof: {row.invoiceNumber}
@@ -856,25 +912,13 @@ export default function MB03() {
                               </button>
                             </DialogTrigger>
                           </div>
-                          <div className="p-4 flex items-center justify-center min-h-[300px] relative bg-white">
-                            <div className="relative w-full h-[400px]">
-                              <Image src={row.proofData} alt="Payment Proof" fill className="object-contain" />
-                            </div>
-                          </div>
-                          <div className="bg-[#e1e1e1] p-3 flex justify-end gap-3">
-                            <a
-                              href={row.proofData}
-                              download={`Proof_${row.invoiceNumber}.png`}
-                              className="h-8 rounded-none bg-[#333e4f] text-white text-[11px] font-bold uppercase px-6 shadow-sm flex items-center gap-2 hover:bg-gray-700"
-                            >
-                              <Download className="h-3.5 w-3.5" /> Download
-                            </a>
-                            <DialogTrigger asChild>
-                              <Button className="h-8 rounded-none bg-gray-600 text-white text-[11px] font-bold uppercase px-6 shadow-sm hover:bg-gray-700">
-                                Close
-                              </Button>
-                            </DialogTrigger>
-                          </div>
+                          <Suspense fallback={<div className="p-8 text-center">Loading Viewer...</div>}>
+                            <PaymentProofViewer
+                              proofData={row.proofData}
+                              invoiceNumber={row.invoiceNumber}
+                              fileName={row.bankingUtr}
+                            />
+                          </Suspense>
                         </DialogContent>
                       </Dialog>
                     ) : (
@@ -931,6 +975,50 @@ export default function MB03() {
           </div>
         </div>
       </div>
+
+      {/* Invoice Preview Dialog */}
+      {selectedInvoice && (
+        <Dialog open={!!selectedInvoice} onOpenChange={(open) => !open && setSelectedInvoice(null)}>
+          <DialogContent className="max-w-[850px] max-h-[98vh] overflow-y-auto p-0 rounded-none border-none shadow-2xl">
+            <div className="bg-[#333e4f] p-2 flex justify-between items-center text-white sticky top-0 z-50">
+              <DialogTitle className="text-[11px] font-bold uppercase tracking-widest pl-2">
+                Document Output: {selectedInvoice.invoiceNumber}
+              </DialogTitle>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={handlePrint}
+                  className="h-7 rounded-none bg-emerald-600 hover:bg-emerald-700 gap-2 text-[10px] font-bold px-4"
+                >
+                  <Printer className="h-3.5 w-3.5" /> PRINT COPIES
+                </Button>
+                <button
+                  onClick={() => setSelectedInvoice(null)}
+                  className="h-7 w-7 text-white hover:bg-white/10 rounded-none flex items-center justify-center"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <div className="bg-white" id="invoice-print-area">
+              <InvoicePreview
+                invoice={selectedInvoice}
+                copyLabel="ORIGINAL: FOR RECIPIENT"
+                firms={firms}
+                customerMap={customerMap}
+              />
+              <div className="page-break"></div>
+              <InvoicePreview
+                invoice={selectedInvoice}
+                copyLabel="DUPLICATE: FOR CONSIGNEE"
+                firms={firms}
+                customerMap={customerMap}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
     </div>
   );
 }
