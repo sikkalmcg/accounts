@@ -6,8 +6,14 @@ import { Document, Page, pdfjs } from "react-pdf";
 import { jsPDF } from "jspdf";
 
 
-// pdfjs.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.js`;
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+// This sets up the PDF.js worker.
+// Next.js will automatically handle bundling and making this file available.
+if (typeof window !== 'undefined') {
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.min.mjs',
+    import.meta.url,
+  ).toString();
+}
 
 interface PaymentProofViewerProps {
   proofData: string;
