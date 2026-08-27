@@ -183,11 +183,26 @@ const firmMap = useMemo(() => {
   const invoiceReceiptMap = useMemo(() => {
     const map: Record<string, any> = {};
     receipts?.forEach(r => {
+      if (r.status === "Reversed") return;
       const invNo = r.invoiceNo;
       if (!map[invNo]) {
-        map[invNo] = { ...r, totalReceipt: 0 };
+        map[invNo] = {
+          ...r,
+          totalReceipt: 0,
+          totalTds: 0,
+          totalDeduction: 0,
+          totalInterest: 0,
+        };
       }
       map[invNo].totalReceipt += Number(r.receiptAmount) || 0;
+      map[invNo].totalTds += Number(r.tds) || 0;
+      map[invNo].totalDeduction += Number(r.deduction) || 0;
+      map[invNo].totalInterest += Number(r.interest) || 0;
+      if (r.paymentMode) map[invNo].paymentMode = r.paymentMode;
+      if (r.bankingUtr) map[invNo].bankingUtr = r.bankingUtr;
+      if (r.paymentAdviceNo) map[invNo].paymentAdviceNo = r.paymentAdviceNo;
+      if (r.deductionRemark) map[invNo].deductionRemark = r.deductionRemark;
+      if (r.remark) map[invNo].remark = r.remark;
     });
     return map;
   }, [receipts]);
@@ -250,14 +265,14 @@ const firmMap = useMemo(() => {
           ackDate: inv.ackDate || "---",
           paymentMode: payment.paymentMode || "---",
           receiptAmount: payment.totalReceipt || 0,
-          tds: payment.tds || 0,
-          deduction: payment.deduction || 0,
-          interest: payment.interest || 0,
+          tds: payment.totalTds || 0,
+          deduction: payment.totalDeduction || 0,
+          interest: payment.totalInterest || 0,
           deductionRemark: payment.deductionRemark || "---",
           remark: payment.remark || "---",
           utr: payment.bankingUtr || "---",
           advice: payment.paymentAdviceNo || "---",
-          balance: payment.balanceAmount || ((inv.totals?.grossAmount || 0) - (payment.totalReceipt || 0)),
+          balance: Math.max(0, (Number(inv.totals?.grossAmount) || 0) - ((payment.totalReceipt || 0) + (payment.totalTds || 0) + (payment.totalDeduction || 0))),
           status: inv.status || "Active",
           isInterstate,
           customValue0: item.customValues?.[0] || "-",

@@ -150,11 +150,10 @@ const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
       return true;
     });
 
-return base.map(inv => {
-const receipt = invoiceReceiptMap[inv.invoiceNumber] || { receiptAmount: 0, tds: 0, deduction: 0, interest: 0, reversedAmount: 0, reversedTds: 0, reversedDeduction: 0, reversedInterest: 0 };
+    return base.map(inv => {
+      const receipt = invoiceReceiptMap[inv.invoiceNumber] || { receiptAmount: 0, tds: 0, deduction: 0, interest: 0, reversedAmount: 0, reversedTds: 0, reversedDeduction: 0, reversedInterest: 0 };
       const gross = inv.totals?.grossAmount || 0;
       const totalCollection = (receipt.receiptAmount || 0) + (receipt.tds || 0) + (receipt.deduction || 0);
-      const totalReversed = (receipt.reversedAmount || 0) + (receipt.reversedTds || 0) + (receipt.reversedDeduction || 0);
       const firm = firmMap[inv.plantId];
       const billToCandidates = [inv.billTo, inv.customerCode, inv.customerId, inv.billToParty, inv.billToCode].filter(Boolean);
       const billToKey = billToCandidates.map(value => (value ?? "").toString().trim().toUpperCase()).find(Boolean) || "";
@@ -162,13 +161,14 @@ const receipt = invoiceReceiptMap[inv.invoiceNumber] || { receiptAmount: 0, tds:
       return {
         ...inv,
         invoiceDate: toSAPDate(inv.invoiceDate),
-        receiptAmount: receipt.receiptAmount,        tdsAmount: receipt.tds,
+        receiptAmount: receipt.receiptAmount,
+        tdsAmount: receipt.tds,
         deductionAmount: receipt.deduction,
-        interestAmount: (receipt.interest || 0) - (receipt.reversedInterest || 0),
+        interestAmount: receipt.interest || 0,
         paymentDate: receipt.paymentDate ? toSAPDate(receipt.paymentDate) : null,
         paymentAdviceNo: receipt.paymentAdviceNo,
         bankingUtr: receipt.bankingUtr,
-        balanceAmount: gross - totalCollection + totalReversed,
+        balanceAmount: Math.max(0, gross - totalCollection),
         consignorName: firm?.name || "N/A",
         billToName: consignee?.name || inv.billToName || inv.customerName || billToCandidates[0] || "N/A"
       };

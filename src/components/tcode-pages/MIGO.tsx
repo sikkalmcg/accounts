@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2, Loader2, Upload, CheckCircle2, Search, Lock, AlertTriangle, XCircle } from "lucide-react";
 import { parseGSTIN } from "@/lib/gst-utils";
-import { roundToTwo, formatCurrency } from "@/lib/number-utils";
+import { roundToTwo, formatCurrency, formatAmount } from "@/lib/number-utils";
 import { SapDateInput } from "@/components/ui/sap-date-input";
 import imageCompression from "browser-image-compression";
 import { PDFDocument } from "pdf-lib";
@@ -146,7 +146,7 @@ export default function MIGO() {
 
       if (file.type === "application/pdf") {
         try {
-          await PDFDocument.load(result, { ignoreEncryption: true });
+          await PDFDocument.load(result);
           setPaymentData(prev => ({
             ...prev,
             proofData: URL.createObjectURL(processedFile),
@@ -194,7 +194,7 @@ export default function MIGO() {
   
     try {
       const fileBytes = await paymentData.paymentProofFile.arrayBuffer();
-      await PDFDocument.load(fileBytes, { password: paymentData.pdfPassword });
+      await (PDFDocument as any).load(fileBytes, { password: paymentData.pdfPassword });
       setPaymentData(prev => ({ ...prev, pdfPasswordError: "" }));
       return true;
     } catch (error) {
@@ -247,31 +247,31 @@ export default function MIGO() {
     const enteredReceipt = Number(paymentData.receiptAmount) || 0;
     const enteredTds = Number(paymentData.tds) || 0;
     const enteredDeduction = Number(paymentData.deduction) || 0;
-    const totalEnteredAmount = enteredReceipt + enteredTds + enteredDeduction;
+    const totalEnteredAmount = roundToTwo(enteredReceipt + enteredTds + enteredDeduction);
 
     let calculatedInterest = 0;
     let calculatedAmountToReduceBalance = totalEnteredAmount;
 
     if (totalEnteredAmount > currentOutstanding) {
-        calculatedInterest = totalEnteredAmount - currentOutstanding;
+        calculatedInterest = roundToTwo(totalEnteredAmount - currentOutstanding);
         calculatedAmountToReduceBalance = currentOutstanding;
     }
 
-    const calculatedRemainingInvoiceBalance = currentOutstanding - calculatedAmountToReduceBalance;
+    const calculatedRemainingInvoiceBalance = roundToTwo(Math.max(0, currentOutstanding - calculatedAmountToReduceBalance));
 
     let displayString = "";
-    if (calculatedRemainingInvoiceBalance > 0 && calculatedRemainingInvoiceBalance < LC_BALANCE_TOLERANCE) {
-        displayString = '₹0.00 (Settled)';
-    } else if (calculatedRemainingInvoiceBalance <= 0) {
+    if (calculatedRemainingInvoiceBalance <= 0) {
         displayString = `₹0.00`;
+    } else if (calculatedRemainingInvoiceBalance < LC_BALANCE_TOLERANCE) {
+        displayString = '₹0.00 (Settled)';
     } else {
-        displayString = `₹${formatCurrency(calculatedRemainingInvoiceBalance)}`;
+        displayString = `₹${formatAmount(calculatedRemainingInvoiceBalance)}`;
     }
 
     return {
         actualInterest: roundToTwo(calculatedInterest),
         amountToReduceBalance: roundToTwo(calculatedAmountToReduceBalance),
-        remainingInvoiceBalance: roundToTwo(calculatedRemainingInvoiceBalance),
+        remainingInvoiceBalance: calculatedRemainingInvoiceBalance,
         balanceDisplayString: displayString
     };
   }, [paymentData.currentOutstandingBalance, paymentData.receiptAmount, paymentData.tds, paymentData.deduction, receiptType]);
@@ -302,10 +302,9 @@ export default function MIGO() {
       }
 
       const inv = snap.docs[0].data();
-      const grossAmount = inv.totals?.grossAmount || 0;
+      const grossAmount = Number(inv.totals?.grossAmount || inv.grossAmount || 0);
 
-      let postedTotal = 0;
-      let reversedTotal = 0;
+      let activePostedTotal = 0;
       let receiptHistoryData: any[] = [];
       try {
         const histQ = query(
@@ -317,27 +316,20 @@ export default function MIGO() {
         receiptHistoryData = histSnap.docs.map(d => ({ id: d.id, ...d.data() }));
         setReceiptHistory(receiptHistoryData);
 
-        postedTotal = receiptHistoryData.reduce((sum, r) => {
+        activePostedTotal = receiptHistoryData.reduce((sum, r) => {
           if (r.status !== "Reversed") {
             return sum + (Number(r.receiptAmount) || 0) + (Number(r.tds) || 0) + (Number(r.deduction) || 0);
           }
           return sum;
         }, 0);
-        reversedTotal = receiptHistoryData.reduce((sum, r) => {
-          if (r.status === "Reversed") {
-            return sum + (Number(r.receiptAmount) || 0) + (Number(r.tds) || 0) + (Number(r.deduction) || 0);
-          }
-          return sum;
-        }, 0);
       } catch (e) {
-        postedTotal = 0;
-        reversedTotal = 0;
+        activePostedTotal = 0;
         setReceiptHistory([]);
       }
 
-      const currentOutstanding = grossAmount - postedTotal + reversedTotal;
-      const isFullyPaid = currentOutstanding < LC_BALANCE_TOLERANCE;
-      const isBlocked = currentOutstanding < LC_BALANCE_TOLERANCE;
+      const currentOutstanding = Math.max(0, roundToTwo(grossAmount - activePostedTotal));
+      const isFullyPaid = activePostedTotal > 0 && currentOutstanding < LC_BALANCE_TOLERANCE;
+      const isBlocked = inv.status === "Cancelled" || isFullyPaid;
 
       setIsPaymentBlocked(isBlocked);
 
@@ -361,7 +353,7 @@ export default function MIGO() {
       };
 
       if (inv.status === "Cancelled" || isFullyPaid) {
-        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: PAYMENT_BLOCKED_MESSAGE, isError: true } }));
+        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: inv.status === "Cancelled" ? "Invoice is cancelled" : PAYMENT_BLOCKED_MESSAGE, isError: true } }));
         setIsPaymentBlocked(true);
         setPaymentData(p => ({ ...p, ...invoiceDetailsToPopulate, isFullyPaid: true, receiptAmount: "0", tds: "0", deduction: "0", interest: "0", deductionRemark: "", remark: "", paymentMode: "Banking", bankingUtr: "", paymentAdviceNo: "", proofData: "", paymentDate: "", paymentProofFile: null, isPdfPasswordProtected: false, pdfPassword: "", pdfPasswordError: "" }));
         return;
@@ -371,7 +363,7 @@ export default function MIGO() {
       setPaymentData(prev => ({
         ...prev,
         ...invoiceDetailsToPopulate,
-        isFullyPaid: isFullyPaid,
+        isFullyPaid: false,
       }));
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Details for Invoice ${paymentData.invoiceNo} fetched successfully`, isError: false } }));
     } catch (e) {
@@ -466,18 +458,40 @@ export default function MIGO() {
         }
       }
 
+      const enteredReceipt = roundToTwo(Number(paymentData.receiptAmount) || 0);
+      const enteredTds = roundToTwo(Number(paymentData.tds) || 0);
+      const enteredDeduction = roundToTwo(Number(paymentData.deduction) || 0);
+      const paidUpdate = roundToTwo(enteredReceipt + enteredTds + enteredDeduction);
+
+      const currentUser = (typeof window !== "undefined" ? JSON.parse(localStorage.getItem("sikka_user") || "{}")?.name : "") || "USER";
+
       addDocumentNonBlocking(collection(db, "payment_receipts"), { 
         ...paymentData,
+        receiptAmount: enteredReceipt,
+        tds: enteredTds,
+        deduction: enteredDeduction,
+        deductionRemark: paymentData.deductionRemark?.trim() || "",
+        remark: paymentData.remark?.trim() || "",
+        bankingUtr: paymentData.bankingUtr?.trim().toUpperCase() || "",
+        paymentAdviceNo: paymentData.paymentAdviceNo?.trim() || "",
         interest: actualInterest,
         balanceAmount: remainingInvoiceBalance,
+        status: "Posted",
         plantId, 
+        createdBy: currentUser,
         createdAt: serverTimestamp() 
       });
 
-      const paidUpdate = (Number(paymentData.receiptAmount) || 0) + (Number(paymentData.tds) || 0) + (Number(paymentData.deduction) || 0);
-      const invoiceRef = doc(db, "sales_invoices", invoiceDocId!);
-      const currentPaid = paymentData.grossAmount - paymentData.currentOutstandingBalance;
-      updateDocumentNonBlocking(invoiceRef, { paidAmount: currentPaid + paidUpdate });
+      if (invoiceDocId) {
+        const invoiceRef = doc(db, "sales_invoices", invoiceDocId);
+        const currentPaid = roundToTwo(paymentData.grossAmount - paymentData.currentOutstandingBalance);
+        const newTotalPaid = roundToTwo(currentPaid + paidUpdate);
+        updateDocumentNonBlocking(invoiceRef, { 
+          paidAmount: newTotalPaid,
+          paymentStatus: remainingInvoiceBalance <= 0 ? "Paid" : "Partial",
+          updatedAt: new Date().toISOString()
+        });
+      }
 
     } else { // Invoice or Stock Receipt
       if (receiptHeader.documentType === "Tax Invoice" && !receiptHeader.vendorGstin) {

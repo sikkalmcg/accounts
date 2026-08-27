@@ -14,6 +14,7 @@ function Calendar({
   classNames,
   showOutsideDays = false,
   formatters,
+  components,
   ...props
 }: CalendarProps) {
   return (
@@ -23,16 +24,6 @@ function Calendar({
       formatters={{
         formatWeekdayName: (day) =>
           day.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase(),
-        formatCaption: (month) => {
-          const year = month.getFullYear()
-          const monthName = month.toLocaleDateString("en-US", { month: "long" }).toUpperCase()
-          return (
-            <div className="flex flex-col items-center justify-center">
-              <span className="text-[11px] font-medium tracking-widest text-gray-500">{year}</span>
-              <span className="text-2xl font-black tracking-wider text-black">{monthName}</span>
-            </div>
-          )
-        },
         ...formatters,
       }}
       classNames={{
@@ -69,12 +60,26 @@ function Calendar({
         ...classNames,
       }}
       components={{
+        MonthCaption: ({ calendarMonth, ...monthCaptionProps }) => {
+          const month = calendarMonth.date
+          const year = month.getFullYear()
+          const monthName = month.toLocaleDateString("en-US", { month: "long" }).toUpperCase()
+          return (
+            <div {...monthCaptionProps} className={cn("relative flex items-center justify-center pt-1 pb-2", monthCaptionProps.className)}>
+              <div className="flex flex-col items-center justify-center">
+                <span className="text-[11px] font-medium tracking-widest text-gray-500">{year}</span>
+                <span className="text-2xl font-black tracking-wider text-black">{monthName}</span>
+              </div>
+            </div>
+          )
+        },
         Chevron: ({ orientation }) => {
           if (orientation === "left") {
             return <ChevronLeft className="h-4 w-4" />
           }
           return <ChevronRight className="h-4 w-4" />
         },
+        ...components,
       }}
       {...props}
     />

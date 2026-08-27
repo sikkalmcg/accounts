@@ -677,12 +677,12 @@ export default function F110() {
 
       if (filterConsignor !== "ALL") {
         processed = processed.filter(
-          (row) => row._consignorId === filterConsignor
+          (row: any) => row._consignorId === filterConsignor
         );
       }
 
       if (filterBillTo !== "ALL") {
-        processed = processed.filter((row) => row._billToId === filterBillTo);
+        processed = processed.filter((row: any) => row._billToId === filterBillTo);
       }
 
       /* ===================================================
