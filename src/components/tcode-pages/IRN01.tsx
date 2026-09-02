@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking } from "@/database";
 import { collection, query, orderBy, doc, DocumentReference } from "@/database/mongo";
-import { Search, Loader2, QrCode, ArrowLeft, CheckCircle2, X } from "lucide-react";
+import { Search, Loader2, QrCode, ArrowLeft, CheckCircle2, X, RotateCcw, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Image from "next/image";
@@ -12,8 +12,25 @@ import { toSAPDate } from "@/lib/date-utils";
 import { SapDateInput } from "@/components/ui/sap-date-input";
 import { getRecordPlantIds } from "@/lib/plant-master";
 import { formatAmount } from "@/lib/number-utils";
-import { IRNPreviewDialog } from "./IRNShared";
+import { IRNPreviewDialog, matchesDateRange } from "./IRNShared";
 import { validateDuplicate } from "@/lib/duplicate-validator";
+import PlantMultiSelect from "./PlantMultiSelect";
+
+const getInitialDates = () => {
+  const now = new Date();
+  const past7 = new Date();
+  past7.setDate(now.getDate() - 7);
+  const toISO = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+  return {
+    from: toISO(past7),
+    to: toISO(now)
+  };
+};
 
 export default function IRN01() {
   const db = useDatabase();
@@ -21,7 +38,14 @@ export default function IRN01() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [search, setSearch] = useState("");
   const [assignedPlantId, setAssignedPlantId] = useState("");
+  const [assignedPlantIds, setAssignedPlantIds] = useState<string[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
+
+  // Date and Plant filters (Default 1 week)
+  const initialDates = useMemo(() => getInitialDates(), []);
+  const [fromDate, setFromDate] = useState(initialDates.from);
+  const [toDate, setToDate] = useState(initialDates.to);
+  const [filterPlants, setFilterPlants] = useState<string[]>([]);
 
   const [irnData, setIrnData] = useState({
     irnNumber: "",
@@ -36,14 +60,29 @@ export default function IRN01() {
     const stored = localStorage.getItem("sikka_user");
     if (stored) {
       const parsed = JSON.parse(stored);
-      setIsAdmin(parsed.username === "ajaysomra" || parsed.role === 'admin');
+      const sysAdmin = parsed.username === "ajaysomra" || parsed.role === 'admin';
+      setIsAdmin(sysAdmin);
+      const plantIds = Array.isArray(parsed.assignedPlantIds)
+        ? parsed.assignedPlantIds
+        : (parsed.assignedPlantId ? [parsed.assignedPlantId] : []);
+      setAssignedPlantIds(plantIds);
       setAssignedPlantId(parsed.assignedPlantId || "");
       setUserName(parsed.name || parsed.username || "USER");
+      if (!sysAdmin && plantIds.length > 0) {
+        setFilterPlants([...plantIds]);
+      }
     }
   }, []);
 
+  const allowedPlantIds = useMemo(() => {
+    if (isAdmin) return undefined;
+    return assignedPlantIds.length > 0 ? assignedPlantIds : (assignedPlantId ? [assignedPlantId] : undefined);
+  }, [isAdmin, assignedPlantIds, assignedPlantId]);
+
   const invoicesQuery = useMemoDatabase(() => query(collection(db, "sales_invoices"), orderBy("createdAt", "desc")), [db]);
   const { data: allInvoices, isLoading } = useCollection(invoicesQuery);
+  const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
+  const { data: plants } = useCollection(plantsQuery);
   const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
   const { data: customers } = useCollection(customersQuery);
   const firmsQuery = useMemoDatabase(() => collection(db, "firms"), [db]);
@@ -57,20 +96,52 @@ export default function IRN01() {
 
   const filteredInvoices = useMemo(() => {
     if (!allInvoices) return [];
-    let base = isAdmin ? allInvoices : allInvoices.filter(i => i.plantId === assignedPlantId);
-    // Exclude Cancelled, Non-Tax Invoices, and those with IRN already
+    let base = allInvoices;
+
+    // 1. Plant authorization for non-admin
+    if (!isAdmin) {
+      const allowed = assignedPlantIds.length > 0 ? assignedPlantIds : (assignedPlantId ? [assignedPlantId] : []);
+      if (allowed.length > 0) {
+        base = base.filter(i => allowed.includes(i.plantId));
+      }
+    }
+
+    // 2. Filter by user-selected Plant(s)
+    if (filterPlants.length > 0) {
+      base = base.filter(i => filterPlants.includes(i.plantId));
+    }
+
+    // 3. Exclude Cancelled, Non-Tax Invoices, and those with IRN already
     base = base.filter(i => 
       (!i.irnNumber || i.irnNumber.trim() === "") && 
       i.status !== "Cancelled" &&
       i.docType?.toUpperCase() !== "NON-TAX INVOICE"
     );
-    return base.filter(i => 
-      i.invoiceNumber?.toLowerCase().includes(search.toLowerCase()) ||
-      i.plantId?.toLowerCase().includes(search.toLowerCase()) ||
-      customerMap[i.billTo]?.name?.toLowerCase().includes(search.toLowerCase()) ||
-      customerMap[i.shipTo]?.name?.toLowerCase().includes(search.toLowerCase())
-    );
-  }, [allInvoices, search, isAdmin, assignedPlantId, customerMap]);
+
+    // 4. Date Range Filter
+    if (fromDate || toDate) {
+      base = base.filter(i => {
+        const invDate = i.invoiceDate || i.createdAt;
+        return matchesDateRange(invDate, fromDate, toDate);
+      });
+    }
+
+    // 5. Search query filter
+    if (search.trim()) {
+      const q = search.toLowerCase().trim();
+      base = base.filter(i => 
+        i.invoiceNumber?.toLowerCase().includes(q) ||
+        i.plantId?.toLowerCase().includes(q) ||
+        customerMap[i.billTo]?.name?.toLowerCase().includes(q) ||
+        customerMap[i.shipTo]?.name?.toLowerCase().includes(q) ||
+        customerMap[i.billTo]?.gstin?.toLowerCase().includes(q) ||
+        customerMap[i.shipTo]?.gstin?.toLowerCase().includes(q) ||
+        i.billYear?.toLowerCase().includes(q)
+      );
+    }
+
+    return base;
+  }, [allInvoices, search, isAdmin, assignedPlantId, assignedPlantIds, filterPlants, fromDate, toDate, customerMap]);
 
   const handleExecute = useCallback(async () => {
     if (!selectedInvoice) {
@@ -234,11 +305,122 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(selectedInvoice.plan
   return (
     <div className="w-full flex flex-col bg-white min-h-full select-text">
       <div className="sap-header-title">IRN01 - E-Invoicing Control Center (Pending IRN)</div>
-      <div className="bg-[#e7ebf1] border-b border-[#b5c7de] px-4 py-1 flex items-center justify-between">
-        <div className="relative flex items-center bg-white border border-gray-400 h-6 w-80 px-1 group focus-within:border-blue-500">
-          <Search className="h-3.5 w-3.5 text-gray-400 mr-1" /><input value={search} onChange={e => setSearch(e.target.value)} className="w-full h-full text-xs outline-none" placeholder="Search Invoices..." />
+      
+      {/* Selection / Filter Bar */}
+      <div className="bg-[#e7ebf1] border-b border-[#b5c7de] px-4 py-1.5 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Plant MultiSelect */}
+          <div className="flex items-center gap-1.5">
+            <label className="text-[11px] font-bold text-gray-700 uppercase whitespace-nowrap">Plant:</label>
+            <div className="w-56">
+              <PlantMultiSelect
+                plants={plants || []}
+                selected={filterPlants}
+                onChange={setFilterPlants}
+                placeholder="All Authorized Plants"
+                allowedPlantIds={allowedPlantIds}
+              />
+            </div>
+          </div>
+
+          {/* From Date */}
+          <div className="flex items-center gap-1.5">
+            <label className="text-[11px] font-bold text-gray-700 uppercase whitespace-nowrap">From Date:</label>
+            <Input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="h-7 w-36 text-xs bg-white border-gray-400 rounded-none px-2 shadow-inner focus:bg-[#fff9c4]"
+            />
+          </div>
+
+          {/* To Date */}
+          <div className="flex items-center gap-1.5">
+            <label className="text-[11px] font-bold text-gray-700 uppercase whitespace-nowrap">To Date:</label>
+            <Input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="h-7 w-36 text-xs bg-white border-gray-400 rounded-none px-2 shadow-inner focus:bg-[#fff9c4]"
+            />
+          </div>
+
+          {/* Quick Presets */}
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const init = getInitialDates();
+                setFromDate(init.from);
+                setToDate(init.to);
+              }}
+              className="h-7 text-[10px] font-bold uppercase rounded-none bg-white border-gray-400 text-gray-700 hover:bg-gray-100 px-2"
+              title="Filter to Last 7 Days (1 Week)"
+            >
+              1 Week
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setFromDate("");
+                setToDate("");
+              }}
+              className="h-7 text-[10px] font-bold uppercase rounded-none bg-white border-gray-400 text-gray-700 hover:bg-gray-100 px-2"
+              title="Show All Dates"
+            >
+              All Dates
+            </Button>
+            {(fromDate || toDate || filterPlants.length > 0 || search) && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  const init = getInitialDates();
+                  setFromDate(init.from);
+                  setToDate(init.to);
+                  setFilterPlants(isAdmin ? [] : (assignedPlantIds.length > 0 ? [...assignedPlantIds] : []));
+                  setSearch("");
+                }}
+                className="h-7 text-[10px] font-bold uppercase text-red-600 hover:bg-red-50 hover:text-red-700 px-2 flex items-center gap-1"
+                title="Reset all filters to default"
+              >
+                <RotateCcw className="h-3 w-3" /> Reset
+              </Button>
+            )}
+          </div>
         </div>
-        <div className="text-[11px] font-bold text-red-700 uppercase tracking-tighter animate-pulse">Pending: {filteredInvoices.length}</div>
+
+        {/* Search & Pending Count */}
+        <div className="flex items-center gap-3">
+          <div className="relative flex items-center bg-white border border-gray-400 h-7 w-64 px-1 group focus-within:border-blue-500 shadow-inner">
+            <Search className="h-3.5 w-3.5 text-gray-400 mr-1 shrink-0" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full h-full text-xs outline-none bg-transparent"
+              placeholder="Search Invoices..."
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="text-gray-400 hover:text-red-600 text-xs px-1"
+                title="Clear search"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <div className="text-[11px] font-bold text-red-700 uppercase tracking-tight bg-red-50 border border-red-200 px-2.5 py-1 rounded-sm shadow-sm whitespace-nowrap flex items-center gap-1.5">
+            <span>Pending:</span>
+            <span className="text-red-900 font-black text-xs">{filteredInvoices.length}</span>
+          </div>
+        </div>
       </div>
       <div className="flex-1 overflow-auto no-scrollbar">
         <Table className="min-w-[1500px] sap-alv-grid">

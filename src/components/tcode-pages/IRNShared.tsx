@@ -14,16 +14,21 @@ import { getRecordPlantIds } from "@/lib/plant-master";
 /* ------------------------------------------------------------------ */
 
 import { formatCurrency } from "@/lib/number-utils";
+import { parseSAPDate } from "@/lib/date-utils";
 
-/** Converts a DD-MMM-YYYY date string to epoch milliseconds (0 if invalid) */
+/** Converts a DD-MMM-YYYY date string or ISO string to epoch milliseconds (0 if invalid) */
 export const sapDateToTime = (invoiceDate: string) => {
   if (!invoiceDate) return 0;
   try {
+    const sapParsed = parseSAPDate(invoiceDate);
+    if (sapParsed && !isNaN(sapParsed.getTime())) return sapParsed.getTime();
+  } catch {}
+  try {
     const d = parse(invoiceDate, "dd-MMM-yyyy", new Date());
-    return isNaN(d.getTime()) ? 0 : d.getTime();
-  } catch {
-    return 0;
-  }
+    if (!isNaN(d.getTime())) return d.getTime();
+  } catch {}
+  const direct = new Date(invoiceDate).getTime();
+  return isNaN(direct) ? 0 : direct;
 };
 
 /**

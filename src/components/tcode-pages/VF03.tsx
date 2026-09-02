@@ -4,15 +4,33 @@ import { useState, useMemo, useEffect } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDatabase, useCollection, useMemoDatabase } from "@/database";
 import { collection, query, orderBy } from "@/database/mongo";
-import { Search, Filter, Download, Printer, ArrowUpDown, ChevronUp, ChevronDown, PrinterIcon, X, Clock, CheckCircle2, FileDown } from "lucide-react";
+import { Search, Filter, Download, Printer, ArrowUpDown, ChevronUp, ChevronDown, PrinterIcon, X, Clock, CheckCircle2, FileDown, RotateCcw } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import PlantMultiSelect from "./PlantMultiSelect";
 import { downloadCsv, formatSapDateTime } from "@/lib/csv-export";
 import { getRecordPlantIds } from "@/lib/plant-master";
+import { matchesDateRange } from "./IRNShared";
+
+const getInitialDates = () => {
+  const now = new Date();
+  const past7 = new Date();
+  past7.setDate(now.getDate() - 7);
+  const toISO = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+  return {
+    from: toISO(past7),
+    to: toISO(now)
+  };
+};
 
 // Utility to convert number to Indian words
 const numberToWords = (num: number): string => {
@@ -325,8 +343,14 @@ export default function VF03() {
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [authorizedPlantIds, setAuthorizedPlantIds] = useState<string[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
-const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
   const [filterPlants, setFilterPlants] = useState<string[]>([]);
+  
+  // Date range filters (Default 1 week)
+  const initialDates = useMemo(() => getInitialDates(), []);
+  const [fromDate, setFromDate] = useState(initialDates.from);
+  const [toDate, setToDate] = useState(initialDates.to);
+
   const [currentPage, setCurrentPage] = useState(1);
   const [pageJumpInput, setPageJumpInput] = useState("");
   const PAGE_SIZE = 15;
@@ -372,6 +396,14 @@ const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
     if (filterPlants.length > 0) {
       baseData = baseData.filter(i => filterPlants.includes(i.plantId));
     }
+
+    // Apply Date Range Filter (From Date - To Date)
+    if (fromDate || toDate) {
+      baseData = baseData.filter(i => {
+        const invDate = i.invoiceDate || i.createdAt;
+        return matchesDateRange(invDate, fromDate, toDate);
+      });
+    }
     
     const filtered = baseData.filter(i => {
       const consigneeName = i.snapshotBillTo?.name || customerMap[i.billTo]?.name || "";
@@ -383,7 +415,7 @@ const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
              i.inventoryType?.toLowerCase().includes(searchLower) ||
              i.status?.toLowerCase().includes(searchLower);
     });
-if (!sortConfig) return filtered;
+    if (!sortConfig) return filtered;
     return [...filtered].sort((a, b) => {
       let aVal = a[sortConfig.key];
       let bVal = b[sortConfig.key];
@@ -399,12 +431,12 @@ if (!sortConfig) return filtered;
       if (aStr > bStr) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [invoices, search, sortConfig, isAdmin, authorizedPlantIds, customerMap, filterPlants]);
+  }, [invoices, search, sortConfig, isAdmin, authorizedPlantIds, customerMap, filterPlants, fromDate, toDate]);
 
   // Reset to first page whenever filters/search change
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, filterPlants, authorizedPlantIds, isAdmin]);
+  }, [search, filterPlants, authorizedPlantIds, isAdmin, fromDate, toDate]);
 
   const totalPages = Math.max(1, Math.ceil(sortedData.length / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
@@ -495,13 +527,31 @@ const headers = ["#", "Output", "Plant", "Invoice Number", "Invoice Date", "Cons
       <div className="sap-header-title">Billing Documents List: ALV Grid</div>
 
       <div className="sap-selection-area">
-        <div className="max-w-6xl mx-auto flex items-center gap-4">
-          <div className="flex-1 flex items-center gap-4">
-            <div className="relative flex items-center bg-white border border-gray-400 h-6 w-72 px-1 group focus-within:border-blue-500">
-               <Search className="h-3.5 w-3.5 text-gray-400 mr-1" />
-               <input value={search} onChange={(e) => setSearch(e.target.value)} className="w-full h-full text-xs outline-none" placeholder="Search Invoice / Status..." />
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Search */}
+            <div className="relative flex items-center bg-white border border-gray-400 h-7 w-60 px-1 group focus-within:border-blue-500 shadow-inner">
+               <Search className="h-3.5 w-3.5 text-gray-400 mr-1 shrink-0" />
+               <input
+                 value={search}
+                 onChange={(e) => setSearch(e.target.value)}
+                 className="w-full h-full text-xs outline-none bg-transparent"
+                 placeholder="Search Invoice / Status..."
+               />
+               {search && (
+                 <button
+                   type="button"
+                   onClick={() => setSearch("")}
+                   className="text-gray-400 hover:text-red-600 text-xs px-1"
+                   title="Clear search"
+                 >
+                   ✕
+                 </button>
+               )}
             </div>
-            <div className="w-56">
+
+            {/* Plant MultiSelect */}
+            <div className="w-52">
               <PlantMultiSelect
                 plants={plants}
                 selected={filterPlants}
@@ -510,10 +560,83 @@ const headers = ["#", "Output", "Plant", "Invoice Number", "Invoice Date", "Cons
                 placeholder="Filter by Plant(s)"
               />
             </div>
+
+            {/* From Date */}
+            <div className="flex items-center gap-1.5">
+              <label className="text-[11px] font-bold text-gray-700 uppercase whitespace-nowrap">From:</label>
+              <Input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="h-7 w-36 text-xs bg-white border-gray-400 rounded-none px-2 shadow-inner focus:bg-[#fff9c4]"
+              />
+            </div>
+
+            {/* To Date */}
+            <div className="flex items-center gap-1.5">
+              <label className="text-[11px] font-bold text-gray-700 uppercase whitespace-nowrap">To:</label>
+              <Input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="h-7 w-36 text-xs bg-white border-gray-400 rounded-none px-2 shadow-inner focus:bg-[#fff9c4]"
+              />
+            </div>
+
+            {/* Quick Actions */}
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const init = getInitialDates();
+                  setFromDate(init.from);
+                  setToDate(init.to);
+                }}
+                className="h-7 text-[10px] font-bold uppercase rounded-none bg-white border-gray-400 text-gray-700 hover:bg-gray-100 px-2"
+                title="Filter to Last 7 Days (1 Week)"
+              >
+                1 Week
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setFromDate("");
+                  setToDate("");
+                }}
+                className="h-7 text-[10px] font-bold uppercase rounded-none bg-white border-gray-400 text-gray-700 hover:bg-gray-100 px-2"
+                title="Show All Dates"
+              >
+                All Dates
+              </Button>
+              {(fromDate || toDate || filterPlants.length > 0 || search) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    const init = getInitialDates();
+                    setFromDate(init.from);
+                    setToDate(init.to);
+                    setFilterPlants([]);
+                    setSearch("");
+                  }}
+                  className="h-7 text-[10px] font-bold uppercase text-red-600 hover:bg-red-50 hover:text-red-700 px-2 flex items-center gap-1"
+                  title="Reset all filters to default"
+                >
+                  <RotateCcw className="h-3 w-3" /> Reset
+                </Button>
+              )}
+            </div>
           </div>
+
+          {/* Records & CSV Download */}
           <div className="flex items-center gap-3">
-            <div className="text-[11px] font-bold text-gray-600 uppercase tracking-tighter">
-              Records: {sortedData.length}
+            <div className="text-[11px] font-bold text-gray-700 uppercase tracking-tight bg-gray-100 border border-gray-300 px-2.5 py-1 rounded-sm shadow-sm whitespace-nowrap">
+              Records: <span className="text-blue-900 font-extrabold">{sortedData.length}</span>
             </div>
             <TooltipProvider>
               <Tooltip>
