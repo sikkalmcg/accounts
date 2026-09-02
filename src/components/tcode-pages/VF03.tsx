@@ -47,10 +47,10 @@ const numberToWords = (num: number): string => {
   return `Rupees ${str.trim()} Only`;
 };
 export const InvoicePreview = ({ invoice, copyLabel, firms, customerMap }: { invoice: any; copyLabel: string, firms: any[] | null, customerMap: Record<string, any> }) => {
-const firm = invoice.snapshotFirm || firms?.find(f => getRecordPlantIds(f).includes(invoice.plantId)) || {};
+  const firm = invoice.snapshotFirm || firms?.find(f => getRecordPlantIds(f).includes(invoice.plantId)) || {};
   const billToCust = invoice.snapshotBillTo || customerMap[invoice.billTo] || {};
   const shipToCust = invoice.snapshotShipTo || customerMap[invoice.shipTo] || billToCust || {};
-  
+
   const totals = invoice.totals || {};
   const taxable = totals.taxableAmount || 0;
   const cgst = totals.cgst || 0;
@@ -62,8 +62,8 @@ const firm = invoice.snapshotFirm || firms?.find(f => getRecordPlantIds(f).inclu
   const rawTotal = taxable + cgst + sgst + igst;
   const roundedTotal = Math.round(rawTotal);
   const roundOff = (roundedTotal - rawTotal).toFixed(2);
-  
-const isNonTax = invoice.docType?.toUpperCase() === "NON-TAX INVOICE";
+
+  const isNonTax = invoice.docType?.toUpperCase() === "NON-TAX INVOICE";
   const customHeaders = invoice.customHeaders || [];
   const items = invoice.items || [];
 
@@ -93,14 +93,14 @@ const isNonTax = invoice.docType?.toUpperCase() === "NON-TAX INVOICE";
           <h1 className="text-[200px] font-black text-red-600 rotate-[-45deg] whitespace-nowrap uppercase tracking-tighter watermark-text">CANCEL</h1>
         </div>
       )}
-<div className="relative z-10 flex-1 flex flex-col">
+      <div className="relative z-10 flex-1 flex flex-col">
         <div className="py-1.5 flex justify-between px-2 font-bold text-[16px] text-black mb-3">
-  <span className="text-center flex-1 uppercase tracking-[0.2em]">
-    <span className="border-b-2 border-black pb-1 inline-block">
-      {docTypeLabel.header}
-    </span>
-  </span>
-</div>
+          <span className="text-center flex-1 uppercase tracking-[0.2em]">
+            <span className="border-b-2 border-black pb-1 inline-block">
+              {docTypeLabel.header}
+            </span>
+          </span>
+        </div>
 
         <div className="flex justify-between items-start mb-4">
           <div className="flex gap-4 items-start">
@@ -157,10 +157,10 @@ const isNonTax = invoice.docType?.toUpperCase() === "NON-TAX INVOICE";
             </div>
           </div>
           {!isNonTax && (
-            <div className="grid grid-cols-2 gap-x-0 text-[10px] border-t border-gray-100 pt-2 mt-2"> 
+            <div className="grid grid-cols-2 gap-x-0 text-[10px] border-t border-gray-100 pt-2 mt-2">
               <p className="text-left"><span className="text-[8px] text-gray-500 font-bold uppercase">Plant:</span> <span className="font-mono font-bold ml-1">{invoice.plantId}</span></p>
               <p className="text-left"><span className="text-[8px] text-gray-500 font-bold uppercase">Charge Type:</span> <span className="font-bold ml-1 uppercase">{invoice.docCategory}</span></p>
-           </div>
+            </div>
           )}
         </div>
 
@@ -213,7 +213,7 @@ const isNonTax = invoice.docType?.toUpperCase() === "NON-TAX INVOICE";
                     <td key={vi} className="border-r border-black text-center px-2 text-[10px] font-normal">{item.customValues?.[origIdx] || "-"}</td>
                   );
                 })}
-                <td className="border-r border-black text-center font-mono text-[10px] font-normal">{item.hsn}</td>
+                <td className="border-r border-black text-center text-[10px] font-normal">{item.hsn}</td>
                 <td className="border-r border-black text-center text-[10px] font-normal">{item.qty}</td>
                 <td className="border-r border-black text-center text-[10px] font-normal">{item.uom}</td>
                 <td className="border-r border-black text-center text-[10px] font-normal">{parseFloat(item.rate).toFixed(2)}</td>
@@ -292,7 +292,7 @@ const isNonTax = invoice.docType?.toUpperCase() === "NON-TAX INVOICE";
           </div>
         </div>
       </div>
-    </div> 
+    </div>
   );
 };
 
@@ -300,7 +300,7 @@ const isNonTax = invoice.docType?.toUpperCase() === "NON-TAX INVOICE";
 const downloadInvoice = (invoice: any, firms: any[] | null, customerMap: Record<string, any>) => {
   const content = document.getElementById('invoice-print-area')?.innerHTML;
   if (!content) return;
-  
+
   const html = `
     <html>
       <head>
@@ -321,7 +321,7 @@ const downloadInvoice = (invoice: any, firms: any[] | null, customerMap: Record<
       </body>
     </html>
   `;
-  
+
   const blob = new Blob([html], { type: 'text/html;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -331,7 +331,7 @@ const downloadInvoice = (invoice: any, firms: any[] | null, customerMap: Record<
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
-  
+
   window.dispatchEvent(new CustomEvent('sap-status', {
     detail: { text: `Invoice ${invoice.invoiceNumber} downloaded`, isError: false }
   }));
@@ -345,7 +345,7 @@ export default function VF03() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
   const [filterPlants, setFilterPlants] = useState<string[]>([]);
-  
+
   // Date range filters (Default 1 week)
   const initialDates = useMemo(() => getInitialDates(), []);
   const [fromDate, setFromDate] = useState(initialDates.from);
@@ -389,9 +389,9 @@ export default function VF03() {
 
   const sortedData = useMemo(() => {
     if (!invoices) return [];
-    
+
     let baseData = isAdmin ? invoices : invoices.filter(i => authorizedPlantIds.includes(i.plantId));
-    
+
     // Apply multi-plant filter
     if (filterPlants.length > 0) {
       baseData = baseData.filter(i => filterPlants.includes(i.plantId));
@@ -404,16 +404,16 @@ export default function VF03() {
         return matchesDateRange(invDate, fromDate, toDate);
       });
     }
-    
+
     const filtered = baseData.filter(i => {
       const consigneeName = i.snapshotBillTo?.name || customerMap[i.billTo]?.name || "";
       const searchLower = search.toLowerCase();
-      return i.invoiceNumber?.toLowerCase().includes(searchLower) || 
-             i.billTo?.toLowerCase().includes(searchLower) ||
-             consigneeName.toLowerCase().includes(searchLower) ||
-             i.plantId?.toLowerCase().includes(searchLower) ||
-             i.inventoryType?.toLowerCase().includes(searchLower) ||
-             i.status?.toLowerCase().includes(searchLower);
+      return i.invoiceNumber?.toLowerCase().includes(searchLower) ||
+        i.billTo?.toLowerCase().includes(searchLower) ||
+        consigneeName.toLowerCase().includes(searchLower) ||
+        i.plantId?.toLowerCase().includes(searchLower) ||
+        i.inventoryType?.toLowerCase().includes(searchLower) ||
+        i.status?.toLowerCase().includes(searchLower);
     });
     if (!sortConfig) return filtered;
     return [...filtered].sort((a, b) => {
@@ -459,7 +459,7 @@ export default function VF03() {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "No records to export", isError: true } }));
       return;
     }
-const headers = ["#", "Output", "Plant", "Invoice Number", "Invoice Date", "Consignor Name", "Bill to Party Name", "Charge Type", "Taxable Amount", "CGST", "SGST", "IGST", "Gross Amount", "IRN Status"];
+    const headers = ["#", "Output", "Plant", "Invoice Number", "Invoice Date", "Consignor Name", "Bill to Party Name", "Charge Type", "Taxable Amount", "CGST", "SGST", "IGST", "Gross Amount", "IRN Status"];
     const rows = sortedData.map((inv, i) => {
       const consigneeName = inv.snapshotBillTo?.name || (customerMap[inv.billTo] ? customerMap[inv.billTo].name : inv.billTo);
       const isNonTaxInv = inv.docType?.toUpperCase() === "NON-TAX INVOICE";
@@ -531,23 +531,23 @@ const headers = ["#", "Output", "Plant", "Invoice Number", "Invoice Date", "Cons
           <div className="flex flex-wrap items-center gap-3">
             {/* Search */}
             <div className="relative flex items-center bg-white border border-gray-400 h-7 w-60 px-1 group focus-within:border-blue-500 shadow-inner">
-               <Search className="h-3.5 w-3.5 text-gray-400 mr-1 shrink-0" />
-               <input
-                 value={search}
-                 onChange={(e) => setSearch(e.target.value)}
-                 className="w-full h-full text-xs outline-none bg-transparent"
-                 placeholder="Search Invoice / Status..."
-               />
-               {search && (
-                 <button
-                   type="button"
-                   onClick={() => setSearch("")}
-                   className="text-gray-400 hover:text-red-600 text-xs px-1"
-                   title="Clear search"
-                 >
-                   ✕
-                 </button>
-               )}
+              <Search className="h-3.5 w-3.5 text-gray-400 mr-1 shrink-0" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full h-full text-xs outline-none bg-transparent"
+                placeholder="Search Invoice / Status..."
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="text-gray-400 hover:text-red-600 text-xs px-1"
+                  title="Clear search"
+                >
+                  ✕
+                </button>
+              )}
             </div>
 
             {/* Plant MultiSelect */}
@@ -653,7 +653,7 @@ const headers = ["#", "Output", "Plant", "Invoice Number", "Invoice Date", "Cons
       </div>
 
       <div className="flex-1 overflow-auto no-scrollbar">
-<Table className="min-w-[1900px] sap-alv-grid">
+        <Table className="min-w-[1900px] sap-alv-grid">
           <TableHeader className="sap-alv-header">
             <TableRow className="h-8">
               <TableHead className="w-10 text-center text-[10px] font-bold border-r w-12 text-center">#</TableHead>
@@ -696,14 +696,14 @@ const headers = ["#", "Output", "Plant", "Invoice Number", "Invoice Date", "Cons
             </TableRow>
           </TableHeader>
           <TableBody>
-{isInvoicesLoading ? (
+            {isInvoicesLoading ? (
               <TableRow><TableCell colSpan={15} className="text-center py-10 text-xs">LOADING...</TableCell></TableRow>
-) : sortedData.length === 0 ? (
+            ) : sortedData.length === 0 ? (
               <TableRow><TableCell colSpan={15} className="text-center py-10 text-xs text-red-500 font-bold uppercase">Please select at least one Plant.</TableCell></TableRow>
             ) : paginatedData.map((inv, i) => {
               const consigneeName = inv.snapshotBillTo?.name || (customerMap[inv.billTo] ? customerMap[inv.billTo].name : inv.billTo);
               const rowNumber = (safePage - 1) * PAGE_SIZE + i + 1;
-              
+
               const isNonTax = inv.docType?.toUpperCase() === "NON-TAX INVOICE";
               const isPending = !inv.irnNumber && !isNonTax;
               const isCancelled = inv.status === "Cancelled";
@@ -724,11 +724,11 @@ const headers = ["#", "Output", "Plant", "Invoice Number", "Invoice Date", "Cons
                       <DialogTrigger asChild><button onClick={() => setSelectedInvoice(inv)} className="p-1 hover:text-blue-600"><PrinterIcon className="h-3.5 w-3.5" /></button></DialogTrigger>
                       <DialogContent className="max-w-[850px] max-h-[98vh] overflow-y-auto p-0 rounded-none border-none shadow-2xl">
                         <div className="bg-[#333e4f] p-2 flex justify-between items-center text-white sticky top-0 z-50">
-                           <DialogTitle className="text-[11px] font-bold uppercase tracking-widest pl-2">Document Output: {inv.invoiceNumber}</DialogTitle>
-                           <div className="flex gap-2">
-                             <Button size="sm" onClick={handlePrint} className="h-7 rounded-none bg-emerald-600 hover:bg-emerald-700 gap-2 text-[10px] font-bold px-4"><Printer className="h-3.5 w-3.5" /> PRINT COPIES</Button>
-                             <DialogTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-white hover:bg-white/10 rounded-none"><X className="h-4 w-4" /></Button></DialogTrigger>
-                           </div>
+                          <DialogTitle className="text-[11px] font-bold uppercase tracking-widest pl-2">Document Output: {inv.invoiceNumber}</DialogTitle>
+                          <div className="flex gap-2">
+                            <Button size="sm" onClick={handlePrint} className="h-7 rounded-none bg-emerald-600 hover:bg-emerald-700 gap-2 text-[10px] font-bold px-4"><Printer className="h-3.5 w-3.5" /> PRINT COPIES</Button>
+                            <DialogTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-white hover:bg-white/10 rounded-none"><X className="h-4 w-4" /></Button></DialogTrigger>
+                          </div>
                         </div>
                         <div className="bg-white" id="invoice-print-area">
                           <InvoicePreview invoice={inv} copyLabel="ORIGINAL: FOR RECIPIENT" firms={firms} customerMap={customerMap} />
@@ -759,7 +759,7 @@ const headers = ["#", "Output", "Plant", "Invoice Number", "Invoice Date", "Cons
                       <Download className="h-3.5 w-3.5" />
                     </button>
                   </TableCell>
-</TableRow>
+                </TableRow>
               );
             })}
           </TableBody>
