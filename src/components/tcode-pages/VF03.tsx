@@ -201,23 +201,23 @@ const isNonTax = invoice.docType?.toUpperCase() === "NON-TAX INVOICE";
           </thead>
           <tbody>
             {invoice.items?.map((item: any, idx: number) => (
-              <tr key={idx} className="border-b border-gray-200 h-10">
-                <td className="border-r border-black text-center">{idx + 1}</td>
-                <td className="border-r border-black font-bold uppercase px-2">{item.descName || item.desc}</td>
+              <tr key={idx} className="border-b border-gray-200 h-9 text-[10px] font-normal">
+                <td className="border-r border-black text-center text-[10px] font-normal">{idx + 1}</td>
+                <td className="border-r border-black uppercase px-2 text-[10px] font-normal">{item.descName || item.desc}</td>
                 {showActivityColumn && (
-                  <td className="border-r border-black text-left px-2">{item.activity || "-"}</td>
+                  <td className="border-r border-black text-left px-2 text-[10px] font-normal">{item.activity || "-"}</td>
                 )}
                 {visibleCustomHeaders.map((_: string, vi: number) => {
                   const origIdx = customHeaders.indexOf(visibleCustomHeaders[vi]);
                   return (
-                    <td key={vi} className="border-r border-black text-center px-2">{item.customValues?.[origIdx] || "-"}</td>
+                    <td key={vi} className="border-r border-black text-center px-2 text-[10px] font-normal">{item.customValues?.[origIdx] || "-"}</td>
                   );
                 })}
-                <td className="border-r border-black text-center font-mono">{item.hsn}</td>
-                <td className="border-r border-black text-center font-bold">{item.qty}</td>
-                <td className="border-r border-black text-center">{item.uom}</td>
-                <td className="border-r border-black text-center font-bold">{parseFloat(item.rate).toFixed(2)}</td>
-                <td className="text-right font-bold">{parseFloat(item.amount).toFixed(2)}</td>
+                <td className="border-r border-black text-center font-mono text-[10px] font-normal">{item.hsn}</td>
+                <td className="border-r border-black text-center text-[10px] font-normal">{item.qty}</td>
+                <td className="border-r border-black text-center text-[10px] font-normal">{item.uom}</td>
+                <td className="border-r border-black text-center text-[10px] font-normal">{parseFloat(item.rate).toFixed(2)}</td>
+                <td className="text-right px-2 text-[10px] font-normal">{parseFloat(item.amount).toFixed(2)}</td>
               </tr>
             ))}
           </tbody>

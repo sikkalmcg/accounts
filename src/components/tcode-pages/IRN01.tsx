@@ -4,14 +4,16 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking } from "@/database";
 import { collection, query, orderBy, doc, DocumentReference } from "@/database/mongo";
-import { Search, Loader2, QrCode, ArrowLeft, CheckCircle2, X, RotateCcw, Calendar } from "lucide-react";
+import { Search, Loader2, QrCode, ArrowLeft, CheckCircle2, X, RotateCcw, Calendar, FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import Image from "next/image";
 import { toSAPDate } from "@/lib/date-utils";
 import { SapDateInput } from "@/components/ui/sap-date-input";
 import { getRecordPlantIds } from "@/lib/plant-master";
 import { formatAmount } from "@/lib/number-utils";
+import { downloadCsv } from "@/lib/csv-export";
 import { IRNPreviewDialog, matchesDateRange } from "./IRNShared";
 import { validateDuplicate } from "@/lib/duplicate-validator";
 import PlantMultiSelect from "./PlantMultiSelect";
@@ -112,8 +114,8 @@ export default function IRN01() {
     }
 
     // 3. Exclude Cancelled, Non-Tax Invoices, and those with IRN already
-    base = base.filter(i => 
-      (!i.irnNumber || i.irnNumber.trim() === "") && 
+    base = base.filter(i =>
+      (!i.irnNumber || i.irnNumber.trim() === "") &&
       i.status !== "Cancelled" &&
       i.docType?.toUpperCase() !== "NON-TAX INVOICE"
     );
@@ -129,19 +131,63 @@ export default function IRN01() {
     // 5. Search query filter
     if (search.trim()) {
       const q = search.toLowerCase().trim();
-      base = base.filter(i => 
+      base = base.filter(i =>
         i.invoiceNumber?.toLowerCase().includes(q) ||
         i.plantId?.toLowerCase().includes(q) ||
         customerMap[i.billTo]?.name?.toLowerCase().includes(q) ||
         customerMap[i.shipTo]?.name?.toLowerCase().includes(q) ||
         customerMap[i.billTo]?.gstin?.toLowerCase().includes(q) ||
         customerMap[i.shipTo]?.gstin?.toLowerCase().includes(q) ||
+        i.docCategory?.toLowerCase().includes(q) ||
+        i.billMonth?.toLowerCase().includes(q) ||
         i.billYear?.toLowerCase().includes(q)
       );
     }
 
     return base;
   }, [allInvoices, search, isAdmin, assignedPlantId, assignedPlantIds, filterPlants, fromDate, toDate, customerMap]);
+
+  const handleCsvExport = useCallback(() => {
+    if (filteredInvoices.length === 0) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "No records to export", isError: true } }));
+      return;
+    }
+    const headers = [
+      "#",
+      "Plant",
+      "Invoice Number",
+      "Invoice Date",
+      "Working Month",
+      "Consignee",
+      "State",
+      "Charge Type",
+      "Taxable Amount",
+      "CGST",
+      "SGST",
+      "IGST",
+      "Gross Amount"
+    ];
+    const rows = filteredInvoices.map((inv, i) => {
+      const consigneeName = customerMap[inv.shipTo]?.name || customerMap[inv.billTo]?.name || inv.billTo || "-";
+      const stateName = customerMap[inv.shipTo]?.stateName || customerMap[inv.billTo]?.stateName || "-";
+      return [
+        i + 1,
+        inv.plantId || "-",
+        inv.invoiceNumber || "-",
+        inv.invoiceDate || "-",
+        inv.billMonth || "-",
+        consigneeName,
+        stateName,
+        inv.docCategory || "-",
+        inv.totals?.taxableAmount || 0,
+        inv.totals?.cgst || 0,
+        inv.totals?.sgst || 0,
+        inv.totals?.igst || 0,
+        inv.totals?.grossAmount || 0
+      ];
+    });
+    downloadCsv("IRN01_Pending_IRN", headers, rows);
+  }, [filteredInvoices, customerMap]);
 
   const handleExecute = useCallback(async () => {
     if (!selectedInvoice) {
@@ -211,7 +257,7 @@ export default function IRN01() {
     const item1 = selectedInvoice.items?.[0] || {};
     const gstPct = totals.avgGst || 0;
     const isInterstate = totals.isInterstate;
-const firm = firms?.find(f => getRecordPlantIds(f).includes(selectedInvoice.plantId));
+    const firm = firms?.find(f => getRecordPlantIds(f).includes(selectedInvoice.plantId));
 
     const description = selectedInvoice.description || item1.desc || item1.activity || "N/A";
     const totalQuantity = selectedInvoice.totals?.totalQty || 0;
@@ -243,7 +289,7 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(selectedInvoice.plan
               <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Invoice Date</label><span className="font-bold">{invoiceDate}</span></div>
               <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Inventory Type</label><span className="font-bold uppercase">{selectedInvoice.inventoryType || "N/A"}</span></div>
               <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Document Type</label><span className="font-bold uppercase">{selectedInvoice.docType || "N/A"}</span></div>
-              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Charge Type</label><span className="font-bold uppercase text-blue-800">{selectedInvoice.docCategory || "N/A"}</span></div>
+              <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Charge Type</label><span className="uppercase">{selectedInvoice.docCategory || "N/A"}</span></div>
 
               <div className="col-span-2"><label className="text-gray-500 block uppercase font-bold text-[9px]">Description</label><span className="font-bold truncate block">{description}</span></div>
               <div><label className="text-gray-500 block uppercase font-bold text-[9px]">Total Quantity with UOM</label><span className="font-bold">{quantityWithUom}</span></div>
@@ -272,9 +318,9 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(selectedInvoice.plan
             <div className="col-span-2 border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f0f4f8]">
               <div className="bg-[#dae8f5] px-3 py-1 border-b border-[#b5c7de] text-[12px] font-bold text-blue-900 flex items-center gap-2"><QrCode className="h-4 w-4" /> IRN Data Entry</div>
               <div className="p-4 space-y-4">
-                <div className="sap-selection-row"><label className="sap-label w-40">IRN Number</label><Input value={irnData.irnNumber} onChange={e => setIrnData({...irnData, irnNumber: e.target.value})} className="font-mono text-[11px] tracking-widest" /></div>
-                <div className="sap-selection-row"><label className="sap-label w-40">ACK Number</label><Input value={irnData.ackNo} onChange={e => setIrnData({...irnData, ackNo: e.target.value})} className="font-mono w-64" /></div>
-<div className="sap-selection-row"><label className="sap-label w-40">ACK Date</label><SapDateInput value={irnData.ackDate} onChange={val => setIrnData({...irnData, ackDate: val})} className="w-48" /></div>
+                <div className="sap-selection-row"><label className="sap-label w-40">IRN Number</label><Input value={irnData.irnNumber} onChange={e => setIrnData({ ...irnData, irnNumber: e.target.value })} className="font-mono text-[11px] tracking-widest" /></div>
+                <div className="sap-selection-row"><label className="sap-label w-40">ACK Number</label><Input value={irnData.ackNo} onChange={e => setIrnData({ ...irnData, ackNo: e.target.value })} className="font-mono w-64" /></div>
+                <div className="sap-selection-row"><label className="sap-label w-40">ACK Date</label><SapDateInput value={irnData.ackDate} onChange={val => setIrnData({ ...irnData, ackDate: val })} className="w-48" /></div>
               </div>
             </div>
             <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-white">
@@ -289,7 +335,7 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(selectedInvoice.plan
                   }
                 }
               }} className="h-48 m-4 border-2 border-dashed border-gray-300 flex flex-col items-center justify-center bg-gray-50 relative">
-                {irnData.qrData ? <><Image src={irnData.qrData} alt="QR" fill className="object-contain p-2" /><button onClick={() => setIrnData({...irnData, qrData: ""})} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5"><X className="h-3 w-3" /></button></> : <div className="text-gray-400 text-center"><QrCode className="h-10 w-10 mx-auto opacity-20" /><p className="text-[10px] uppercase font-bold">Ctrl+V to paste QR</p></div>}
+                {irnData.qrData ? <><Image src={irnData.qrData} alt="QR" fill className="object-contain p-2" /><button onClick={() => setIrnData({ ...irnData, qrData: "" })} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5"><X className="h-3 w-3" /></button></> : <div className="text-gray-400 text-center"><QrCode className="h-10 w-10 mx-auto opacity-20" /><p className="text-[10px] uppercase font-bold">Ctrl+V to paste QR</p></div>}
               </div>
             </div>
           </div>
@@ -305,7 +351,7 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(selectedInvoice.plan
   return (
     <div className="w-full flex flex-col bg-white min-h-full select-text">
       <div className="sap-header-title">IRN01 - E-Invoicing Control Center (Pending IRN)</div>
-      
+
       {/* Selection / Filter Bar */}
       <div className="bg-[#e7ebf1] border-b border-[#b5c7de] px-4 py-1.5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
@@ -395,9 +441,9 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(selectedInvoice.plan
           </div>
         </div>
 
-        {/* Search & Pending Count */}
-        <div className="flex items-center gap-3">
-          <div className="relative flex items-center bg-white border border-gray-400 h-7 w-64 px-1 group focus-within:border-blue-500 shadow-inner">
+        {/* Search, Export & Pending Count */}
+        <div className="flex items-center gap-2.5">
+          <div className="relative flex items-center bg-white border border-gray-400 h-7 w-60 px-1 group focus-within:border-blue-500 shadow-inner">
             <Search className="h-3.5 w-3.5 text-gray-400 mr-1 shrink-0" />
             <input
               value={search}
@@ -416,6 +462,26 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(selectedInvoice.plan
               </button>
             )}
           </div>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCsvExport}
+                  className="h-7 text-[10px] font-bold uppercase rounded-none bg-white border-gray-400 text-emerald-800 hover:bg-emerald-50 hover:text-emerald-900 px-2 flex items-center gap-1 shadow-sm"
+                  title="Export to Excel / CSV"
+                >
+                  <FileDown className="h-3.5 w-3.5 text-emerald-700" />
+                  <span>Export Excel</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Export filtered records to Excel (CSV)</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
           <div className="text-[11px] font-bold text-red-700 uppercase tracking-tight bg-red-50 border border-red-200 px-2.5 py-1 rounded-sm shadow-sm whitespace-nowrap flex items-center gap-1.5">
             <span>Pending:</span>
             <span className="text-red-900 font-black text-xs">{filteredInvoices.length}</span>
@@ -423,34 +489,57 @@ const firm = firms?.find(f => getRecordPlantIds(f).includes(selectedInvoice.plan
         </div>
       </div>
       <div className="flex-1 overflow-auto no-scrollbar">
-        <Table className="min-w-[1500px] sap-alv-grid">
+        <Table className="min-w-[1900px] sap-alv-grid">
           <TableHeader className="sap-alv-header">
-            <TableRow className="h-8">
-              <TableHead className="text-[11px] font-bold border-r w-12 text-center bg-[#e1e1e1]">#</TableHead>
-              <TableHead className="text-[11px] font-bold border-r w-32 text-center bg-[#e1e1e1]">Action</TableHead>
-              <TableHead className="text-[11px] font-bold border-r w-24 text-center">Plant</TableHead>
-              <TableHead className="text-[11px] font-bold border-r w-40">Invoice Number</TableHead>
-              <TableHead className="text-[11px] font-bold border-r w-32">Date</TableHead>
-              <TableHead className="text-[11px] font-bold border-r w-28 text-center">FY</TableHead>
-              <TableHead className="text-[11px] font-bold border-r w-64">Consignee</TableHead>
-              <TableHead className="text-[11px] font-bold border-r w-32 text-center">State</TableHead>
-              <TableHead className="text-[11px] font-bold text-right pr-6 bg-blue-50/50">Gross Amount</TableHead>
+            <TableRow className="h-9">
+              <TableHead className="text-[10px] font-bold border-r w-12 text-center text-black bg-[#e1e1e1]">#</TableHead>
+              <TableHead className="text-[10px] font-bold border-r w-32 text-center text-black bg-[#e1e1e1]">Action</TableHead>
+              <TableHead className="text-[10px] font-bold border-r w-24 text-center text-black">Plant</TableHead>
+              <TableHead className="text-[10px] font-bold border-r w-40 text-black">Invoice Number</TableHead>
+              <TableHead className="text-[10px] font-bold border-r w-32 text-black">Date</TableHead>
+              <TableHead className="text-[10px] font-bold border-r w-36 text-center text-black">Working Month</TableHead>
+              <TableHead className="text-[10px] font-bold border-r w-64 text-black">Consignee</TableHead>
+              <TableHead className="text-[10px] font-bold border-r w-32 text-center text-black">State</TableHead>
+              <TableHead className="text-[10px] font-bold border-r w-40 text-center text-black">Charge Type</TableHead>
+              <TableHead className="text-[10px] font-bold border-r w-36 text-right text-black">Taxable Amount</TableHead>
+              <TableHead className="text-[10px] font-bold border-r w-32 text-right text-black">CGST</TableHead>
+              <TableHead className="text-[10px] font-bold border-r w-32 text-right text-black">SGST</TableHead>
+              <TableHead className="text-[10px] font-bold border-r w-32 text-right text-black">IGST</TableHead>
+              <TableHead className="text-[10px] font-bold text-right pr-6 text-black bg-blue-50/50 w-40">Gross Amount</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading ? <TableRow><TableCell colSpan={9} className="text-center py-24 text-xs opacity-30">RETRIEVING RECORDS...</TableCell></TableRow> : filteredInvoices.map((inv, i) => (
-              <TableRow key={inv.id} className="h-8 hover:bg-blue-50/50 border-b border-gray-100 group">
-                <TableCell className="p-0 text-center text-gray-400 text-[10px] border-r group-hover:text-blue-600">{i + 1}</TableCell>
-                <TableCell className="p-0 border-r text-center px-1"><Button onClick={() => setSelectedInvoice(inv)} variant="ghost" size="sm" className="h-6 w-full text-[9px] font-black uppercase text-emerald-700 hover:bg-emerald-100 rounded-none border border-emerald-200">Generate IRN</Button></TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r text-center font-bold text-gray-600">{inv.plantId}</TableCell>
-                  <TableCell className="p-0 px-2 text-[11px] border-r font-black font-mono text-blue-900">
-                    <IRNPreviewDialog invoice={inv} firms={firms} customerMap={customerMap} />
-                  </TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r font-mono">{inv.invoiceDate}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r text-center">{inv.billYear}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r truncate font-semibold uppercase">{customerMap[inv.shipTo]?.name || customerMap[inv.billTo]?.name || inv.billTo}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px] border-r text-center">{customerMap[inv.shipTo]?.stateName || "-"}</TableCell>
-<TableCell className="p-0 px-2 text-[11px] text-right font-black text-emerald-900 pr-6 bg-blue-50/30 group-hover:bg-emerald-50 transition-colors">₹ {formatAmount(inv.totals?.grossAmount)}</TableCell>
+            {isLoading ? (
+              <TableRow><TableCell colSpan={14} className="text-center py-24 text-[14px] text-black opacity-40">RETRIEVING RECORDS...</TableCell></TableRow>
+            ) : filteredInvoices.map((inv, i) => (
+              <TableRow key={inv.id} className="h-9 hover:bg-blue-50/50 border-b border-gray-200 group text-[14px] text-black">
+                <TableCell className="p-0 text-center text-black text-[14px] border-r">{i + 1}</TableCell>
+                <TableCell className="p-0 border-r text-center px-1">
+                  <Button onClick={() => setSelectedInvoice(inv)} variant="ghost" size="sm" className="h-6 w-full text-[10px] font-black uppercase text-emerald-700 hover:bg-emerald-100 rounded-none border border-emerald-200">Generate IRN</Button>
+                </TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center text-black font-semibold">{inv.plantId}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-black font-semibold">
+                  <IRNPreviewDialog
+                    invoice={inv}
+                    firms={firms}
+                    customerMap={customerMap}
+                    trigger={
+                      <span className="cursor-pointer hover:underline text-black font-semibold text-[10px]">
+                        {inv.invoiceNumber}
+                      </span>
+                    }
+                  />
+                </TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-black">{inv.invoiceDate}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center uppercase text-black font-semibold">{inv.billMonth || "-"}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r truncate text-black font-semibold uppercase">{customerMap[inv.shipTo]?.name || customerMap[inv.billTo]?.name || inv.billTo}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center text-black">{customerMap[inv.shipTo]?.stateName || customerMap[inv.billTo]?.stateName || "-"}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-center uppercase text-black font-semibold">{inv.docCategory || "-"}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-right text-black font-semibold">₹ {formatAmount(inv.totals?.taxableAmount)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-right text-black font-semibold">₹ {formatAmount(inv.totals?.cgst)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-right text-black font-semibold">₹ {formatAmount(inv.totals?.sgst)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r text-right text-black font-semibold">₹ {formatAmount(inv.totals?.igst)}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] text-right text-black font-bold pr-6 bg-blue-50/30 group-hover:bg-blue-50/50 transition-colors">₹ {formatAmount(inv.totals?.grossAmount)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
