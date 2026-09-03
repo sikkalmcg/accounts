@@ -10,14 +10,35 @@ const amount = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const MONTHS_MAP: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+};
+
 const parseDate = (value: unknown): Date | null => {
   if (!value) return null;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
   const text = normalize(value);
-  const match = text.match(/^(\d{2})[./-](\d{2})[./-](\d{4})$/);
-  const date = match
-    ? new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]))
-    : new Date(text);
+  if (!text) return null;
+
+  // DD-MMM-YYYY, DD/MMM/YYYY, DD MMM YYYY
+  const mMatch = text.match(/^(\d{1,2})[-/ ]([A-Za-z]{3})[-/ ](\d{4})$/);
+  if (mMatch) {
+    const month = MONTHS_MAP[mMatch[2].toLowerCase()];
+    if (month !== undefined) {
+      const d = new Date(Number(mMatch[3]), month, Number(mMatch[1]));
+      if (!Number.isNaN(d.getTime())) return d;
+    }
+  }
+
+  // DD-MM-YYYY, DD.MM.YYYY, DD/MM/YYYY
+  const match = text.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+  if (match) {
+    const date = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+
+  const date = new Date(text);
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
@@ -109,6 +130,7 @@ export async function GET(request: NextRequest) {
           ...invoice,
           id: invoice._id.toString(),
           invoiceNumber,
+          invoiceDate: invoice.invoiceDate || invoice.billingDate || invoice.date || "",
           grossAmount,
           totalPaidAmount: payment?.totalPaid ?? 0,
           paymentDate: payment?.latestPaymentDate?.toISOString() ?? "",

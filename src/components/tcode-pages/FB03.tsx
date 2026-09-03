@@ -170,7 +170,8 @@ const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
         bankingUtr: receipt.bankingUtr,
         balanceAmount: Math.max(0, gross - totalCollection),
         consignorName: firm?.name || "N/A",
-        billToName: consignee?.name || inv.billToName || inv.customerName || billToCandidates[0] || "N/A"
+        billToName: consignee?.name || inv.billToName || inv.customerName || billToCandidates[0] || "N/A",
+        chargeType: inv.docCategory ? (inv.billMonth ? `${inv.docCategory} - ${inv.billMonth}` : inv.docCategory) : (inv.billMonth || "-")
       };
     });
   }, [allInvoices, isAdmin, assignedPlantIds, filterPlants, filterConsignee, filterFY, invoiceReceiptMap, firmMap, customerMap]);
@@ -227,16 +228,16 @@ return processedData.reduce((acc, curr) => ({
   const handleExport = () => {
     if (sortedData.length === 0) return;
     const csvContent = [
-["#", "Plant", "Invoice No", "Inv. Date", "Bill Month", "Charge type", "Consignor", "Bill-to Party Name", "Taxable Amt", "CGST", "SGST", "IGST", "Gross Payable", "Receipt Amt", "TDS Amt", "Deduction Amt", "Balance", "Pay Date", "Advice No", "UTR"].join(","),
+      ["#", "Plant", "Invoice No", "Inv. Date", "Consignor", "Bill-to Party Name", "Bill Month", "Charge type", "Taxable Amt", "CGST", "SGST", "IGST", "Gross Payable", "Receipt Amt", "TDS Amt", "Deduction Amt", "Balance", "Pay Date", "Advice No", "UTR"].join(","),
       ...sortedData.map((row, idx) => [
         idx + 1,
         row.plantId,
         row.invoiceNumber,
         row.invoiceDate,
-        row.billMonth,
-        `"${row.docCategory || ""}"`,
         `"${row.consignorName || ""}"`,
         `"${row.billToName || ""}"`,
+        `"${row.billMonth || ""}"`,
+        `"${row.chargeType || row.docCategory || ""}"`,
         row.totals?.taxableAmount || 0,
         row.totals?.cgst || 0,
         row.totals?.sgst || 0,
@@ -270,7 +271,7 @@ return processedData.reduce((acc, curr) => ({
       printWindow.document.write(`
         <html>
           <head>
-            <title>Print Invoice - SIKKA LMC</title>
+            <title>${selectedInvoice?.invoiceNumber || "Invoice"}</title>
             <script src="https://cdn.tailwindcss.com"></script>
             <style>
               @page { size: A4 portrait; margin: 0; }
@@ -382,10 +383,10 @@ return processedData.reduce((acc, curr) => ({
                   <TableHead onClick={() => handleSort('plantId')} className="w-24 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Plant <SortIcon col="plantId"/></div></TableHead>
                   <TableHead onClick={() => handleSort('invoiceNumber')} className="w-40 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Invoice No <SortIcon col="invoiceNumber"/></div></TableHead>
                   <TableHead onClick={() => handleSort('invoiceDate')} className="w-32 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Inv. Date <SortIcon col="invoiceDate"/></div></TableHead>
-                  <TableHead className="w-24 text-[10px] font-bold border-r border-[#b5c7de]">Bill Month</TableHead>
-                  <TableHead className="w-40 text-[10px] font-bold border-r border-[#b5c7de]">Charge type</TableHead>
-                  <TableHead className="w-44 text-[10px] font-bold border-r border-[#b5c7de]">Consignor</TableHead>
-                  <TableHead className="w-56 text-[10px] font-bold border-r border-[#b5c7de]">Bill-to Party Name</TableHead>
+                  <TableHead onClick={() => handleSort('consignorName')} className="w-44 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Consignor <SortIcon col="consignorName"/></div></TableHead>
+                  <TableHead onClick={() => handleSort('billToName')} className="w-56 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Bill-to Party Name <SortIcon col="billToName"/></div></TableHead>
+                  <TableHead onClick={() => handleSort('billMonth')} className="w-28 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Bill Month <SortIcon col="billMonth"/></div></TableHead>
+                  <TableHead onClick={() => handleSort('chargeType')} className="w-48 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Charge type <SortIcon col="chargeType"/></div></TableHead>
 
                   <TableHead onClick={() => handleSort('totals.taxableAmount')} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center justify-end">Taxable Amt <SortIcon col="totals.taxableAmount"/></div></TableHead>
                   {hasCsgst && (
@@ -420,8 +421,6 @@ return processedData.reduce((acc, curr) => ({
                       >{row.invoiceNumber}</button>
                     </TableCell>
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">{row.invoiceDate}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase">{row.billMonth}</TableCell>
-<TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 truncate max-w-[150px] uppercase italic text-gray-600">{row.docCategory}</TableCell>
 
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 whitespace-normal font-semibold text-gray-800">
                       {row.consignorName}
@@ -429,6 +428,11 @@ return processedData.reduce((acc, curr) => ({
 
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 whitespace-normal font-semibold text-blue-900">
                       {row.billToName}
+                    </TableCell>
+
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase text-center font-medium">{row.billMonth || "-"}</TableCell>
+                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase italic text-gray-700 whitespace-nowrap font-medium">
+                      {row.chargeType || (row.docCategory ? (row.billMonth ? `${row.docCategory} - ${row.billMonth}` : row.docCategory) : (row.billMonth || "-"))}
                     </TableCell>
 
                     <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono">{(row.totals?.taxableAmount || 0).toLocaleString()}</TableCell>
@@ -465,8 +469,27 @@ return processedData.reduce((acc, curr) => ({
 
       {/* Invoice Preview Dialog */}
       {selectedInvoice && (
-        <Dialog open={!!selectedInvoice} onOpenChange={(open) => !open && setSelectedInvoice(null)}>
-          <DialogContent className="max-w-[850px] max-h-[98vh] overflow-y-auto p-0 rounded-none border-none shadow-2xl">
+        <Dialog
+          open={!!selectedInvoice}
+          onOpenChange={(open) => {
+            if (!open) {
+              setSelectedInvoice(null);
+              if (typeof document !== "undefined") document.body.style.pointerEvents = "";
+            }
+          }}
+        >
+          <DialogContent
+            onEscapeKeyDown={(e) => {
+              e.preventDefault();
+              setSelectedInvoice(null);
+              if (typeof document !== "undefined") document.body.style.pointerEvents = "";
+            }}
+            onPointerDownOutside={() => {
+              setSelectedInvoice(null);
+              if (typeof document !== "undefined") document.body.style.pointerEvents = "";
+            }}
+            className="max-w-[850px] max-h-[98vh] overflow-y-auto p-0 rounded-none border-none shadow-2xl"
+          >
             <div className="bg-[#333e4f] p-2 flex justify-between items-center text-white sticky top-0 z-50">
               <DialogTitle className="text-[11px] font-bold uppercase tracking-widest pl-2">
                 Document Output: {selectedInvoice.invoiceNumber}
@@ -475,7 +498,14 @@ return processedData.reduce((acc, curr) => ({
                 <Button size="sm" onClick={handlePrint} className="h-7 rounded-none bg-emerald-600 hover:bg-emerald-700 gap-2 text-[10px] font-bold px-4">
                   <Printer className="h-3.5 w-3.5" /> PRINT COPIES
                 </Button>
-                <button onClick={() => setSelectedInvoice(null)} className="h-7 w-7 text-white hover:bg-white/10 rounded-none flex items-center justify-center">
+                <button
+                  onClick={() => {
+                    setSelectedInvoice(null);
+                    if (typeof document !== "undefined") document.body.style.pointerEvents = "";
+                  }}
+                  className="h-7 w-7 text-white hover:bg-white/10 rounded-none flex items-center justify-center cursor-pointer"
+                  title="Close (Esc)"
+                >
                   <X className="h-4 w-4" />
                 </button>
               </div>

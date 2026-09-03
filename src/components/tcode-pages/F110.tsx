@@ -28,6 +28,7 @@ import {
   ChevronDown,
   ChevronUp,
   X,
+  ArrowUpDown,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -51,6 +52,11 @@ import { downloadCsv } from "@/lib/csv-export";
    DATE HELPERS
 ========================================================= */
 
+const SHORT_MONTH_LOOKUP: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+};
+
 const parseFlexibleDate = (dateValue: any): Date | null => {
   if (!dateValue) return null;
 
@@ -59,25 +65,34 @@ const parseFlexibleDate = (dateValue: any): Date | null => {
   }
 
   const dateStr = String(dateValue).trim();
-
   if (!dateStr) return null;
 
+  // DD-MMM-YYYY, DD/MMM/YYYY, DD MMM YYYY
+  const mMatch = dateStr.match(/^(\d{1,2})[-/ ]([A-Za-z]{3})[-/ ](\d{4})$/);
+  if (mMatch) {
+    const month = SHORT_MONTH_LOOKUP[mMatch[2].toLowerCase()];
+    if (month !== undefined) {
+      const d = new Date(Number(mMatch[3]), month, Number(mMatch[1]));
+      if (isValid(d)) return d;
+    }
+  }
+
   // DD.MM.YYYY
-  if (/^\d{2}\.\d{2}\.\d{4}$/.test(dateStr)) {
+  if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(dateStr)) {
     const [day, month, year] = dateStr.split(".").map(Number);
     const d = new Date(year, month - 1, day);
     return isValid(d) ? d : null;
   }
 
   // DD-MM-YYYY
-  if (/^\d{2}-\d{2}-\d{4}$/.test(dateStr)) {
+  if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(dateStr)) {
     const [day, month, year] = dateStr.split("-").map(Number);
     const d = new Date(year, month - 1, day);
     return isValid(d) ? d : null;
   }
 
   // DD/MM/YYYY
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateStr)) {
     const [day, month, year] = dateStr.split("/").map(Number);
     const d = new Date(year, month - 1, day);
     return isValid(d) ? d : null;
@@ -89,12 +104,20 @@ const parseFlexibleDate = (dateValue: any): Date | null => {
     return isoDate;
   }
 
+  const direct = new Date(dateStr);
+  if (isValid(direct)) {
+    return direct;
+  }
+
   return null;
 };
 
 const formatSystemDate = (dateValue: any): string => {
+  if (!dateValue) return "";
   const d = parseFlexibleDate(dateValue);
-  return d ? toSAPDate(d) : "";
+  if (d) return toSAPDate(d);
+  if (typeof dateValue === "string") return toSAPDate(dateValue);
+  return "";
 };
 
 const normalizeString = (value: any): string => {
@@ -162,6 +185,38 @@ export default function F110() {
   const [isSearching, setIsSearching] = useState(false);
   const [isExecuted, setIsExecuted] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
+
+  /* =======================================================
+     SORT STATE
+  ======================================================= */
+
+  const [sortConfig, setSortConfig] = useState<{
+    key: string;
+    direction: "asc" | "desc";
+  } | null>(null);
+
+  const handleSort = (key: string) => {
+    setSortConfig((prev) => {
+      if (prev?.key === key) {
+        if (prev.direction === "asc") {
+          return { key, direction: "desc" };
+        }
+        return null;
+      }
+      return { key, direction: "asc" };
+    });
+  };
+
+  const SortIcon = ({ column }: { column: string }) => {
+    if (sortConfig?.key !== column) {
+      return <ArrowUpDown className="h-3 w-3 ml-1 opacity-40 shrink-0 inline-block" />;
+    }
+    return sortConfig.direction === "asc" ? (
+      <ChevronUp className="h-3.5 w-3.5 ml-1 text-blue-700 shrink-0 inline-block font-black" />
+    ) : (
+      <ChevronDown className="h-3.5 w-3.5 ml-1 text-blue-700 shrink-0 inline-block font-black" />
+    );
+  };
 
   /* =======================================================
      AUTHORIZATION
@@ -600,27 +655,37 @@ export default function F110() {
       =================================================== */
 
       let processed = mb03Invoices.map((invoice: any) => {
-        const invoiceDate = parseFlexibleDate(invoice.invoiceDate);
+        const rawInvoiceDate = invoice.invoiceDate || invoice.billingDate || invoice.date || invoice.createdAt || "";
+        const invoiceDate = parseFlexibleDate(rawInvoiceDate);
+        const displayInvoiceDate = formatSystemDate(rawInvoiceDate) || (typeof rawInvoiceDate === "string" && rawInvoiceDate.trim() ? rawInvoiceDate.trim() : "-");
+
         const paymentInfo = paymentsByInvoice.get(invoice.invoiceNumber);
-
-        const totalPaid = paymentInfo ? paymentInfo.totalPaid : 0;
+        const totalPaid = toNumber(invoice.totalPaidAmount !== undefined && invoice.totalPaidAmount !== null ? invoice.totalPaidAmount : paymentInfo?.totalPaid);
         const grossAmount = toNumber(invoice.grossAmount);
-        const balanceAmount = grossAmount - totalPaid;
+        const balanceAmount = Math.max(0, grossAmount - totalPaid);
 
-        const paymentDates = paymentInfo?.paymentDates || [];
-        const sortedPaymentDates = [...paymentDates].sort(
-          (a, b) => a.getTime() - b.getTime()
-        );
+        const latestPaymentDate = parseFlexibleDate(invoice.paymentDate) || (paymentInfo?.paymentDates && paymentInfo.paymentDates.length > 0 ? paymentInfo.paymentDates[paymentInfo.paymentDates.length - 1] : null);
 
-        const latestPaymentDate =
-          sortedPaymentDates.length > 0
-            ? sortedPaymentDates[sortedPaymentDates.length - 1]
-            : null;
+        let paymentDays: number = 0;
+        let remark: "Paid" | "Partially Paid" | "Unpaid" = "Unpaid";
 
-        const paymentDays =
-          invoiceDate && latestPaymentDate
-            ? differenceInCalendarDays(latestPaymentDate, invoiceDate)
-            : null;
+        if (totalPaid > 0 && balanceAmount <= 1) {
+          remark = "Paid";
+        } else if (totalPaid > 0 && balanceAmount > 1) {
+          remark = "Partially Paid";
+        } else {
+          remark = "Unpaid";
+        }
+
+        if (latestPaymentDate && invoiceDate) {
+          paymentDays = Math.max(0, differenceInCalendarDays(latestPaymentDate, invoiceDate));
+        } else if (invoiceDate) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          paymentDays = Math.max(0, differenceInCalendarDays(today, invoiceDate));
+        } else {
+          paymentDays = 0;
+        }
 
         const consignor =
           firmMap.get(normalizeString(invoice.consignorId)) ||
@@ -636,11 +701,13 @@ export default function F110() {
           invoice.workingMonth ||
           (invoiceDate ? format(invoiceDate, "MMM-yyyy") : "");
 
+        const displayPaymentDate = latestPaymentDate ? formatSystemDate(latestPaymentDate) : (invoice.paymentDate ? formatSystemDate(invoice.paymentDate) : "");
+
         return {
           id: invoice.id,
           plantId: invoice.plantId,
           invoiceNo: invoice.invoiceNumber,
-          invoiceDate: formatSystemDate(invoice.invoiceDate),
+          invoiceDate: displayInvoiceDate,
           consignorName:
             normalizeString(
               firstValue(
@@ -661,10 +728,10 @@ export default function F110() {
           chargeType: invoice.chargeType || "N/A",
           grossAmount,
           totalPaidAmount: totalPaid,
-          paymentDate: formatSystemDate(latestPaymentDate),
+          paymentDate: displayPaymentDate,
           balanceAmount,
-          paymentDays:
-            paymentDays !== null && paymentDays >= 0 ? paymentDays : null,
+          paymentDays,
+          remark,
           _consignorId: invoice.consignorId,
           _billToId: invoice.billToId,
           _paymentSource: paymentInfo ? "Payment Records" : "",
@@ -718,39 +785,67 @@ export default function F110() {
   };
 
   /* =======================================================
-     REPORT SEARCH
+     REPORT SEARCH & SORT
   ======================================================= */
 
   const filteredResults = useMemo(() => {
+    let list = results;
     const search = searchText.trim().toLowerCase();
 
-    if (!search) {
-      return results;
+    if (search) {
+      list = list.filter((row: any) =>
+        Object.entries(row).some(([key, value]) => {
+          if (key.startsWith("_")) {
+            return false;
+          }
+          return String(value ?? "").toLowerCase().includes(search);
+        })
+      );
     }
 
-    return results.filter((row: any) =>
-      Object.entries(row).some(([key, value]) => {
-        if (key.startsWith("_")) {
-          return false;
-        }
-        return String(value ?? "").toLowerCase().includes(search);
-      })
-    );
-  }, [results, searchText]);
+    if (!sortConfig) {
+      return list;
+    }
+
+    const { key, direction } = sortConfig;
+    const multiplier = direction === "asc" ? 1 : -1;
+
+    return [...list].sort((a: any, b: any) => {
+      // Number columns
+      if (["grossAmount", "totalPaidAmount", "balanceAmount", "paymentDays"].includes(key)) {
+        const aNum = Number(a[key] ?? 0);
+        const bNum = Number(b[key] ?? 0);
+        return (aNum - bNum) * multiplier;
+      }
+
+      // Date columns
+      if (["invoiceDate", "paymentDate"].includes(key)) {
+        const aDate = parseFlexibleDate(a[key])?.getTime() ?? 0;
+        const bDate = parseFlexibleDate(b[key])?.getTime() ?? 0;
+        return (aDate - bDate) * multiplier;
+      }
+
+      // String columns
+      const aStr = String(a[key] ?? "").toLowerCase();
+      const bStr = String(b[key] ?? "").toLowerCase();
+      return aStr.localeCompare(bStr, undefined, { numeric: true, sensitivity: "base" }) * multiplier;
+    });
+  }, [results, searchText, sortConfig]);
 
   /* =======================================================
      EXCEL / CSV EXPORT
   ======================================================= */
 
   const handleExport = () => {
-    if (results.length === 0) {
+    const dataToExport = filteredResults.length > 0 ? filteredResults : results;
+    if (dataToExport.length === 0) {
       return;
     }
 
     const headers = [
       "Plant",
       "Invoice No.",
-      "Date",
+      "Invoice Date",
       "Consignor",
       "Bill to Party",
       "Working Month",
@@ -760,9 +855,10 @@ export default function F110() {
       "Payment Date",
       "Balance Amount",
       "Payment Days",
+      "Remark",
     ];
 
-    const rows = results.map((row: any) => [
+    const rows = dataToExport.map((row: any) => [
       row.plantId,
       row.invoiceNo,
       row.invoiceDate,
@@ -774,7 +870,8 @@ export default function F110() {
       row.totalPaidAmount,
       row.paymentDate,
       row.balanceAmount,
-      row.paymentDays !== null ? row.paymentDays : "",
+      `${row.paymentDays} Days`,
+      row.remark,
     ]);
 
     downloadCsv("F110_Invoice_Payment_Report", headers, rows);
@@ -966,28 +1063,135 @@ export default function F110() {
             ) : (
               <Table className="min-w-[1800px] sap-alv-grid">
                 <TableHeader className="sap-alv-header">
-                  <TableRow className="h-8">
-                    <TableHead className="w-24">Plant</TableHead>
-                    <TableHead className="w-36">Invoice No.</TableHead>
-                    <TableHead className="w-28">Date</TableHead>
-                    <TableHead>Consignor</TableHead>
-                    <TableHead>Bill to Party</TableHead>
-                    <TableHead className="w-28">Working Month</TableHead>
-                    <TableHead className="w-32">Charge Type</TableHead>
-                    <TableHead className="w-40 text-right">
-                      Invoice Gross Amount
+                  <TableRow className="h-8 select-none">
+                    <TableHead
+                      onClick={() => handleSort("plantId")}
+                      className="w-24 cursor-pointer hover:bg-[#c5d7ed] transition-colors"
+                      title="Sort by Plant"
+                    >
+                      <div className="flex items-center justify-center gap-1 font-bold">
+                        Plant <SortIcon column="plantId" />
+                      </div>
                     </TableHead>
-                    <TableHead className="w-40 text-right">
-                      Total Payment Amount
+
+                    <TableHead
+                      onClick={() => handleSort("invoiceNo")}
+                      className="w-36 cursor-pointer hover:bg-[#c5d7ed] transition-colors"
+                      title="Sort by Invoice No."
+                    >
+                      <div className="flex items-center gap-1 font-bold">
+                        Invoice No. <SortIcon column="invoiceNo" />
+                      </div>
                     </TableHead>
-                    <TableHead className="w-28 text-center">
-                      Payment Date
+
+                    <TableHead
+                      onClick={() => handleSort("invoiceDate")}
+                      className="w-32 text-center cursor-pointer hover:bg-[#c5d7ed] transition-colors"
+                      title="Sort by Invoice Date"
+                    >
+                      <div className="flex items-center justify-center gap-1 font-bold">
+                        Invoice Date <SortIcon column="invoiceDate" />
+                      </div>
                     </TableHead>
-                    <TableHead className="w-36 text-right">
-                      Balance Amount
+
+                    <TableHead
+                      onClick={() => handleSort("consignorName")}
+                      className="cursor-pointer hover:bg-[#c5d7ed] transition-colors"
+                      title="Sort by Consignor"
+                    >
+                      <div className="flex items-center gap-1 font-bold">
+                        Consignor <SortIcon column="consignorName" />
+                      </div>
                     </TableHead>
-                    <TableHead className="w-28 text-center">
-                      Payment Days
+
+                    <TableHead
+                      onClick={() => handleSort("billToName")}
+                      className="cursor-pointer hover:bg-[#c5d7ed] transition-colors"
+                      title="Sort by Bill to Party"
+                    >
+                      <div className="flex items-center gap-1 font-bold">
+                        Bill to Party <SortIcon column="billToName" />
+                      </div>
+                    </TableHead>
+
+                    <TableHead
+                      onClick={() => handleSort("workingMonth")}
+                      className="w-28 text-center cursor-pointer hover:bg-[#c5d7ed] transition-colors"
+                      title="Sort by Working Month"
+                    >
+                      <div className="flex items-center justify-center gap-1 font-bold">
+                        Working Month <SortIcon column="workingMonth" />
+                      </div>
+                    </TableHead>
+
+                    <TableHead
+                      onClick={() => handleSort("chargeType")}
+                      className="w-32 cursor-pointer hover:bg-[#c5d7ed] transition-colors"
+                      title="Sort by Charge Type"
+                    >
+                      <div className="flex items-center gap-1 font-bold">
+                        Charge Type <SortIcon column="chargeType" />
+                      </div>
+                    </TableHead>
+
+                    <TableHead
+                      onClick={() => handleSort("grossAmount")}
+                      className="w-40 text-right cursor-pointer hover:bg-[#c5d7ed] transition-colors"
+                      title="Sort by Invoice Gross Amount"
+                    >
+                      <div className="flex items-center justify-end gap-1 font-bold">
+                        Invoice Gross Amount <SortIcon column="grossAmount" />
+                      </div>
+                    </TableHead>
+
+                    <TableHead
+                      onClick={() => handleSort("totalPaidAmount")}
+                      className="w-40 text-right cursor-pointer hover:bg-[#c5d7ed] transition-colors"
+                      title="Sort by Total Payment Amount"
+                    >
+                      <div className="flex items-center justify-end gap-1 font-bold">
+                        Total Payment Amount <SortIcon column="totalPaidAmount" />
+                      </div>
+                    </TableHead>
+
+                    <TableHead
+                      onClick={() => handleSort("paymentDate")}
+                      className="w-28 text-center cursor-pointer hover:bg-[#c5d7ed] transition-colors"
+                      title="Sort by Payment Date"
+                    >
+                      <div className="flex items-center justify-center gap-1 font-bold">
+                        Payment Date <SortIcon column="paymentDate" />
+                      </div>
+                    </TableHead>
+
+                    <TableHead
+                      onClick={() => handleSort("balanceAmount")}
+                      className="w-36 text-right cursor-pointer hover:bg-[#c5d7ed] transition-colors"
+                      title="Sort by Balance Amount"
+                    >
+                      <div className="flex items-center justify-end gap-1 font-bold">
+                        Balance Amount <SortIcon column="balanceAmount" />
+                      </div>
+                    </TableHead>
+
+                    <TableHead
+                      onClick={() => handleSort("paymentDays")}
+                      className="w-28 text-center cursor-pointer hover:bg-[#c5d7ed] transition-colors"
+                      title="Sort by Payment Days"
+                    >
+                      <div className="flex items-center justify-center gap-1 font-bold">
+                        Payment Days <SortIcon column="paymentDays" />
+                      </div>
+                    </TableHead>
+
+                    <TableHead
+                      onClick={() => handleSort("remark")}
+                      className="w-36 text-center cursor-pointer hover:bg-[#c5d7ed] transition-colors"
+                      title="Sort by Remark"
+                    >
+                      <div className="flex items-center justify-center gap-1 font-bold">
+                        Remark <SortIcon column="remark" />
+                      </div>
                     </TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1003,8 +1207,8 @@ export default function F110() {
                       <TableCell className="font-mono font-black text-blue-800">
                         {row.invoiceNo}
                       </TableCell>
-                      <TableCell className="font-mono">
-                        {row.invoiceDate}
+                      <TableCell className="font-mono text-center font-semibold">
+                        {row.invoiceDate || "-"}
                       </TableCell>
                       <TableCell className="truncate max-w-[200px]">
                         {row.consignorName}
@@ -1030,10 +1234,23 @@ export default function F110() {
                       <TableCell className="text-right font-mono font-black text-red-700">
                         {formatAmount(row.balanceAmount)}
                       </TableCell>
-                      <TableCell className="text-center font-bold">
-                        {row.paymentDays !== null
-                          ? `${row.paymentDays} Days`
-                          : "-"}
+                      <TableCell className="text-center font-bold font-mono">
+                        {row.paymentDays !== undefined && row.paymentDays !== null ? `${row.paymentDays} Days` : "-"}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {row.remark === "Paid" ? (
+                          <span className="text-emerald-800 bg-emerald-50 border border-emerald-300 px-2 py-0.5 rounded text-[10px] font-bold inline-block whitespace-nowrap">
+                            Paid
+                          </span>
+                        ) : row.remark === "Partially Paid" ? (
+                          <span className="text-blue-800 bg-blue-50 border border-blue-300 px-2 py-0.5 rounded text-[10px] font-bold inline-block whitespace-nowrap">
+                            Partially Paid
+                          </span>
+                        ) : (
+                          <span className="text-red-800 bg-red-50 border border-red-300 px-2 py-0.5 rounded text-[10px] font-bold inline-block whitespace-nowrap">
+                            Unpaid
+                          </span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
