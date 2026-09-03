@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDatabase, useCollection, useMemoDatabase } from "@/database";
 import { collection, query, orderBy } from "@/database/mongo";
 import { Search, Filter, Download, Printer, ArrowUpDown, ChevronUp, ChevronDown, PrinterIcon, X, Clock, CheckCircle2, FileDown, RotateCcw } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Image from "next/image";
@@ -344,7 +344,51 @@ export default function VF03() {
   const [authorizedPlantIds, setAuthorizedPlantIds] = useState<string[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [filterPlants, setFilterPlants] = useState<string[]>([]);
+
+  const closePreview = useCallback(() => {
+    setIsPreviewOpen(false);
+    setSelectedInvoice(null);
+    if (typeof document !== "undefined") {
+      document.body.style.pointerEvents = "";
+    }
+  }, []);
+
+  // Ensure pointer-events is cleaned up whenever preview closes
+  useEffect(() => {
+    if (!isPreviewOpen && typeof document !== "undefined") {
+      document.body.style.pointerEvents = "";
+    }
+  }, [isPreviewOpen]);
+
+  // Handle Esc key directly to close preview and prevent page freeze
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isPreviewOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        closePreview();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [isPreviewOpen, closePreview]);
+
+  // Handle SAP cancel events
+  useEffect(() => {
+    const handleCancel = () => {
+      if (isPreviewOpen) {
+        closePreview();
+      }
+    };
+    window.addEventListener("sap-toolbar-cancel", handleCancel);
+    window.addEventListener("sap-cancel", handleCancel);
+    return () => {
+      window.removeEventListener("sap-toolbar-cancel", handleCancel);
+      window.removeEventListener("sap-cancel", handleCancel);
+    };
+  }, [isPreviewOpen, closePreview]);
 
   // Date range filters (Default 1 week)
   const initialDates = useMemo(() => getInitialDates(), []);
@@ -721,23 +765,16 @@ export default function VF03() {
                 <TableRow key={inv.id} className="h-8 hover:bg-blue-50/20 transition-colors border-b border-gray-100 group">
                   <TableCell className="p-0 text-center text-[10px] border-r text-gray-400 group-hover:text-blue-600">{rowNumber}</TableCell>
                   <TableCell className="p-0 border-r text-center">
-                    <Dialog>
-                      <DialogTrigger asChild><button onClick={() => setSelectedInvoice(inv)} className="p-1 hover:text-blue-600"><PrinterIcon className="h-3.5 w-3.5" /></button></DialogTrigger>
-                      <DialogContent className="max-w-[850px] max-h-[98vh] overflow-y-auto p-0 rounded-none border-none shadow-2xl">
-                        <div className="bg-[#333e4f] p-2 flex justify-between items-center text-white sticky top-0 z-50">
-                          <DialogTitle className="text-[11px] font-bold uppercase tracking-widest pl-2">Document Output: {inv.invoiceNumber}</DialogTitle>
-                          <div className="flex gap-2">
-                            <Button size="sm" onClick={() => handlePrint(inv.invoiceNumber)} className="h-7 rounded-none bg-emerald-600 hover:bg-emerald-700 gap-2 text-[10px] font-bold px-4"><Printer className="h-3.5 w-3.5" /> PRINT COPIES</Button>
-                            <DialogTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-white hover:bg-white/10 rounded-none"><X className="h-4 w-4" /></Button></DialogTrigger>
-                          </div>
-                        </div>
-                        <div className="bg-white" id="invoice-print-area">
-                          <InvoicePreview invoice={inv} copyLabel="ORIGINAL: FOR RECIPIENT" firms={firms} customerMap={customerMap} />
-                          <div className="page-break"></div>
-                          <InvoicePreview invoice={inv} copyLabel="DUPLICATE: FOR CONSIGNEE" firms={firms} customerMap={customerMap} />
-                        </div>
-                      </DialogContent>
-                    </Dialog>
+                    <button
+                      onClick={() => {
+                        setSelectedInvoice(inv);
+                        setIsPreviewOpen(true);
+                      }}
+                      className="p-1 hover:text-blue-600 transition-colors cursor-pointer"
+                      title="Preview & Print Invoice"
+                    >
+                      <PrinterIcon className="h-3.5 w-3.5" />
+                    </button>
                   </TableCell>
                   <TableCell className="p-0 px-2 text-[11px] border-r text-center font-bold text-gray-600">{inv.plantId}</TableCell>
                   <TableCell className="p-0 px-2 text-[11px] border-r font-bold text-blue-700 font-mono">{inv.invoiceNumber}</TableCell>
@@ -813,6 +850,62 @@ export default function VF03() {
           </div>
         </div>
       )}
+
+      {/* Invoice Output & Print Preview Dialog */}
+      <Dialog
+        open={isPreviewOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            closePreview();
+          } else {
+            setIsPreviewOpen(true);
+          }
+        }}
+      >
+        <DialogContent
+          onEscapeKeyDown={(e) => {
+            e.preventDefault();
+            closePreview();
+          }}
+          onPointerDownOutside={() => closePreview()}
+          className="max-w-[850px] max-h-[98vh] overflow-y-auto p-0 rounded-none border-none shadow-2xl"
+        >
+          {selectedInvoice && (
+            <>
+              <div className="bg-[#333e4f] p-2 flex justify-between items-center text-white sticky top-0 z-50">
+                <DialogTitle className="text-[11px] font-bold uppercase tracking-widest pl-2">
+                  Document Output: {selectedInvoice.invoiceNumber}
+                </DialogTitle>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => handlePrint(selectedInvoice.invoiceNumber)}
+                    className="h-7 rounded-none bg-emerald-600 hover:bg-emerald-700 gap-2 text-[10px] font-bold px-4"
+                  >
+                    <Printer className="h-3.5 w-3.5" /> PRINT COPIES
+                  </Button>
+                  <DialogClose asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={closePreview}
+                      className="h-7 w-7 text-white hover:bg-white/10 rounded-none cursor-pointer"
+                      title="Close (Esc)"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </DialogClose>
+                </div>
+              </div>
+              <div className="bg-white" id="invoice-print-area">
+                <InvoicePreview invoice={selectedInvoice} copyLabel="ORIGINAL: FOR RECIPIENT" firms={firms} customerMap={customerMap} />
+                <div className="page-break"></div>
+                <InvoicePreview invoice={selectedInvoice} copyLabel="DUPLICATE: FOR CONSIGNEE" firms={firms} customerMap={customerMap} />
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

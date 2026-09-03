@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useState, useEffect, useMemo, type ReactNode } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Printer, Download, X, FileText } from "lucide-react";
 import { parse } from "date-fns";
@@ -105,9 +105,36 @@ export const IRNPreviewDialog = ({
   customerMap: Record<string, any>;
   trigger?: ReactNode;
 }) => {
+  const [open, setOpen] = useState(false);
+  const handleClose = () => {
+    setOpen(false);
+    if (typeof document !== "undefined") {
+      document.body.style.pointerEvents = "";
+    }
+  };
+
+  useEffect(() => {
+    if (!open && typeof document !== "undefined") {
+      document.body.style.pointerEvents = "";
+    }
+  }, [open]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && open) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [open]);
+
   const runPrint = () => openInvoicePrint(invoice?.invoiceNumber, "irn-preview-print-area");
+
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); else setOpen(true); }}>
       <DialogTrigger asChild>
         {trigger || (
           <span className="cursor-pointer hover:underline text-blue-700 font-mono font-black text-[11px]">
@@ -115,7 +142,14 @@ export const IRNPreviewDialog = ({
           </span>
         )}
       </DialogTrigger>
-      <DialogContent className="max-w-[850px] max-h-[98vh] overflow-y-auto p-0 rounded-none border-none shadow-2xl">
+      <DialogContent
+        onEscapeKeyDown={(e) => {
+          e.preventDefault();
+          handleClose();
+        }}
+        onPointerDownOutside={handleClose}
+        className="max-w-[850px] max-h-[98vh] overflow-y-auto p-0 rounded-none border-none shadow-2xl"
+      >
         <div className="bg-[#333e4f] p-2 flex justify-between items-center text-white sticky top-0 z-50">
           <DialogTitle className="text-[11px] font-bold uppercase tracking-widest pl-2 flex items-center gap-2">
             <FileText className="h-3.5 w-3.5 text-emerald-400" /> Invoice Print Preview: {invoice?.invoiceNumber}
@@ -135,11 +169,17 @@ export const IRNPreviewDialog = ({
             >
               <Download className="h-3.5 w-3.5" /> DOWNLOAD PDF
             </Button>
-            <DialogTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-white hover:bg-white/10 rounded-none">
+            <DialogClose asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleClose}
+                className="h-7 w-7 text-white hover:bg-white/10 rounded-none cursor-pointer"
+                title="Close (Esc)"
+              >
                 <X className="h-4 w-4" />
               </Button>
-            </DialogTrigger>
+            </DialogClose>
           </div>
         </div>
         <div className="bg-white" id="irn-preview-print-area">

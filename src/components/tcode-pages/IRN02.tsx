@@ -29,6 +29,7 @@ export default function IRN02() {
 
   // 2. Filter State
   const [filterPlants, setFilterPlants] = useState<string[]>([]);
+  const [filterInvoiceNumber, setFilterInvoiceNumber] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [isExecuted, setIsExecuted] = useState(false);
@@ -95,23 +96,33 @@ export default function IRN02() {
 
 // 6. Execute / Search Handler
   const handleExecute = useCallback(async () => {
-    if (filterPlants.length === 0) {
-      window.dispatchEvent(new CustomEvent("sap-status", { detail: { text: "Error: At least one Plant is mandatory", isError: true } }));
+    const invNo = filterInvoiceNumber.trim();
+    if (filterPlants.length === 0 && !invNo) {
+      window.dispatchEvent(new CustomEvent("sap-status", { detail: { text: "Error: Please enter an Invoice Number or select at least one Plant", isError: true } }));
       return;
     }
 
     setIsLoading(true);
     setIsExecuted(true);
     try {
-      const q =
-        filterPlants.length === 1
-          ? query(collection(db, "sales_invoices"), where("plantId", "==", filterPlants[0]))
-          : query(collection(db, "sales_invoices"), where("plantId", "in", filterPlants));
+      let q;
+      if (filterPlants.length === 1) {
+        q = query(collection(db, "sales_invoices"), where("plantId", "==", filterPlants[0]));
+      } else if (filterPlants.length > 1) {
+        q = query(collection(db, "sales_invoices"), where("plantId", "in", filterPlants));
+      } else if (!isAdmin && assignedPlantIds.length > 0) {
+        q = query(collection(db, "sales_invoices"), where("plantId", "in", assignedPlantIds));
+      } else {
+        q = collection(db, "sales_invoices");
+      }
+
       const snap = await getDocs(q);
+      const invNoLower = invNo.toLowerCase();
       const data = snap.docs
         .map((d) => ({ ...d.data(), id: d.id }))
         .filter((inv: any) => inv.irnNumber && inv.irnNumber.trim() !== "")
         .filter((inv: any) => matchesDateRange(inv.invoiceDate, fromDate, toDate))
+        .filter((inv: any) => !invNoLower || inv.invoiceNumber?.toLowerCase().includes(invNoLower))
         .sort((a: any, b: any) => {
           const at = new Date(a.invoiceDate || 0).getTime();
           const bt = new Date(b.invoiceDate || 0).getTime();
@@ -126,7 +137,7 @@ export default function IRN02() {
     } finally {
       setIsLoading(false);
     }
-  }, [db, filterPlants, fromDate, toDate]);
+  }, [db, filterPlants, filterInvoiceNumber, fromDate, toDate, isAdmin, assignedPlantIds]);
 
   // 7. Modify Entry
   const openEdit = (inv: any) => {
@@ -239,6 +250,7 @@ const handleSave = useCallback(async () => {
 // 9. Reset Filters
   const handleReset = useCallback(() => {
     setFilterPlants([]);
+    setFilterInvoiceNumber("");
     setToDate("");
     setFromDate("");
     setGlobalSearch("");
@@ -487,36 +499,25 @@ const firm = firms?.find((f) => getRecordPlantIds(f).includes(editingInvoice.pla
     <div className="w-full flex flex-col bg-white min-h-full select-text">
       <div className="sap-header-title">IRN02 - Change E-Invoicing Data</div>
 
-      {/* Top Search Bar — searches across all digits & text in the results grid */}
-      <div className="bg-[#e7ebf1] border-b border-[#b5c7de] px-4 py-1 flex items-center justify-between gap-4">
-        <div className="relative flex items-center bg-white border border-gray-400 h-6 w-[420px] px-1 group focus-within:border-blue-500">
-          <Search className="h-3.5 w-3.5 text-gray-400 mr-1 shrink-0" />
-          <input
-            value={globalSearch}
-            onChange={(e) => setGlobalSearch(e.target.value)}
-            className="w-full h-full text-xs outline-none"
-            placeholder="Search across all records (invoice no, plant, IRN, ACK, customer, firm, amounts)..."
-          />
-          {globalSearch && (
-            <button
-              onClick={() => setGlobalSearch("")}
-              className="text-gray-400 hover:text-red-600 ml-1 shrink-0"
-              title="Clear search"
-            >
-              ✕
-            </button>
-          )}
-        </div>
-        <div className="text-[11px] font-bold text-blue-700 uppercase tracking-tighter">
-          {isExecuted ? (globalSearch ? `Filtered: ${searchedResults.length} of ${results.length}` : `Records: ${results.length}`) : "Enter criteria & execute"}
-        </div>
-      </div>
+      {/* Selection / Filter Bar */}
+      <div className="bg-[#e7ebf1] border-b border-[#b5c7de] px-4 py-1.5 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Invoice No. Search */}
+          <div className="flex items-center gap-1.5">
+            <label className="text-[11px] font-bold text-gray-700 uppercase whitespace-nowrap">Invoice No:</label>
+            <Input
+              value={filterInvoiceNumber}
+              onChange={(e) => setFilterInvoiceNumber(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleExecute()}
+              placeholder="Search Invoice..."
+              className="h-7 w-36 text-xs bg-white border-gray-400 rounded-none px-2 shadow-inner focus:bg-[#fff9c4] font-mono uppercase"
+            />
+          </div>
 
-      <div className="sap-selection-area">
-        <div className="max-w-5xl mx-auto grid grid-cols-3 gap-x-10 gap-y-6">
-<div className="sap-selection-row">
-            <label className="sap-label">Plant(s) *</label>
-            <div className="sap-input-wrapper max-w-[280px]">
+          {/* Plant MultiSelect */}
+          <div className="flex items-center gap-1.5">
+            <label className="text-[11px] font-bold text-gray-700 uppercase whitespace-nowrap">Plant:</label>
+            <div className="w-52">
               <PlantMultiSelect
                 plants={plants || []}
                 selected={filterPlants}
@@ -526,34 +527,73 @@ const firm = firms?.find((f) => getRecordPlantIds(f).includes(editingInvoice.pla
               />
             </div>
           </div>
-          <div className="sap-selection-row">
-            <label className="sap-label">From Date</label>
-            <div className="sap-input-wrapper max-w-[280px]">
-              <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-            </div>
+
+          {/* From Date */}
+          <div className="flex items-center gap-1.5">
+            <label className="text-[11px] font-bold text-gray-700 uppercase whitespace-nowrap">From:</label>
+            <Input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="h-7 w-36 text-xs bg-white border-gray-400 rounded-none px-2 shadow-inner focus:bg-[#fff9c4]"
+            />
           </div>
-          <div className="sap-selection-row">
-            <label className="sap-label">To Date</label>
-            <div className="sap-input-wrapper max-w-[280px]">
-              <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-            </div>
+
+          {/* To Date */}
+          <div className="flex items-center gap-1.5">
+            <label className="text-[11px] font-bold text-gray-700 uppercase whitespace-nowrap">To:</label>
+            <Input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="h-7 w-36 text-xs bg-white border-gray-400 rounded-none px-2 shadow-inner focus:bg-[#fff9c4]"
+            />
+          </div>
+
+          {/* Action Buttons: Execute & Reset */}
+          <div className="flex items-center gap-1.5">
+            <Button
+              onClick={handleExecute}
+              disabled={isLoading}
+              className="h-7 rounded-none bg-blue-700 hover:bg-blue-800 text-white text-[10px] font-bold uppercase gap-1 px-3 shadow-sm"
+            >
+              {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileEdit className="h-3.5 w-3.5" />} Execute (F8)
+            </Button>
+            <Button
+              onClick={handleReset}
+              variant="outline"
+              className="h-7 rounded-none bg-white border-gray-400 text-gray-700 text-[10px] font-bold uppercase gap-1 px-2.5 shadow-sm hover:bg-gray-100"
+            >
+              <RotateCcw className="h-3 w-3" /> Reset
+            </Button>
           </div>
         </div>
-        <div className="max-w-5xl mx-auto flex gap-3 mt-2">
-          <Button
-            onClick={handleExecute}
-            disabled={isLoading}
-            className="h-7 rounded-none bg-blue-700 hover:bg-blue-800 text-[11px] font-bold uppercase gap-1.5 shadow-sm"
-          >
-            {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileEdit className="h-3.5 w-3.5" />} Execute (F8)
-          </Button>
-          <Button
-            onClick={handleReset}
-            variant="outline"
-            className="h-7 rounded-none bg-white border-gray-400 text-gray-700 text-[11px] font-bold uppercase gap-1.5 shadow-sm hover:bg-gray-100"
-          >
-            <RotateCcw className="h-3.5 w-3.5" /> Reset
-          </Button>
+
+        {/* Global Filter & Record Count */}
+        <div className="flex items-center gap-2.5">
+          <div className="relative flex items-center bg-white border border-gray-400 h-7 w-60 px-1 group focus-within:border-blue-500 shadow-inner">
+            <Search className="h-3.5 w-3.5 text-gray-400 mr-1 shrink-0" />
+            <input
+              value={globalSearch}
+              onChange={(e) => setGlobalSearch(e.target.value)}
+              className="w-full h-full text-xs outline-none bg-transparent"
+              placeholder="Filter Results..."
+            />
+            {globalSearch && (
+              <button
+                onClick={() => setGlobalSearch("")}
+                className="text-gray-400 hover:text-red-600 text-xs px-1"
+                title="Clear search"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          <div className="text-[11px] font-bold text-blue-700 uppercase tracking-tight bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-sm shadow-sm whitespace-nowrap flex items-center gap-1">
+            <span>Records:</span>
+            <span className="text-blue-900 font-black text-xs">{isExecuted ? searchedResults.length : 0}</span>
+          </div>
         </div>
       </div>
 
@@ -561,7 +601,7 @@ const firm = firms?.find((f) => getRecordPlantIds(f).includes(editingInvoice.pla
         {!isExecuted ? (
           <div className="flex flex-col items-center justify-center py-40 text-gray-400 opacity-40 select-none">
             <Search className="h-20 w-20 stroke-1 mb-4" />
-            <p className="text-sm font-black uppercase tracking-[0.3em]">Enter plant and date criteria, then execute (F8)</p>
+            <p className="text-sm font-black uppercase tracking-[0.3em]">Enter invoice no, plant, or date criteria, then execute (F8)</p>
           </div>
         ) : (
           <IRNResultGrid
