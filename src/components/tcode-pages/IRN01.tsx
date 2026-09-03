@@ -34,6 +34,8 @@ const getInitialDates = () => {
   };
 };
 
+const sanitizeIrn = (val: string) => (val || "").replace(/[\s\-\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, "");
+
 export default function IRN01() {
   const db = useDatabase();
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
@@ -249,8 +251,9 @@ export default function IRN01() {
     }
 
     // Mandatory fields: IRN Number, ACK Number, ACK Date, QR Code
+    const cleanIrn = sanitizeIrn(irnData.irnNumber);
     const missing: string[] = [];
-    if (!irnData.irnNumber?.trim()) missing.push("IRN Number");
+    if (!cleanIrn) missing.push("IRN Number");
     if (!irnData.ackNo?.trim()) missing.push("ACK Number");
     if (!irnData.ackDate?.trim()) missing.push("ACK Date");
     if (!irnData.qrData?.trim()) missing.push("QR Code");
@@ -264,7 +267,7 @@ export default function IRN01() {
     setIsGenerating(true);
     try {
       // Duplicate validation across all plants (collection-level, regardless of selected plant)
-      const irnError = await validateDuplicate(db, "sales_invoices", "irnNumber", irnData.irnNumber);
+      const irnError = await validateDuplicate(db, "sales_invoices", "irnNumber", cleanIrn);
       if (irnError) {
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: irnError, isError: true } }));
         setIsGenerating(false);
@@ -281,7 +284,7 @@ export default function IRN01() {
       const syncedDate = toSAPDate(irnData.ackDate);
 
       updateDocumentNonBlocking(doc(db, "sales_invoices", selectedInvoice.id), {
-        irnNumber: irnData.irnNumber.trim().toUpperCase(),
+        irnNumber: cleanIrn,
         ackNo: irnData.ackNo.trim().toUpperCase(),
         ackDate: syncedDate,
         invoiceDate: syncedDate, // Ensure Invoice Date is updated to match ACK Date
@@ -376,7 +379,22 @@ export default function IRN01() {
             <div className="col-span-2 border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f0f4f8]">
               <div className="bg-[#dae8f5] px-3 py-1 border-b border-[#b5c7de] text-[12px] font-bold text-blue-900 flex items-center gap-2"><QrCode className="h-4 w-4" /> IRN Data Entry</div>
               <div className="p-4 space-y-4">
-                <div className="sap-selection-row"><label className="sap-label w-40">IRN Number</label><Input value={irnData.irnNumber} onChange={e => setIrnData({ ...irnData, irnNumber: e.target.value })} className="font-mono text-[11px] tracking-widest" /></div>
+                <div className="sap-selection-row">
+                  <label className="sap-label w-40">IRN Number</label>
+                  <Input
+                    value={irnData.irnNumber}
+                    onChange={e => setIrnData(prev => ({ ...prev, irnNumber: sanitizeIrn(e.target.value) }))}
+                    onPaste={e => {
+                      const pasted = e.clipboardData?.getData("text");
+                      if (pasted) {
+                        e.preventDefault();
+                        setIrnData(prev => ({ ...prev, irnNumber: sanitizeIrn(pasted) }));
+                      }
+                    }}
+                    placeholder="Enter or paste IRN Number"
+                    className="font-mono text-[11px] tracking-widest"
+                  />
+                </div>
                 <div className="sap-selection-row"><label className="sap-label w-40">ACK Number</label><Input value={irnData.ackNo} onChange={e => setIrnData({ ...irnData, ackNo: e.target.value })} className="font-mono w-64" /></div>
                 <div className="sap-selection-row"><label className="sap-label w-40">ACK Date</label><SapDateInput value={irnData.ackDate} onChange={val => setIrnData({ ...irnData, ackDate: val })} className="w-48" /></div>
               </div>

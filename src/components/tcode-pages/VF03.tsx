@@ -489,14 +489,15 @@ export default function VF03() {
     return sortConfig.direction === 'asc' ? <ChevronUp className="h-3 w-3 ml-1 text-blue-600" /> : <ChevronDown className="h-3 w-3 ml-1 text-blue-600" />;
   };
 
-  const handlePrint = () => {
+  const handlePrint = (invoiceNumber?: string) => {
+    const invNo = invoiceNumber || selectedInvoice?.invoiceNumber || "Invoice";
     const printWindow = window.open('', '_blank');
     const content = document.getElementById('invoice-print-area')?.innerHTML;
     if (printWindow && content) {
       printWindow.document.write(`
         <html>
           <head>
-            <title>Print Invoice - SIKKA LMC</title>
+            <title>${invNo}</title>
             <script src="https://cdn.tailwindcss.com"></script>
             <style>
               @page { size: A4 portrait; margin: 0; }
@@ -726,7 +727,7 @@ export default function VF03() {
                         <div className="bg-[#333e4f] p-2 flex justify-between items-center text-white sticky top-0 z-50">
                           <DialogTitle className="text-[11px] font-bold uppercase tracking-widest pl-2">Document Output: {inv.invoiceNumber}</DialogTitle>
                           <div className="flex gap-2">
-                            <Button size="sm" onClick={handlePrint} className="h-7 rounded-none bg-emerald-600 hover:bg-emerald-700 gap-2 text-[10px] font-bold px-4"><Printer className="h-3.5 w-3.5" /> PRINT COPIES</Button>
+                            <Button size="sm" onClick={() => handlePrint(inv.invoiceNumber)} className="h-7 rounded-none bg-emerald-600 hover:bg-emerald-700 gap-2 text-[10px] font-bold px-4"><Printer className="h-3.5 w-3.5" /> PRINT COPIES</Button>
                             <DialogTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-white hover:bg-white/10 rounded-none"><X className="h-4 w-4" /></Button></DialogTrigger>
                           </div>
                         </div>

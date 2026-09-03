@@ -67,7 +67,7 @@ export const openInvoicePrint = (invoiceNo: string, elementId: string) => {
   win.document.write(`
     <html>
       <head>
-        <title>Invoice Print Preview - ${invoiceNo}</title>
+        <title>${invoiceNo}</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <style>
           @page { size: A4 portrait; margin: 0; }

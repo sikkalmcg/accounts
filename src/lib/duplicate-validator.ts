@@ -51,11 +51,32 @@ export async function validateDuplicate(
 ): Promise<string | null> {
   if (!value) return null;
 
+  const trimmed = value.trim();
   const normalizedValue = normalizeValue(value);
-  const q = query(collection(db, collectionName), where(field, "==", normalizedValue));
-  const snap = await getDocs(q);
 
-  if (!snap.empty) {
+  // Check exact value first
+  const qExact = query(collection(db, collectionName), where(field, "==", trimmed));
+  const snapExact = await getDocs(qExact);
+  if (!snapExact.empty) {
+    return getDuplicateErrorMessage(field);
+  }
+
+  // Also check uppercase normalized if different
+  if (normalizedValue !== trimmed) {
+    const qNorm = query(collection(db, collectionName), where(field, "==", normalizedValue));
+    const snapNorm = await getDocs(qNorm);
+    if (!snapNorm.empty) {
+      return getDuplicateErrorMessage(field);
+    }
+  }
+
+  // Also check all documents case-insensitively to guarantee no duplicates bypass
+  const snapAll = await getDocs(collection(db, collectionName));
+  const isDup = snapAll.docs.some((d: any) => {
+    const val = d.data()?.[field];
+    return val && String(val).trim().toUpperCase() === normalizedValue;
+  });
+  if (isDup) {
     return getDuplicateErrorMessage(field);
   }
 
@@ -82,13 +103,30 @@ export async function validateDuplicateWithExclusion(
 ): Promise<string | null> {
   if (!value) return null;
 
+  const trimmed = value.trim();
   const normalizedValue = normalizeValue(value);
-  const q = query(collection(db, collectionName), where(field, "==", normalizedValue));
-  const snap = await getDocs(q);
 
-  const isDuplicate = snap.docs.some((doc: any) => doc.id !== excludeId);
+  const qExact = query(collection(db, collectionName), where(field, "==", trimmed));
+  const snapExact = await getDocs(qExact);
+  if (snapExact.docs.some((doc: any) => doc.id !== excludeId)) {
+    return getDuplicateErrorMessage(field);
+  }
 
-  if (isDuplicate) {
+  if (normalizedValue !== trimmed) {
+    const qNorm = query(collection(db, collectionName), where(field, "==", normalizedValue));
+    const snapNorm = await getDocs(qNorm);
+    if (snapNorm.docs.some((doc: any) => doc.id !== excludeId)) {
+      return getDuplicateErrorMessage(field);
+    }
+  }
+
+  const snapAll = await getDocs(collection(db, collectionName));
+  const isDup = snapAll.docs.some((d: any) => {
+    if (d.id === excludeId) return false;
+    const val = d.data()?.[field];
+    return val && String(val).trim().toUpperCase() === normalizedValue;
+  });
+  if (isDup) {
     return getDuplicateErrorMessage(field);
   }
 

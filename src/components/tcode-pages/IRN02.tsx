@@ -17,6 +17,8 @@ import { getRecordPlantIds } from "@/lib/plant-master";
 import { formatAmount } from "@/lib/number-utils";
 import PlantMultiSelect from "./PlantMultiSelect";
 
+const sanitizeIrn = (val: string) => (val || "").replace(/[\s\-\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, "");
+
 export default function IRN02() {
   const db = useDatabase();
 
@@ -147,8 +149,9 @@ const handleSave = useCallback(async () => {
     if (!editingInvoice || isLockedByTime) return;
 
     // Mandatory fields: IRN Number, ACK Number, ACK Date, QR Code
+    const cleanIrn = sanitizeIrn(irnData.irnNumber);
     const missing: string[] = [];
-    if (!irnData.irnNumber?.trim()) missing.push("IRN Number");
+    if (!cleanIrn) missing.push("IRN Number");
     if (!irnData.ackNo?.trim()) missing.push("ACK Number");
     if (!irnData.ackDate?.trim()) missing.push("ACK Date");
     if (!irnData.qrData?.trim()) missing.push("QR Code");
@@ -162,7 +165,7 @@ const handleSave = useCallback(async () => {
     setIsSaving(true);
     try {
       // Duplicate validation across all plants, excluding the current record
-      const irnError = await validateDuplicateWithExclusion(db, "sales_invoices", "irnNumber", irnData.irnNumber, editingInvoice.id);
+      const irnError = await validateDuplicateWithExclusion(db, "sales_invoices", "irnNumber", cleanIrn, editingInvoice.id);
       if (irnError) {
         window.dispatchEvent(new CustomEvent("sap-status", { detail: { text: irnError, isError: true } }));
         setIsSaving(false);
@@ -179,7 +182,7 @@ const handleSave = useCallback(async () => {
       const syncedDate = toSAPDate(irnData.ackDate);
 
       updateDocumentNonBlocking(doc(db, "sales_invoices", editingInvoice.id), {
-        irnNumber: irnData.irnNumber.trim().toUpperCase(),
+        irnNumber: cleanIrn,
         ackNo: irnData.ackNo.trim().toUpperCase(),
         ackDate: syncedDate,
         invoiceDate: syncedDate, // Ensure Invoice Date is updated to match ACK Date
@@ -195,7 +198,7 @@ const handleSave = useCallback(async () => {
           inv.id === editingInvoice.id
             ? {
                 ...inv,
-                irnNumber: irnData.irnNumber.trim().toUpperCase(),
+                irnNumber: cleanIrn,
                 ackNo: irnData.ackNo.trim().toUpperCase(),
                 ackDate: syncedDate,
                 invoiceDate: syncedDate, // Ensure Invoice Date is updated to match ACK Date
@@ -384,9 +387,18 @@ const firm = firms?.find((f) => getRecordPlantIds(f).includes(editingInvoice.pla
                   <label className="sap-label w-40">IRN Number</label>
                   <Input
                     value={irnData.irnNumber}
-                    onChange={(e) => setIrnData({ ...irnData, irnNumber: e.target.value })}
+                    onChange={(e) => setIrnData({ ...irnData, irnNumber: sanitizeIrn(e.target.value) })}
+                    onPaste={(e) => {
+                      if (isLockedByTime) return;
+                      const pasted = e.clipboardData?.getData("text");
+                      if (pasted) {
+                        e.preventDefault();
+                        setIrnData((prev) => ({ ...prev, irnNumber: sanitizeIrn(pasted) }));
+                      }
+                    }}
                     disabled={isLockedByTime}
-                    className={cn("font-mono text-[11px] tracking-widest uppercase", isLockedByTime && "bg-gray-50")}
+                    placeholder="Enter or paste IRN Number"
+                    className={cn("font-mono text-[11px] tracking-widest", isLockedByTime && "bg-gray-50")}
                   />
                 </div>
                 <div className="sap-selection-row">
