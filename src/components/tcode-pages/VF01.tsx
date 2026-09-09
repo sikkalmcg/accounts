@@ -114,7 +114,7 @@ export default function VF01() {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const [items, setItems] = useState<InvoiceItem[]>([
-    { id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '1', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [], isFixedCharge: false }
+    { id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [], isFixedCharge: false }
   ]);
 
   // 2. Auth Context
@@ -188,7 +188,7 @@ export default function VF01() {
     setNote("");
     setReferenceNo("");
     setReferenceDocId(null);
-    setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '1', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [], isFixedCharge: false }]);
+    setItems([{ id: '1', desc: '', descName: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [], isFixedCharge: false }]);
     
     // Note: Invoice number regeneration is driven by the useEffect on plantId change.
     // Since plantId is cleared to "", the invoice number stays blank until a new Plant is selected.
@@ -484,6 +484,28 @@ export default function VF01() {
     }
     if (!billPeriod) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Working Month is mandatory. Please select a month and year.", isError: true } }));
+      return;
+    }
+
+    const emptyDescItem = items.find(item => !item.desc || !item.desc.trim());
+    if (emptyDescItem) {
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: {
+          text: "Error: Please select Material/Description for all billing items.",
+          isError: true
+        }
+      }));
+      return;
+    }
+
+    const invalidQtyItem = items.find(item => !item.qty || String(item.qty).trim() === "" || Number(item.qty) <= 0 || isNaN(Number(item.qty)));
+    if (invalidQtyItem) {
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: {
+          text: `Error: Quantity (Qty) is mandatory for item '${invalidQtyItem.descName || invalidQtyItem.desc || "Item"}'. Please enter a valid quantity greater than zero.`,
+          isError: true
+        }
+      }));
       return;
     }
 
@@ -821,7 +843,7 @@ export default function VF01() {
                 </DialogContent>
               </Dialog>
             </div>
-            <Button onClick={() => setItems([...items, { id: Math.random().toString(), desc: '', descName: '', activity: '', hsn: '', qty: '1', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [], isFixedCharge: false }])} variant="ghost" size="sm" className="h-5 text-[10px]"><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
+            <Button onClick={() => setItems([...items, { id: Math.random().toString(), desc: '', descName: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [], isFixedCharge: false }])} variant="ghost" size="sm" className="h-5 text-[10px]"><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
           </div>
           {noValidPriceRowMaterial && (
             <div className="px-3 py-2 bg-red-50 border-b border-red-200 flex items-center gap-2 animate-in slide-in-from-top-1 duration-200">
