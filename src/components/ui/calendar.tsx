@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { DayPicker } from "react-day-picker"
+import { DayPicker, useDayPicker } from "react-day-picker"
 
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
@@ -60,16 +60,54 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        MonthCaption: ({ calendarMonth, ...monthCaptionProps }) => {
+        MonthCaption: ({ calendarMonth, displayIndex, ...monthCaptionProps }) => {
+          const { goToMonth } = useDayPicker()
           const month = calendarMonth.date
-          const year = month.getFullYear()
-          const monthName = month.toLocaleDateString("en-US", { month: "long" }).toUpperCase()
+          const currentYear = month.getFullYear()
+          const currentMonth = month.getMonth()
+
+          const handleMonthChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+            const newMonth = parseInt(e.target.value, 10)
+            goToMonth(new Date(currentYear, newMonth, 1))
+          }
+
+          const handleYearChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+            const newYear = parseInt(e.target.value, 10)
+            goToMonth(new Date(newYear, currentMonth, 1))
+          }
+
+          const MONTH_NAMES = [
+            "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
+            "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"
+          ]
+
+          const baseYears = Array.from({ length: 30 }, (_, i) => 2015 + i)
+          const years = Array.from(new Set([...baseYears, currentYear])).sort((a, b) => a - b)
+
           return (
-            <div {...monthCaptionProps} className={cn("relative flex items-center justify-center pt-1 pb-2", monthCaptionProps.className)}>
-              <div className="flex flex-col items-center justify-center">
-                <span className="text-[11px] font-medium tracking-widest text-gray-500">{year}</span>
-                <span className="text-2xl font-black tracking-wider text-black">{monthName}</span>
-              </div>
+            <div {...monthCaptionProps} className={cn("relative flex items-center justify-center gap-1.5 pt-1 pb-2 px-8", monthCaptionProps.className)}>
+              <select
+                value={currentMonth}
+                onChange={handleMonthChange}
+                className="h-7 text-xs font-bold text-gray-800 bg-gray-50 hover:bg-gray-100 border border-gray-300 rounded px-1.5 cursor-pointer focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              >
+                {MONTH_NAMES.map((name, idx) => (
+                  <option key={idx} value={idx}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={currentYear}
+                onChange={handleYearChange}
+                className="h-7 text-xs font-bold text-gray-800 bg-gray-50 hover:bg-gray-100 border border-gray-300 rounded px-1.5 cursor-pointer focus:ring-1 focus:ring-blue-500 focus:outline-none font-mono"
+              >
+                {years.map((yr) => (
+                  <option key={yr} value={yr}>
+                    {yr}
+                  </option>
+                ))}
+              </select>
             </div>
           )
         },

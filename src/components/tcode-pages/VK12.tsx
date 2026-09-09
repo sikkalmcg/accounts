@@ -608,7 +608,11 @@ price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? '
 
       {/* Edit Dialog */}
       <Dialog open={!!editing} onOpenChange={(open) => { if (!open) setEditing(null); }}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto rounded-none border-gray-400 p-0 overflow-hidden shadow-2xl">
+        <DialogContent 
+          className="max-w-3xl max-h-[90vh] overflow-y-auto rounded-none border-gray-400 p-0 overflow-hidden shadow-2xl"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader className="bg-[#dae8f5] px-4 py-2 border-b border-[#b5c7de]">
             <DialogTitle className="text-[13px] font-bold text-gray-800 uppercase italic tracking-wider">
               Edit Rate Master
@@ -788,7 +792,11 @@ price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? '
       
       {/* Extend Validity Dialog */}
       <Dialog open={!!extendValidityTarget} onOpenChange={(open) => { if (!open) setExtendValidityTarget(null); }}>
-        <DialogContent className="max-w-2xl rounded-none border-gray-400 p-0 overflow-hidden shadow-2xl">
+        <DialogContent 
+          className="max-w-2xl rounded-none border-gray-400 p-0 overflow-hidden shadow-2xl"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader className="bg-[#dae8f5] px-4 py-2 border-b border-[#b5c7de]">
             <DialogTitle className="text-[13px] font-bold text-gray-800 uppercase italic tracking-wider">
               Extend Validity

@@ -43,8 +43,8 @@ export const SapDateInput = forwardRef<HTMLInputElement, SapDateInputProps>(
         setDisplayValue(toSAPDate(iso));
         setIsInvalid(false);
         onChange?.(iso);
+        setPickerOpen(false);
       }
-      setPickerOpen(false);
     };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -87,8 +87,19 @@ export const SapDateInput = forwardRef<HTMLInputElement, SapDateInputProps>(
       return parsed && isValid(parsed) ? parsed : undefined;
     };
 
+    const getCalendarMonth = () => {
+      const d = getCalendarDate();
+      if (d) {
+        if (d.getFullYear() > 2100 || d.getFullYear() < 1970) {
+          return new Date();
+        }
+        return d;
+      }
+      return new Date();
+    };
+
     return (
-      <Popover open={isPickerOpen} onOpenChange={setPickerOpen}>
+      <Popover open={isPickerOpen} onOpenChange={setPickerOpen} modal={true}>
         <div className={cn("relative flex items-center w-full", className)}>
           <Input
             type="text"
@@ -121,13 +132,18 @@ export const SapDateInput = forwardRef<HTMLInputElement, SapDateInputProps>(
             </Button>
           </PopoverTrigger>
         </div>
-        <PopoverContent className="w-auto p-0 border border-gray-200 shadow-md rounded-lg" align="end" sideOffset={4}>
+        <PopoverContent
+          className="w-auto p-0 border border-gray-200 shadow-md rounded-lg z-[9999]"
+          align="end"
+          sideOffset={4}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           <Calendar
             mode="single"
             selected={getCalendarDate()}
             onSelect={handleDateSelect}
             initialFocus
-            defaultMonth={getCalendarDate() || new Date()}
+            defaultMonth={getCalendarMonth()}
           />
         </PopoverContent>
       </Popover>
