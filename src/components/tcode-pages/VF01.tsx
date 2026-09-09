@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { toSAPDate } from "@/lib/date-utils";
 import { roundToTwo, formatAmount, sanitizeAmountInput } from "@/lib/number-utils";
 import { SapDateInput } from "@/components/ui/sap-date-input";
+import { SapCombobox } from "@/components/ui/sap-combobox";
 import { getRecordPlantIds } from "@/lib/plant-master";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -446,7 +447,7 @@ export default function VF01() {
             updated.gstRate = 0;
             updated.descName = val;
             updated.isFixedCharge = true;
-            setNoValidPriceRowMaterial(val);
+            setNoValidPriceRowMaterial(val ? val : "");
           }
         }
 
@@ -874,18 +875,19 @@ export default function VF01() {
                 <TableRow key={row.id} className="h-7 hover:bg-blue-50/30">
                   <TableCell className="p-0 border-r text-center text-[10px] text-gray-500">{idx + 1}</TableCell>
                   <TableCell className="p-0 border-r">
-                    <Select value={row.desc} onValueChange={v => updateItem(row.id, 'desc', v)}>
-                      <SelectTrigger className="h-full border-none bg-transparent text-xs rounded-none px-2 focus:bg-[#fff9c4] [&>span]:line-clamp-none [&>span]:whitespace-normal">
-                        <SelectValue>{row.descName || "Select material..."}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableOptions.map(opt => (
-                          <SelectItem key={opt.id} value={opt.id}>
-                            {opt.materialName || opt.materialCode}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <SapCombobox
+                      options={availableOptions.map(opt => ({
+                        value: opt.id,
+                        label: opt.materialName || opt.materialCode,
+                        subLabel: opt.price ? `Rate: ${opt.price}` : undefined
+                      }))}
+                      value={row.desc}
+                      onChange={v => updateItem(row.id, 'desc', v)}
+                      placeholder="Type or select material..."
+                      className="h-full border-none bg-transparent"
+                      inputClassName="border-none bg-transparent text-xs h-full px-2 cursor-pointer focus:cursor-text"
+                      allowCustomValue={false}
+                    />
                   </TableCell>
                   <TableCell className="p-0 border-r">
                     <Input className="h-full border-none focus:bg-[#fff9c4]" value={row.activity} onChange={e => updateItem(row.id, 'activity', e.target.value)} placeholder="Enter activity..." />
