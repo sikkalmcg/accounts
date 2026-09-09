@@ -678,11 +678,11 @@ export default function F110() {
         }
 
         if (latestPaymentDate && invoiceDate) {
-          paymentDays = Math.max(0, differenceInCalendarDays(latestPaymentDate, invoiceDate));
+          paymentDays = Math.abs(differenceInCalendarDays(latestPaymentDate, invoiceDate));
         } else if (invoiceDate) {
           const today = new Date();
           today.setHours(0, 0, 0, 0);
-          paymentDays = Math.max(0, differenceInCalendarDays(today, invoiceDate));
+          paymentDays = Math.abs(differenceInCalendarDays(today, invoiceDate));
         } else {
           paymentDays = 0;
         }

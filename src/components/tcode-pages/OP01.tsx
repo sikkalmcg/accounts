@@ -19,8 +19,8 @@ export default function OP01() {
 
   const handleExecute = useCallback(async () => {
     if (!formData.plantId || !formData.name || !formData.location) {
-      window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "Validation Error: All fields are required", isError: true } 
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "Validation Error: All fields are required", isError: true }
       }));
       return;
     }
@@ -30,8 +30,8 @@ export default function OP01() {
       // Duplicate Restriction Validation
       const error = await validateDuplicate(db, "plants", "plantId", formData.plantId);
       if (error) {
-        window.dispatchEvent(new CustomEvent('sap-status', { 
-          detail: { text: error, isError: true } 
+        window.dispatchEvent(new CustomEvent('sap-status', {
+          detail: { text: error, isError: true }
         }));
         setLoading(false);
         return;
@@ -44,14 +44,14 @@ export default function OP01() {
         plantId: normalizedPlantId,
         createdAt: serverTimestamp(),
       });
-      
-      window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: `Plant ${normalizedPlantId} created successfully`, isError: false } 
+
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: `Plant ${normalizedPlantId} created successfully`, isError: false }
       }));
       setFormData(initialData);
     } catch (e) {
-      window.dispatchEvent(new CustomEvent('sap-status', { 
-        detail: { text: "System Error: Transaction failed", isError: true } 
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "System Error: Transaction failed", isError: true }
       }));
     } finally {
       setLoading(false);
@@ -78,7 +78,7 @@ export default function OP01() {
           <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">
             Plant Details
           </div>
-          
+
           <div className="p-2 space-y-1">
             <div className="sap-selection-row">
               <label className="sap-label">Plant ID</label>
@@ -86,7 +86,7 @@ export default function OP01() {
                 <input
                   type="text"
                   value={formData.plantId}
-                  onChange={(e) => setFormData({...formData, plantId: e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 8)})}
+                  onChange={(e) => setFormData({ ...formData, plantId: e.target.value.replace(/[^a-zA-Z0-9@-]/g, "").toUpperCase().slice(0, 16) })}
                   className="flex h-6 w-full rounded-none border border-gray-400 bg-white px-1.5 py-1 text-xs shadow-inner focus-visible:outline-none focus:bg-[#fff9c4]"
                 />
               </div>
@@ -98,7 +98,7 @@ export default function OP01() {
                 <input
                   type="text"
                   value={formData.name}
-                  onChange={(e) => setFormData({...formData, name: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className="flex h-6 w-full rounded-none border border-gray-400 bg-white px-1.5 py-1 text-xs shadow-inner focus-visible:outline-none focus:bg-[#fff9c4]"
                 />
               </div>
@@ -110,7 +110,7 @@ export default function OP01() {
                 <input
                   type="text"
                   value={formData.location}
-                  onChange={(e) => setFormData({...formData, location: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, location: e.target.value })}
                   className="flex h-6 w-full rounded-none border border-gray-400 bg-white px-1.5 py-1 text-xs shadow-inner focus-visible:outline-none focus:bg-[#fff9c4]"
                 />
               </div>
