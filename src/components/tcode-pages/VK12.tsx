@@ -19,6 +19,7 @@ import { format } from 'date-fns';
 type EditForm = {
   id: string;
   plantId: string;
+  plantIds: string[];
   customerCode: string;
   customerName: string;
   inventoryType: string;
@@ -119,41 +120,53 @@ export default function VK12() {
 
   // Document Types & Charge Types sourced from MM03 saved records (materials)
   // filtered by selected Plant + Inventory Type
-  const editingPlantId = editing?.plantId || "";
+  const editingPlantIds = useMemo(() => {
+    if (editing?.plantIds && editing.plantIds.length > 0) return editing.plantIds;
+    if (editing?.plantId) return [editing.plantId];
+    return [];
+  }, [editing?.plantIds, editing?.plantId]);
   const editingInventoryType = editing?.inventoryType || "";
 
   const availableDocumentTypes = useMemo(() => {
-    if (!materials || !editingPlantId) return [];
-    const types = materials
-      .filter(m => {
+    const types = new Set<string>();
+    if (editing?.documentType) {
+      types.add(editing.documentType);
+    }
+    if (materials) {
+      materials.forEach(m => {
         const recPlants = getRecordPlants(m);
-        const matchesPlant = recPlants.includes(editingPlantId);
+        const matchesPlant = editingPlantIds.length === 0 || editingPlantIds.some(pid => recPlants.includes(pid));
         const matchesInventory = !editingInventoryType || m.inventoryType === editingInventoryType;
         const isActive = !m.status || m.status === "Active";
 
-        return matchesPlant && matchesInventory && isActive && Boolean(m.documentType);
-      })
-      .map(m => m.documentType as string);
-
-    return Array.from(new Set(types));
-  }, [materials, editingPlantId, editingInventoryType]);
+        if (matchesPlant && matchesInventory && isActive && m.documentType) {
+          types.add(m.documentType);
+        }
+      });
+    }
+    return Array.from(types);
+  }, [materials, editingPlantIds, editingInventoryType, editing?.documentType]);
 
   const availableCategories = useMemo(() => {
-    if (!materials || !editingPlantId) return [];
-    const categories = materials
-      .filter(m => {
+    const categories = new Set<string>();
+    if (editing?.documentCategory) {
+      categories.add(editing.documentCategory);
+    }
+    if (materials) {
+      materials.forEach(m => {
         const recPlants = getRecordPlants(m);
-        const matchesPlant = recPlants.includes(editingPlantId);
+        const matchesPlant = editingPlantIds.length === 0 || editingPlantIds.some(pid => recPlants.includes(pid));
         const matchesInventory = !editingInventoryType || m.inventoryType === editingInventoryType;
         const matchesDocType = !editing?.documentType || m.documentType === editing.documentType;
         const isActive = !m.status || m.status === "Active";
 
-        return matchesPlant && matchesInventory && matchesDocType && isActive && Boolean(m.documentCategory);
-      })
-      .map(m => m.documentCategory as string);
-
-    return Array.from(new Set(categories));
-  }, [materials, editingPlantId, editingInventoryType, editing?.documentType]);
+        if (matchesPlant && matchesInventory && matchesDocType && isActive && m.documentCategory) {
+          categories.add(m.documentCategory);
+        }
+      });
+    }
+    return Array.from(categories);
+  }, [materials, editingPlantIds, editingInventoryType, editing?.documentType, editing?.documentCategory]);
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -169,19 +182,26 @@ export default function VK12() {
     let baseData = pricingRecords;
     // Plant authorization filter
     if (!isAdmin && authorizedPlantIds.length > 0) {
-      baseData = baseData.filter(r => r.plantId && authorizedPlantIds.includes(r.plantId));
+      baseData = baseData.filter(r => {
+        const rPlants = getRecordPlants(r);
+        return rPlants.some(p => authorizedPlantIds.includes(p));
+      });
     }
     // Selected plant filter
     if (selectedPlants.length > 0) {
-      baseData = baseData.filter(r => r.plantId && selectedPlants.includes(r.plantId));
+      baseData = baseData.filter(r => {
+        const rPlants = getRecordPlants(r);
+        return rPlants.some(p => selectedPlants.includes(p));
+      });
     }
 
     const q = search.trim().toLowerCase();
     const filtered = baseData.filter(r => {
       const customerName = customerMap[r.customerCode]?.name || "";
       const materialName = r.materialName || materialMap[r.materialCode?.toUpperCase()]?.productName || "";
+      const plantsText = getRecordPlants(r).join(" ");
       return [
-        r.plantId, r.inventoryType, r.documentType, r.documentCategory,
+        r.plantId, plantsText, r.inventoryType, r.documentType, r.documentCategory,
         r.customerCode, customerName, r.materialCode, materialName,
         r.hsnSac, r.gstRate, r.price, r.validFrom, r.validTo, r.status
       ].some(v => String(v ?? "").toLowerCase().includes(q));
@@ -192,10 +212,11 @@ export default function VK12() {
       const getVal = (r: any) => {
         if (sortConfig.key === 'customerName') return customerMap[r.customerCode]?.name || "";
         if (sortConfig.key === 'materialName') return r.materialName || materialMap[r.materialCode?.toUpperCase()]?.productName || "";
+        if (sortConfig.key === 'plantId') return getRecordPlants(r).join(', ');
         return r[sortConfig.key];
       };
-      const aVal = String(getVal(a) ?? "").toLowerCase();
-      const bVal = String(getVal(b) ?? "").toLowerCase();
+      const aVal = getVal(a);
+      const bVal = getVal(b);
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
@@ -209,9 +230,11 @@ export default function VK12() {
 
   const openEdit = (record: any) => {
     const mat = materialMap[(record.materialCode || "").toUpperCase()];
+    const recPlants = getRecordPlants(record);
     setEditing({
       id: record.id,
-      plantId: record.plantId || "",
+      plantId: record.plantId || (recPlants[0] || ""),
+      plantIds: recPlants.length > 0 ? recPlants : (record.plantId ? [record.plantId] : []),
       customerCode: record.customerCode || "",
       customerName: customerMap[record.customerCode]?.name || record.customerName || "",
       inventoryType: record.inventoryType || "",
@@ -233,20 +256,21 @@ export default function VK12() {
     setFormErrors([]);
   };
 
+  const updatePlantIds = (plantIds: string[]) => {
+    setEditing(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        plantIds,
+        plantId: plantIds[0] || "",
+      };
+    });
+  };
+
   const updateField = (field: keyof EditForm, value: string) => {
     setEditing(prev => {
       if (!prev) return prev;
-      const updated = { ...prev, [field]: value };
-
-      // Cascade resets
-      if (field === "plantId" || field === "inventoryType") {
-        updated.documentType = "";
-        updated.documentCategory = "";
-      } else if (field === "documentType") {
-        updated.documentCategory = "";
-      }
-
-      return updated;
+      return { ...prev, [field]: value };
     });
   };
 
@@ -265,10 +289,12 @@ export default function VK12() {
   const validateForm = (): string[] => {
     if (!editing) return [];
     const errs: string[] = [];
-    if (!editing.plantId) errs.push("Plant is mandatory");
+    if (!editing.plantIds || editing.plantIds.length === 0) {
+      errs.push("At least one Plant is mandatory");
+    }
     if (!editing.customerCode) errs.push("Customer Code is mandatory");
     if (!editing.materialCode) errs.push("Material Code is mandatory");
-const price = editing.price.trim();
+    const price = editing.price.trim();
     if (price) {
       if (price.toUpperCase() !== "FIX" && (isNaN(Number(price)) || Number(price) <= 0)) {
         errs.push("Basic Rate must be a positive number or 'FIX'");
@@ -297,15 +323,19 @@ const price = editing.price.trim();
       const approvalWorkflowEnabled = false;
       const targetStatus = approvalWorkflowEnabled ? "Pending Approval" : (editing.status || "Active");
 
+      const selectedPlantIds = editing.plantIds && editing.plantIds.length > 0 ? editing.plantIds : (editing.plantId ? [editing.plantId] : []);
+      const primaryPlant = selectedPlantIds[0] || "";
+
       const payload = {
         ...dataToSave,
-        plantId: editing.plantId,
+        plantId: primaryPlant,
+        plantIds: selectedPlantIds,
         customerCode: editing.customerCode,
         materialCode: editing.materialCode,
         materialName: editing.materialName,
         hsnSac: editing.hsnSac,
         gstRate: Number(editing.gstRate) || 0,
-price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? 'FIX' : (parseFloat(editing.price) || 0),
+        price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? 'FIX' : (parseFloat(editing.price) || 0),
         validFrom: editing.validFrom,
         validTo: editing.validTo || "9999-12-31",
         status: targetStatus,
@@ -320,17 +350,32 @@ price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? '
 
       updateDocumentNonBlocking(doc(db, "pricing", id), payload);
 
+      // If multiple plants were selected, also ensure condition records exist for additional plants
+      if (selectedPlantIds.length > 1) {
+        for (let i = 1; i < selectedPlantIds.length; i++) {
+          const addPlant = selectedPlantIds[i];
+          const extraDoc = {
+            ...payload,
+            plantId: addPlant,
+            plantIds: selectedPlantIds,
+            createdAt: new Date().toISOString(),
+            createdBy: username,
+          };
+          addDocumentNonBlocking(collection(db, "pricing"), extraDoc);
+        }
+      }
+
       postAuditLog({
         userId,
         username,
         action: 'UPDATE_PRICING_RECORD',
-        settingName: `Pricing Rate ${editing.materialCode} for ${editing.customerCode}`,
+        settingName: `Pricing Rate ${editing.materialCode} for ${editing.customerCode} (${selectedPlantIds.join(', ')})`,
         previousValue: JSON.stringify({ price: editing.price, status: editing.status }),
-        newValue: JSON.stringify({ price: payload.price, status: targetStatus }),
+        newValue: JSON.stringify({ price: payload.price, status: targetStatus, plantIds: selectedPlantIds }),
       });
 
       window.dispatchEvent(new CustomEvent('sap-status', {
-        detail: { text: `Rate record ${editing.materialCode} updated successfully`, isError: false }
+        detail: { text: `Rate record ${editing.materialCode} updated successfully for ${selectedPlantIds.length} plant(s)`, isError: false }
       }));
       setEditing(null);
     } catch (error) {
@@ -567,7 +612,7 @@ price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? '
               return (
               <TableRow key={r.id} className="h-8 hover:bg-blue-50/30 transition-colors border-b border-gray-100 group">
                 <TableCell className="p-0 text-center text-[10px] border-r text-gray-400 group-hover:text-blue-600">{i + 1}</TableCell>
-                <TableCell className="p-0 px-2 text-[10px] border-r font-mono font-bold text-gray-600 text-center">{r.plantId}</TableCell>
+                <TableCell className="p-0 px-2 text-[10px] border-r font-mono font-bold text-gray-600 text-center">{getRecordPlants(r).join(', ') || r.plantId || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center uppercase">{r.inventoryType || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center uppercase">{r.documentType || "-"}</TableCell>
                 <TableCell className="p-0 px-2 text-[10px] border-r text-center uppercase">{r.documentCategory || "-"}</TableCell>
@@ -607,11 +652,15 @@ price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? '
       </div>
 
       {/* Edit Dialog */}
-      <Dialog open={!!editing} onOpenChange={(open) => { if (!open) setEditing(null); }}>
+      <Dialog open={!!editing} onOpenChange={(open) => { if (!open) setEditing(null); }} modal={false}>
         <DialogContent 
-          className="max-w-3xl max-h-[90vh] overflow-y-auto rounded-none border-gray-400 p-0 overflow-hidden shadow-2xl"
-          onPointerDownOutside={(e) => e.preventDefault()}
-          onInteractOutside={(e) => e.preventDefault()}
+          className="max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto rounded-none border-gray-400 p-0 shadow-2xl z-50"
+          onInteractOutside={(e) => {
+            const target = e.target as HTMLElement | null;
+            if (target?.closest("[data-plant-dropdown]")) {
+              e.preventDefault();
+            }
+          }}
         >
           <DialogHeader className="bg-[#dae8f5] px-4 py-2 border-b border-[#b5c7de]">
             <DialogTitle className="text-[13px] font-bold text-gray-800 uppercase italic tracking-wider">
@@ -632,20 +681,26 @@ price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? '
             {editing && (
               <>
               <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
-                <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">Header Data</div>
-                <div className="p-2 grid grid-cols-2 gap-x-8 gap-y-1">
-                  <div className="sap-selection-row"><label className="sap-label">Plant <span className="text-red-500">*</span></label>
-                    <div className="sap-input-wrapper max-w-[200px]">
-                      <Select value={editing.plantId} onValueChange={v => updateField("plantId", v)}>
-                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select Plant" /></SelectTrigger>
-                        <SelectContent>{plants?.filter(p => isAdmin || authorizedPlantIds.includes(p.plantId)).map(p => <SelectItem key={p.id} value={p.plantId}>{p.plantId}</SelectItem>)}</SelectContent>
-                      </Select>
+                <div className="bg-[#dae8f5] px-3 py-1 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">Header Data</div>
+                <div className="p-3 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2.5">
+                  <div className="flex items-center">
+                    <label className="w-32 text-xs font-semibold text-gray-700 shrink-0">Plant(s) <span className="text-red-500">*</span></label>
+                    <div className="flex-1 min-w-0">
+                      <PlantMultiSelect
+                        plants={plants}
+                        selected={editing.plantIds || []}
+                        onChange={updatePlantIds}
+                        allowedPlantIds={allowedPlantIds}
+                        isLoading={isPlantsLoading}
+                        placeholder="Select Plant(s)..."
+                      />
                     </div>
                   </div>
-                  <div className="sap-selection-row"><label className="sap-label">Inventory Type</label>
-                    <div className="sap-input-wrapper max-w-[200px]">
+                  <div className="flex items-center">
+                    <label className="w-32 text-xs font-semibold text-gray-700 shrink-0">Inventory Type</label>
+                    <div className="flex-1 min-w-0">
                       <Select value={editing.inventoryType} onValueChange={v => updateField("inventoryType", v)}>
-                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select Inventory Type" /></SelectTrigger>
+                        <SelectTrigger className="h-7 rounded-none border-gray-400 bg-white text-xs w-full focus:bg-[#fff9c4]"><SelectValue placeholder="Select Inventory Type" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="Service Invoice">Service Invoice</SelectItem>
                           <SelectItem value="Supply Invoice">Supply Invoice</SelectItem>
@@ -653,85 +708,95 @@ price: editing.price.trim().toUpperCase() === 'FIX' || !editing.price.trim() ? '
                       </Select>
                     </div>
                   </div>
-                  <div className="sap-selection-row"><label className="sap-label">Document Type</label>
-                    <div className="sap-input-wrapper max-w-[200px]">
+                  <div className="flex items-center">
+                    <label className="w-32 text-xs font-semibold text-gray-700 shrink-0">Document Type</label>
+                    <div className="flex-1 min-w-0">
                       <Select value={editing.documentType} onValueChange={v => updateField("documentType", v)}>
-                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select Document Type" /></SelectTrigger>
+                        <SelectTrigger className="h-7 rounded-none border-gray-400 bg-white text-xs w-full focus:bg-[#fff9c4]"><SelectValue placeholder="Select Document Type" /></SelectTrigger>
                         <SelectContent>
                           {availableDocumentTypes.map(type => <SelectItem key={type} value={type}>{type}</SelectItem>)}
                           {availableDocumentTypes.length === 0 && (
-                            <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">No Document Type is configured for the selected Plant and Inventory Type in MM03.</div>
+                            <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">No Document Type configured.</div>
                           )}
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
-                  <div className="sap-selection-row"><label className="sap-label">Charge Type</label>
-                    <div className="sap-input-wrapper max-w-[200px]">
+                  <div className="flex items-center">
+                    <label className="w-32 text-xs font-semibold text-gray-700 shrink-0">Charge Type</label>
+                    <div className="flex-1 min-w-0">
                       <Select value={editing.documentCategory} onValueChange={v => updateField("documentCategory", v)}>
-                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select Charge Type" /></SelectTrigger>
+                        <SelectTrigger className="h-7 rounded-none border-gray-400 bg-white text-xs w-full focus:bg-[#fff9c4]"><SelectValue placeholder="Select Charge Type" /></SelectTrigger>
                         <SelectContent>
                           {availableCategories.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
                           {availableCategories.length === 0 && (
-                            <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">No Charge Type is configured for the selected Plant, Inventory Type and Document Type in MM03.</div>
+                            <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">No Charge Type configured.</div>
                           )}
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
-                  <div className="sap-selection-row"><label className="sap-label">Customer Code <span className="text-red-500">*</span></label>
-                    <div className="sap-input-wrapper max-w-[200px]">
+                  <div className="flex items-center">
+                    <label className="w-32 text-xs font-semibold text-gray-700 shrink-0">Customer Code <span className="text-red-500">*</span></label>
+                    <div className="flex-1 min-w-0">
                       <Select value={editing.customerCode} onValueChange={v => updateField("customerCode", v)}>
-                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select Customer" /></SelectTrigger>
+                        <SelectTrigger className="h-7 rounded-none border-gray-400 bg-white text-xs w-full focus:bg-[#fff9c4]"><SelectValue placeholder="Select Customer" /></SelectTrigger>
                         <SelectContent>{customers?.map(c => <SelectItem key={c.id} value={c.customerId}>{c.customerId} - {c.name}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
                   </div>
-                  <div className="sap-selection-row"><label className="sap-label">Validity From/To</label>
-                    <div className="sap-input-wrapper gap-2 max-w-md">
-                      <SapDateInput value={editing.validFrom} onChange={v => updateField("validFrom", v)} className="h-6 border border-gray-400 rounded-none bg-white" placeholder="DD-MMM-YYYY" />
-                      <span className="text-gray-400">to</span>
-                      <SapDateInput value={editing.validTo} onChange={v => updateField("validTo", v)} className="h-6 border border-gray-400 rounded-none bg-white" placeholder="DD-MMM-YYYY" />
+                  <div className="flex items-center">
+                    <label className="w-32 text-xs font-semibold text-gray-700 shrink-0">Validity From/To <span className="text-red-500">*</span></label>
+                    <div className="flex-1 min-w-0 flex items-center gap-2">
+                      <SapDateInput value={editing.validFrom} onChange={v => updateField("validFrom", v)} className="h-7 border border-gray-400 rounded-none bg-white text-xs flex-1" placeholder="DD-MMM-YYYY" />
+                      <span className="text-gray-500 text-xs font-bold shrink-0">to</span>
+                      <SapDateInput value={editing.validTo} onChange={v => updateField("validTo", v)} className="h-7 border border-gray-400 rounded-none bg-white text-xs flex-1" placeholder="DD-MMM-YYYY" />
                     </div>
                   </div>
                 </div>
               </div>
 
               <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
-                <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">Material & Rate</div>
-                <div className="p-2 grid grid-cols-2 gap-x-8 gap-y-1">
-                  <div className="sap-selection-row"><label className="sap-label">Material Code <span className="text-red-500">*</span></label>
-                    <div className="sap-input-wrapper max-w-[200px]">
+                <div className="bg-[#dae8f5] px-3 py-1 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700">Material & Rate</div>
+                <div className="p-3 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2.5">
+                  <div className="flex items-center">
+                    <label className="w-32 text-xs font-semibold text-gray-700 shrink-0">Material Code <span className="text-red-500">*</span></label>
+                    <div className="flex-1 min-w-0">
                       <Select value={editing.materialCode} onValueChange={handleMaterialChange}>
-                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select Material" /></SelectTrigger>
+                        <SelectTrigger className="h-7 rounded-none border-gray-400 bg-white text-xs w-full focus:bg-[#fff9c4]"><SelectValue placeholder="Select Material" /></SelectTrigger>
                         <SelectContent>{materials?.map(m => <SelectItem key={m.id} value={m.materialCode || m.productName}>{m.materialCode || m.productName}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
                   </div>
-                  <div className="sap-selection-row"><label className="sap-label">Material Name</label>
-                    <div className="sap-input-wrapper max-w-md">
-                      <Input value={editing.materialName} readOnly className="h-6 text-xs rounded-none border-gray-400 bg-gray-100" />
+                  <div className="flex items-center">
+                    <label className="w-32 text-xs font-semibold text-gray-700 shrink-0">Material Name</label>
+                    <div className="flex-1 min-w-0">
+                      <Input value={editing.materialName} readOnly className="h-7 text-xs rounded-none border-gray-400 bg-gray-100 w-full" />
                     </div>
                   </div>
-                  <div className="sap-selection-row"><label className="sap-label">HSN/SAC</label>
-                    <div className="sap-input-wrapper max-w-[150px]">
-                      <Input value={editing.hsnSac} readOnly className="h-6 text-xs rounded-none border-gray-400 bg-gray-100 font-mono" />
+                  <div className="flex items-center">
+                    <label className="w-32 text-xs font-semibold text-gray-700 shrink-0">HSN/SAC</label>
+                    <div className="flex-1 min-w-0">
+                      <Input value={editing.hsnSac} readOnly className="h-7 text-xs rounded-none border-gray-400 bg-gray-100 font-mono w-full" />
                     </div>
                   </div>
-                  <div className="sap-selection-row"><label className="sap-label">GST Rate (%)</label>
-                    <div className="sap-input-wrapper max-w-[100px]">
-                      <Input type="number" value={editing.gstRate} onChange={e => updateField("gstRate", e.target.value)} className="h-6 text-xs rounded-none border-gray-400 text-center" />
+                  <div className="flex items-center">
+                    <label className="w-32 text-xs font-semibold text-gray-700 shrink-0">GST Rate (%)</label>
+                    <div className="flex-1 min-w-0">
+                      <Input type="number" value={editing.gstRate} onChange={e => updateField("gstRate", e.target.value)} className="h-7 text-xs rounded-none border-gray-400 text-center w-full font-mono" />
                     </div>
                   </div>
-                  <div className="sap-selection-row"><label className="sap-label">Basic Rate <span className="text-red-500">*</span></label>
-                    <div className="sap-input-wrapper max-w-[150px]">
-                      <Input type="text" value={editing.price} onChange={e => updateField("price", e.target.value.toUpperCase())} placeholder="0.00 or FIX" className="h-6 text-xs rounded-none border-gray-400 text-right font-bold text-emerald-700" />
+                  <div className="flex items-center">
+                    <label className="w-32 text-xs font-semibold text-gray-700 shrink-0">Basic Rate <span className="text-red-500">*</span></label>
+                    <div className="flex-1 min-w-0">
+                      <Input type="text" value={editing.price} onChange={e => updateField("price", e.target.value.toUpperCase())} placeholder="0.00 or FIX" className="h-7 text-xs rounded-none border-gray-400 text-right font-bold text-emerald-700 w-full" />
                     </div>
                   </div>
-                  <div className="sap-selection-row"><label className="sap-label">Status</label>
-                    <div className="sap-input-wrapper max-w-[150px]">
+                  <div className="flex items-center">
+                    <label className="w-32 text-xs font-semibold text-gray-700 shrink-0">Status</label>
+                    <div className="flex-1 min-w-0">
                       <Select value={editing.status} onValueChange={v => updateField("status", v)}>
-                        <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-7 rounded-none border-gray-400 bg-white text-xs w-full focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="Active">Active</SelectItem>
                           <SelectItem value="Inactive">Inactive</SelectItem>

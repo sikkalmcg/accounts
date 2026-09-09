@@ -81,7 +81,7 @@ function Calendar({
             "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"
           ]
 
-          const baseYears = Array.from({ length: 30 }, (_, i) => 2015 + i)
+          const baseYears = Array.from({ length: 81 }, (_, i) => 1980 + i)
           const years = Array.from(new Set([...baseYears, currentYear])).sort((a, b) => a - b)
 
           return (

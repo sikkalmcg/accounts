@@ -145,7 +145,8 @@ export default function PlantMultiSelect({
   const dropdownContent = (
     <div
       data-plant-dropdown
-      className="w-[340px] bg-white border border-gray-400 shadow-xl shadow-black/20"
+      className="w-[340px] bg-white border border-gray-400 shadow-xl shadow-black/20 pointer-events-auto"
+      onPointerDown={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
@@ -194,13 +195,15 @@ export default function PlantMultiSelect({
           <div className="text-[10px] text-red-500 py-3 text-center font-bold">
             No plants found. Create a plant first (OP01).
           </div>
-) : (
-filteredPlants.map((p) => (
+        ) : (
+          filteredPlants.map((p) => (
             <div
               key={p.id}
-              className="flex items-center gap-2 p-1.5 hover:bg-blue-50 rounded cursor-pointer"
+              className="flex items-center gap-2 p-1.5 hover:bg-blue-50 rounded cursor-pointer select-none"
+              onPointerDown={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
+                e.preventDefault();
                 e.stopPropagation();
                 togglePlant(p.plantId);
               }}
@@ -284,6 +287,7 @@ filteredPlants.map((p) => (
               left: dropdownPos.left,
               width: dropdownPos.width,
               zIndex: 99999,
+              pointerEvents: "auto",
             }}
           >
             {dropdownContent}
