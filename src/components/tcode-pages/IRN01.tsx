@@ -36,6 +36,87 @@ const getInitialDates = () => {
 
 const sanitizeIrn = (val: string) => (val || "").replace(/[\s\-\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, "");
 
+export const deriveIrnDescription = (invoice: any): string => {
+  if (!invoice) return "N/A";
+
+  const items = Array.isArray(invoice.items) ? invoice.items : [];
+  const rawDescriptions = items
+    .map((it: any) => {
+      const val = it.descName || it.desc || it.activity || it.materialName || it.description;
+      return typeof val === "string" ? val.trim() : String(val || "").trim();
+    })
+    .filter(Boolean);
+
+  // Fallback if no line items or descriptions exist
+  if (rawDescriptions.length === 0) {
+    return invoice.description || "N/A";
+  }
+
+  // Rule 1: If there is only ONE invoice row, display the exact Description from the invoice
+  if (rawDescriptions.length === 1) {
+    return rawDescriptions[0];
+  }
+
+  // Rule 2: If there are MULTIPLE invoice rows, identify common description/category + "multiple category"
+  // Step A: Strip row-specific location/item portion (e.g., " for DELHI", " - GREATER NOIDA", " to ROORKEE")
+  const stripLocation = (text: string): string => {
+    if (!text) return "";
+    const forMatch = text.match(/^(.*?)\s+for\s+/i);
+    if (forMatch && forMatch[1].trim()) return forMatch[1].trim();
+
+    const toMatch = text.match(/^(.*?)\s+to\s+/i);
+    if (toMatch && toMatch[1].trim()) return toMatch[1].trim();
+
+    const sepMatch = text.match(/^(.*?)\s*[-–—:@/]\s+/);
+    if (sepMatch && sepMatch[1].trim()) return sepMatch[1].trim();
+
+    return text.trim();
+  };
+
+  const strippedBases: string[] = rawDescriptions.map(stripLocation);
+  const firstBase = strippedBases[0];
+  const allMatchBase = strippedBases.every(
+    (b: string) => b.toLowerCase() === firstBase.toLowerCase()
+  );
+
+  if (allMatchBase && firstBase) {
+    return `${firstBase} multiple category`;
+  }
+
+  // Step B: Longest common word prefix across all rows
+  const wordArrays: string[][] = rawDescriptions.map((d: string) => d.split(/\s+/));
+  const commonWords: string[] = [];
+  const firstRowWords = wordArrays[0] || [];
+
+  for (let i = 0; i < firstRowWords.length; i++) {
+    const targetWord = firstRowWords[i];
+    const allHaveWord = wordArrays.every(
+      (words: string[]) => words[i] && words[i].toLowerCase() === targetWord.toLowerCase()
+    );
+    if (allHaveWord) {
+      commonWords.push(targetWord);
+    } else {
+      break;
+    }
+  }
+
+  while (
+    commonWords.length > 0 &&
+    /^(for|to|at|in|from|of|on|-|@|:)$/i.test(commonWords[commonWords.length - 1])
+  ) {
+    commonWords.pop();
+  }
+
+  const commonPrefix = commonWords.join(" ").trim();
+  if (commonPrefix) {
+    return `${commonPrefix} multiple category`;
+  }
+
+  // Step C: Fallback to Charge Type (docCategory) or first base
+  const fallback = invoice.docCategory || strippedBases[0] || "Services";
+  return `${fallback} multiple category`;
+};
+
 export default function IRN01() {
   const db = useDatabase();
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
@@ -320,7 +401,7 @@ export default function IRN01() {
     const isInterstate = totals.isInterstate;
     const firm = firms?.find(f => getRecordPlantIds(f).includes(selectedInvoice.plantId));
 
-    const description = selectedInvoice.description || item1.desc || item1.activity || "N/A";
+    const description = deriveIrnDescription(selectedInvoice);
     const totalQuantity = selectedInvoice.totals?.totalQty || 0;
     const quantityWithUom = totalQuantity ? `${Number(totalQuantity).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ${item1.uom || "PCS"}` : "0 PCS";
     const invoiceDate = selectedInvoice.invoiceDate || selectedInvoice.createdAt || "";
