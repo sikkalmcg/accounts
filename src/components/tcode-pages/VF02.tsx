@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import { formatAmount, roundToTwo, sanitizeAmountInput } from "@/lib/number-utils";
+import { validateDuplicateWithExclusion } from "@/lib/duplicate-validator";
 
 interface InvoiceItem {
   id: string;
@@ -144,19 +145,18 @@ export default function VF02() {
   const materialsQuery = useMemoDatabase(() => collection(db, "materials"), [db]);
   const { data: materials } = useCollection(materialsQuery);
 
-  // Auto-fetch Consignor Name from Firm Master when plant changes
+  // Auto-fetch Consignor Name from Firm Master when plant changes.
+  // Skip the auto-set when the invoice already has an IRN (field is locked; loaded value is preserved).
+  // Also preserve any consignor name already loaded/edited.
   useEffect(() => {
+    if (isIrnGenerated) return; // IRN generated: do not overwrite the loaded consignor name
     if (plantId && firms) {
-const firm = firms.find(f => getRecordPlantIds(f).includes(plantId));
+      const firm = firms.find(f => getRecordPlantIds(f).includes(plantId));
       if (firm) {
-        setConsignorName(firm.name || "");
-      } else {
-        setConsignorName("");
+        setConsignorName(prev => prev || firm.name || "");
       }
-    } else {
-      setConsignorName("");
     }
-  }, [plantId, firms]);
+  }, [plantId, firms, isIrnGenerated]);
 
   // Fetch pricing options
   useEffect(() => {
@@ -219,13 +219,15 @@ const options: PricingOption[] = snap.docs.map(doc => {
         setSelectedId(snap.docs[0].id);
         setInvoiceRecord(data);
         setPlantId(data.plantId);
-        setInvoiceNo(data.invoiceNumber);
+        setInvoiceNo(data.invoiceNumber || "");
         setInvoiceDate(toInputDate(data.invoiceDate));
         setBillPeriod(data.billMonth || "");
         setDocType(data.docType || "");
         setDocCategory(data.docCategory || "");
         setBillType(data.billType || "BILL UNDER F.C.M.");
         setInventoryType(data.inventoryType || "");
+        setVehicleNo(data.vehicleNo || "");
+        setConsignorName(data.consignorName || "");
         setBillTo(data.billTo || "");
         setNote(data.note || "");
         
@@ -322,8 +324,20 @@ let updated = { ...i, [field]: val };
           }
         }
         if (field === 'rate') {
+          if (isIrnGenerated) return i;
           updated.rate = sanitizeAmountInput(val);
           updated.isFixedCharge = true;
+        }
+        if (field === 'qty') {
+          if (isIrnGenerated) return i;
+        }
+        if (field === 'amount') {
+          if (isIrnGenerated) return i;
+          updated.amount = roundToTwo(Number(sanitizeAmountInput(val)) || 0);
+          if (Number(updated.qty) > 0) {
+            updated.rate = sanitizeAmountInput(String(roundToTwo(updated.amount / Number(updated.qty))));
+          }
+          return updated;
         }
         if (updated.isFixedCharge) {
           updated.amount = roundToTwo(Number(updated.rate) || 0);
@@ -336,7 +350,7 @@ let updated = { ...i, [field]: val };
     }));
   };
 
-  // REIMBURSEMENT CHARGE item updater — allows editing desc, hsn, rate, gstRate
+  // REIMBURSEMENT CHARGE item updater — allows editing desc, hsn, rate, gstRate, amount
   const updateReimbItem = (id: string, field: string | number, val: string) => {
     if (isLockedByTime) return;
     setItems(prev => prev.map(i => {
@@ -347,15 +361,29 @@ let updated = { ...i, [field]: val };
         return { ...i, customValues: updatedCustom };
       }
       let updated = { ...i, [field]: val };
-      if (field === 'rate') updated.rate = sanitizeAmountInput(val);
+      if (field === 'rate') {
+        if (isIrnGenerated) return i;
+        updated.rate = sanitizeAmountInput(val);
+      }
+      if (field === 'qty') {
+        if (isIrnGenerated) return i;
+      }
       if (field === 'gstRate') updated.gstRate = Number(val) || 0;
+      if (field === 'amount') {
+        if (isIrnGenerated) return i;
+        updated.amount = roundToTwo(Number(sanitizeAmountInput(val)) || 0);
+        if (Number(updated.qty) > 0) {
+          updated.rate = sanitizeAmountInput(String(roundToTwo(updated.amount / Number(updated.qty))));
+        }
+        return updated;
+      }
       // Recalculate amount: qty × rate for reimbursement rows
       updated.amount = roundToTwo((Number(updated.qty) || 0) * (Number(updated.rate) || 0));
       return updated;
     }));
   };
 
-const handleExecute = useCallback(() => {
+const handleExecute = useCallback(async () => {
     if (!selectedDocId) return;
 
     if (isLockedByTime) {
@@ -366,6 +394,22 @@ const handleExecute = useCallback(() => {
     if (!docType || !docCategory) {
       window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Valid Document Type and Charge Type must be selected for the selected Plant and Inventory Type", isError: true } }));
       return;
+    }
+
+    if (!invoiceNo.trim()) {
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Error: Invoice Number cannot be empty", isError: true } }));
+      return;
+    }
+
+    const cleanInvoiceNo = invoiceNo.trim().toUpperCase();
+
+    // If IRN is not generated and user changed invoice number, check uniqueness across invoices
+    if (!isIrnGenerated && cleanInvoiceNo !== (invoiceRecord?.invoiceNumber || '').trim().toUpperCase()) {
+      const dupError = await validateDuplicateWithExclusion(db, "sales_invoices", "invoiceNumber", cleanInvoiceNo, selectedDocId);
+      if (dupError) {
+        window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Error: ${dupError}`, isError: true } }));
+        return;
+      }
     }
 
     const d = new Date(invoiceDate);
@@ -387,27 +431,44 @@ const handleExecute = useCallback(() => {
       stateName: shipToParty.stateName, stateCode: shipToParty.stateCode, pan: shipToParty.pan
     } : snapshotBillTo;
 
-    updateDocumentNonBlocking(doc(db, "sales_invoices", selectedDocId), {
-      invoiceDate: toSAPDate(invoiceDate), 
-      billMonth: billPeriod, 
-      billYear, 
-      docType, 
-      docCategory, 
+    // Determine final values based on IRN generation status:
+    // When IRN is generated, lock Invoice Number, Consignor Name, Bill To Party, Ship To Party, Taxable Amount (items & totals)
+    const finalInvoiceNumber = isIrnGenerated ? invoiceRecord?.invoiceNumber : cleanInvoiceNo;
+    const finalConsignorName = isIrnGenerated ? (invoiceRecord?.consignorName || consignorName) : consignorName;
+    const finalBillTo = isIrnGenerated ? invoiceRecord?.billTo : billTo;
+    const finalShipTo = isIrnGenerated ? invoiceRecord?.shipTo : ((isShipToApplicable ? shipTo : billTo) || billTo);
+    const finalItems = isIrnGenerated ? invoiceRecord?.items : items;
+    const finalTotals = isIrnGenerated ? invoiceRecord?.totals : totals;
+
+    const updatePayload: Record<string, any> = {
+      invoiceDate: toSAPDate(invoiceDate),
+      billMonth: billPeriod,
+      billYear,
+      docType,
+      docCategory,
       billType,
       inventoryType,
-      billTo, 
-      shipTo: (isShipToApplicable ? shipTo : billTo) || billTo,
-      items, 
-      totals,
+      vehicleNo,
+      invoiceNumber: finalInvoiceNumber,
+      consignorName: finalConsignorName,
+      billTo: finalBillTo,
+      shipTo: finalShipTo,
+      items: finalItems,
+      totals: finalTotals,
       customHeaders,
       note,
       snapshotBillTo,
       snapshotShipTo,
       updatedAt: new Date().toISOString()
-    });
+    };
 
-    window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Document ${invoiceNo} updated successfully`, isError: false } }));
-  }, [db, selectedDocId, isLockedByTime, invoiceDate, billPeriod, docType, docCategory, billType, billTo, shipTo, isShipToApplicable, items, totals, invoiceNo, customHeaders, note, customers]);
+    updateDocumentNonBlocking(doc(db, "sales_invoices", selectedDocId), updatePayload);
+
+    setInvoiceRecord((prev: any) => ({ ...prev, ...updatePayload }));
+    setSearchInvoiceNo(finalInvoiceNumber);
+
+    window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Document ${finalInvoiceNumber} updated successfully`, isError: false } }));
+  }, [db, selectedDocId, isLockedByTime, isIrnGenerated, invoiceDate, billPeriod, docType, docCategory, billType, inventoryType, vehicleNo, billTo, shipTo, isShipToApplicable, items, totals, invoiceNo, consignorName, customHeaders, note, customers, invoiceRecord]);
 
   useEffect(() => {
     const onExec = () => handleExecute();
@@ -508,19 +569,45 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                     </div>
                   )}
 
-                  {/* Consignor Name - Auto-fetched from Firm Master */}
+                  {/* Consignor Name */}
                   <div className="sap-selection-row">
                     <label className="sap-label">Consignor Name</label>
-                    <Input value={consignorName} readOnly className="h-6 text-xs bg-gray-100 font-semibold text-blue-800" placeholder="Auto-fetched from Firm Master..." />
+                    <Input 
+                      value={consignorName} 
+                      onChange={e => setConsignorName(e.target.value)} 
+                      disabled={isLockedByTime || isIrnGenerated} 
+                      readOnly={isLockedByTime || isIrnGenerated}
+                      className={cn(
+                        "h-6 text-xs font-semibold", 
+                        (isLockedByTime || isIrnGenerated) 
+                          ? "bg-gray-100 cursor-not-allowed text-blue-800" 
+                          : "bg-white text-gray-900 focus:bg-[#fff9c4]"
+                      )} 
+                      placeholder="Enter Consignor Name..." 
+                    />
                   </div>
 
-                  <div className="sap-selection-row"><label className="sap-label">{docLabels.no}</label><Input value={invoiceNo} disabled className="bg-gray-100" /></div>
+                  <div className="sap-selection-row">
+                    <label className="sap-label">{docLabels.no}</label>
+                    <Input 
+                      value={invoiceNo} 
+                      onChange={e => setInvoiceNo(e.target.value.toUpperCase())} 
+                      disabled={isLockedByTime || isIrnGenerated} 
+                      className={cn(
+                        "h-6 text-xs", 
+                        (isLockedByTime || isIrnGenerated) 
+                          ? "bg-gray-100 cursor-not-allowed" 
+                          : "bg-white focus:bg-[#fff9c4]"
+                      )} 
+                      placeholder="Enter Invoice Number..." 
+                    />
+                  </div>
                   <div className="sap-selection-row"><label className="sap-label">Date</label><SapDateInput value={invoiceDate} onChange={v => setInvoiceDate(v)} disabled={isLockedByTime} className="h-6 border border-gray-400 rounded-none bg-white" /></div>
                   
-                  {/* Bill to Party (renamed from Consignee) */}
+                  {/* Bill to Party */}
                   <div className="sap-selection-row">
                     <label className="sap-label">Bill to Party</label>
-                    <Select value={billTo} onValueChange={(v) => { setBillTo(v); }} disabled={isLockedByTime}>
+                    <Select value={billTo} onValueChange={(v) => { setBillTo(v); }} disabled={isLockedByTime || isIrnGenerated}>
                       <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
                       <SelectContent>{filteredCustomers.map(c => <SelectItem key={c.id} value={c.customerId}>{c.customerId} - {c.name}</SelectItem>)}</SelectContent>
                     </Select>
@@ -535,7 +622,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                           setIsShipToApplicable(!!v);
                           if (!v) setShipTo("");
                         }} 
-                        disabled={isLockedByTime}
+                        disabled={isLockedByTime || isIrnGenerated}
                       />
                       <span className="text-[10px] text-gray-400 ml-2 italic">(Toggle if Ship-to is different from Bill to Party)</span>
                     </div>
@@ -544,7 +631,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                   {isShipToApplicable && (
                     <div className="sap-selection-row animate-in slide-in-from-top-1 duration-200">
                       <label className="sap-label">Ship to Party</label>
-                      <Select value={shipTo} onValueChange={setShipTo} disabled={isIrnGenerated}>
+                      <Select value={shipTo} onValueChange={setShipTo} disabled={isLockedByTime || isIrnGenerated}>
                         <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
                         <SelectContent>{filteredCustomers.map(c => <SelectItem key={c.id} value={c.customerId}>{c.customerId} - {c.name}</SelectItem>)}</SelectContent>
                       </Select>
@@ -638,7 +725,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                     </div>
                   ))}
                 </div>
-                {!isLockedByTime && (
+                {!isLockedByTime && !isIrnGenerated && (
 <Button onClick={() => setItems([...items, { id: Math.random().toString(), desc: '', activity: '', hsn: '', qty: '', uom: 'PCS', rate: '0', amount: 0, gstRate: 0, customValues: [], isFixedCharge: false }])} variant="ghost" size="sm" className="h-5 text-[10px] hover:bg-white/50"><Plus className="h-3 w-3 mr-1" /> Add Row</Button>
                 )}
               </div>
@@ -660,7 +747,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                         <TableHead className="text-[11px] font-bold border-r w-20 text-center">GST Rate %</TableHead>
                         <TableHead className="text-[11px] font-bold border-r w-24 text-center">Basic Rate</TableHead>
                         <TableHead className="text-[11px] font-bold text-right w-40 pr-4">Taxable Amount</TableHead>
-                        {!isLockedByTime && <TableHead className="w-8"></TableHead>}
+                        {!isLockedByTime && !isIrnGenerated && <TableHead className="w-8"></TableHead>}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -714,7 +801,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                               className="h-full border-none shadow-none text-center font-bold text-blue-800"
                               value={row.qty}
                               onChange={e => updateReimbItem(row.id, 'qty', e.target.value)}
-                              disabled={isLockedByTime}
+                              disabled={isLockedByTime || isIrnGenerated}
                             />
                           </TableCell>
                           {/* UOM — read-only */}
@@ -737,12 +824,26 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                               className="h-full border-none shadow-none focus:bg-[#fff9c4] text-center font-bold text-emerald-700 text-xs"
                               value={row.rate}
                               onChange={e => updateReimbItem(row.id, 'rate', e.target.value)}
-                              disabled={isLockedByTime}
+                              disabled={isLockedByTime || isIrnGenerated}
                               placeholder="Rate"
                             />
                           </TableCell>
-                          <TableCell className="p-0 border-r bg-gray-50/50 text-right text-[11px] px-2 font-mono font-bold pr-4">{formatAmount(row.amount)}</TableCell>
-                          {!isLockedByTime && (
+                          {/* Taxable Amount */}
+                          <TableCell className="p-0 border-r text-right text-[11px] font-mono font-bold">
+                            {isLockedByTime || isIrnGenerated ? (
+                              <div className="bg-gray-50/50 px-2 pr-4 py-1 text-right text-[11px]">{formatAmount(row.amount)}</div>
+                            ) : (
+                              <Input
+                                type="number"
+                                step="0.01"
+                                className="h-full border-none shadow-none text-right font-mono font-bold text-xs px-2 pr-4 bg-white focus:bg-[#fff9c4]"
+                                value={row.amount ?? ""}
+                                onChange={e => updateReimbItem(row.id, 'amount', e.target.value)}
+                                placeholder="0.00"
+                              />
+                            )}
+                          </TableCell>
+                          {!isLockedByTime && !isIrnGenerated && (
                             <TableCell className="p-0 text-center">
                               <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => items.length > 1 && setItems(items.filter(i => i.id !== row.id))}><Trash2 className="h-3 w-3" /></Button>
                             </TableCell>
@@ -767,7 +868,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                         <TableHead className="text-[11px] font-bold border-r w-20">UOM</TableHead>
                         <TableHead className="text-[11px] font-bold border-r w-14 text-center">Rate</TableHead>
                         <TableHead className="text-[11px] font-bold text-right w-40 pr-4">{isNonTax || isDeliveryChallan ? "Invoice Amount" : "Taxable Amount"}</TableHead>
-                        {!isLockedByTime && <TableHead className="w-8"></TableHead>}
+                        {!isLockedByTime && !isIrnGenerated && <TableHead className="w-8"></TableHead>}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -798,21 +899,35 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                             </TableCell>
                           ))}
                           <TableCell className="p-0 border-r"><Input className="h-full border-none shadow-none bg-gray-100" value={row.hsn} readOnly /></TableCell>
-                          <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none shadow-none text-center font-bold text-blue-800" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} disabled={isLockedByTime} /></TableCell>
+                          <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none shadow-none text-center font-bold text-blue-800" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} disabled={isLockedByTime || isIrnGenerated} /></TableCell>
                           <TableCell className="p-0 border-r text-center text-[10px] text-gray-500">{row.uom}</TableCell>
 <TableCell className="p-0 border-r">
                             <Input
                               type="number"
-                              className={cn("h-full border-none shadow-none text-center", row.isFixedCharge ? "bg-white font-bold text-emerald-700" : "bg-gray-100 text-gray-600")}
+                              className={cn("h-full border-none shadow-none text-center", row.isFixedCharge && !isIrnGenerated && !isLockedByTime ? "bg-white font-bold text-emerald-700" : "bg-gray-100 text-gray-600")}
                               value={row.rate}
                               onChange={e => updateItem(row.id, 'rate', e.target.value)}
-                              readOnly={!row.isFixedCharge}
-                              disabled={isLockedByTime}
+                              readOnly={!row.isFixedCharge || isIrnGenerated || isLockedByTime}
+                              disabled={isLockedByTime || isIrnGenerated}
                               title={row.isFixedCharge ? "Fixed charge - editable" : "Basic Rate from VK13 - read only"}
                             />
                           </TableCell>
-                          <TableCell className="p-0 border-r bg-gray-50/50 text-right text-[11px] px-2 font-mono font-bold pr-4">{formatAmount(row.amount)}</TableCell>
-                          {!isLockedByTime && (
+                          {/* Taxable Amount */}
+                          <TableCell className="p-0 border-r text-right text-[11px] font-mono font-bold">
+                            {isLockedByTime || isIrnGenerated ? (
+                              <div className="bg-gray-50/50 px-2 pr-4 py-1 text-right text-[11px]">{formatAmount(row.amount)}</div>
+                            ) : (
+                              <Input
+                                type="number"
+                                step="0.01"
+                                className="h-full border-none shadow-none text-right font-mono font-bold text-xs px-2 pr-4 bg-white focus:bg-[#fff9c4]"
+                                value={row.amount ?? ""}
+                                onChange={e => updateItem(row.id, 'amount', e.target.value)}
+                                placeholder="0.00"
+                              />
+                            )}
+                          </TableCell>
+                          {!isLockedByTime && !isIrnGenerated && (
                             <TableCell className="p-0 text-center">
                               <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => items.length > 1 && setItems(items.filter(i => i.id !== row.id))}><Trash2 className="h-3 w-3" /></Button>
                             </TableCell>

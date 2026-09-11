@@ -22,26 +22,39 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   // Backend field-level security for sales_invoices:
-  // Only REIMBURSEMENT CHARGE invoices may have item-level hsn / gstRate / rate edited.
-  // For every other Charge Type these fields are restored from the original document.
-  if (collection === 'sales_invoices' && Array.isArray(data.items)) {
+  // 1. IRN Generated: lock Invoice Number, Consignor Name, Bill To, Ship To, and Taxable Amount (items & totals).
+  // 2. Only REIMBURSEMENT CHARGE invoices may have item-level hsn / gstRate / rate edited.
+  if (collection === 'sales_invoices') {
     const filter = idFilter(id);
     const original = await (await db).collection(collection).findOne(filter);
     if (original) {
-      const chargeType = ((data.docCategory || original.docCategory) as string || '').trim().toUpperCase();
-      const isReimbursement = chargeType === 'REIMBURSEMENT CHARGE';
-      if (!isReimbursement && Array.isArray(original.items)) {
-        // Restore protected fields from the original on a per-row basis
-        data.items = data.items.map((item: any) => {
-          const orig = original.items.find((o: any) => o.id === item.id);
-          if (!orig) return item; // new row — allow as-is
-          return {
-            ...item,
-            hsn: orig.hsn,          // HSN/SAC locked
-            gstRate: orig.gstRate,  // GST Rate locked
-            rate: orig.rate,        // Basic Rate locked (unless isFixedCharge, which is validated below)
-          };
-        });
+      const isIrnGenerated = Boolean(original.irnNumber && String(original.irnNumber).trim() !== '');
+      if (isIrnGenerated) {
+        // Locked fields cannot be changed once IRN is generated:
+        data.invoiceNumber = original.invoiceNumber;
+        data.consignorName = original.consignorName;
+        data.billTo = original.billTo;
+        data.shipTo = original.shipTo;
+        data.items = original.items;
+        data.totals = original.totals;
+        data.snapshotBillTo = original.snapshotBillTo;
+        data.snapshotShipTo = original.snapshotShipTo;
+      } else if (Array.isArray(data.items)) {
+        const chargeType = ((data.docCategory || original.docCategory) as string || '').trim().toUpperCase();
+        const isReimbursement = chargeType === 'REIMBURSEMENT CHARGE';
+        if (!isReimbursement && Array.isArray(original.items)) {
+          // Restore protected fields from the original on a per-row basis
+          data.items = data.items.map((item: any) => {
+            const orig = original.items.find((o: any) => o.id === item.id);
+            if (!orig) return item; // new row — allow as-is
+            return {
+              ...item,
+              hsn: orig.hsn,          // HSN/SAC locked
+              gstRate: orig.gstRate,  // GST Rate locked
+              rate: orig.rate,        // Basic Rate locked (unless isFixedCharge)
+            };
+          });
+        }
       }
     }
   }
