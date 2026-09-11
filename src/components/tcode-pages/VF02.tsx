@@ -112,14 +112,16 @@ export default function VF02() {
   }, [docType]);
 
   const isLockedByTime = useMemo(() => {
-    if (!invoiceRecord?.irnUpdatedAt) return false; // No IRN update time, not locked
-    if (isAdmin) return false; // Admins can always edit
-
+    if (!invoiceRecord?.irnUpdatedAt) return false;
+    if (isAdmin) return false;
     const genTime = new Date(invoiceRecord.irnUpdatedAt).getTime();
     const now = new Date().getTime();
     const diffHours = (now - genTime) / (1000 * 60 * 60);
     return diffHours > 24;
   }, [invoiceRecord, isAdmin]);
+
+  // REIMBURSEMENT CHARGE: derive flag from loaded invoice
+  const isReimbursementCharge = docCategory?.trim().toUpperCase() === "REIMBURSEMENT CHARGE";
 
   const isIrnGenerated = !!invoiceRecord?.irnNumber;
   const isNonTax = docType?.toUpperCase() === "NON-TAX INVOICE" || docType?.toUpperCase() === "NON TAX INVOICE";
@@ -288,6 +290,7 @@ return {
     };
   }, [items, firms, customers, billTo, plantId, isNonTax]);
 
+  // Standard item updater (non-REIMBURSEMENT charge types – unchanged)
   const updateItem = (id: string, field: keyof InvoiceItem | number, val: string) => {
     if (isLockedByTime) return;
     setItems(prev => prev.map(i => {
@@ -315,16 +318,13 @@ let updated = { ...i, [field]: val };
             updated.rate = "";
             updated.uom = "";
             updated.gstRate = 0;
-            updated.isFixedCharge = true; // No price found, so it's a manual entry
+            updated.isFixedCharge = true;
           }
         }
         if (field === 'rate') {
-          // Restrict manual rate entry to a maximum of 2 decimal places
           updated.rate = sanitizeAmountInput(val);
           updated.isFixedCharge = true;
         }
-        // If the rate is manually entered (fixed charge), taxable amount is the rate itself.
-        // Otherwise, it's qty * rate.
         if (updated.isFixedCharge) {
           updated.amount = roundToTwo(Number(updated.rate) || 0);
         } else {
@@ -333,6 +333,25 @@ let updated = { ...i, [field]: val };
         return updated;
       }
       return i;
+    }));
+  };
+
+  // REIMBURSEMENT CHARGE item updater — allows editing desc, hsn, rate, gstRate
+  const updateReimbItem = (id: string, field: string | number, val: string) => {
+    if (isLockedByTime) return;
+    setItems(prev => prev.map(i => {
+      if (i.id !== id) return i;
+      if (typeof field === 'number') {
+        const updatedCustom = [...(i.customValues || [])];
+        updatedCustom[field] = val;
+        return { ...i, customValues: updatedCustom };
+      }
+      let updated = { ...i, [field]: val };
+      if (field === 'rate') updated.rate = sanitizeAmountInput(val);
+      if (field === 'gstRate') updated.gstRate = Number(val) || 0;
+      // Recalculate amount: qty × rate for reimbursement rows
+      updated.amount = roundToTwo((Number(updated.qty) || 0) * (Number(updated.rate) || 0));
+      return updated;
     }));
   };
 
@@ -624,76 +643,188 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                 )}
               </div>
               <Table>
-                <TableHeader className="bg-[#e7ebf1]">
-                  <TableRow className="h-7">
-                    <TableHead className="text-[11px] font-bold border-r w-10 text-center">#</TableHead>
-                    <TableHead className="text-[11px] font-bold border-r">Description</TableHead>
-                    <TableHead className="text-[11px] font-bold border-r w-40">Activity</TableHead>
-                    {customHeaders.map((header, idx) => (
-                      <TableHead key={idx} className="text-[11px] font-bold border-r bg-blue-50/30 text-blue-900 min-w-[120px]">{header}</TableHead>
-                    ))}
-                    <TableHead className="text-[11px] font-bold border-r w-20 text-center">HSN/SAC</TableHead>
-                    <TableHead className="text-[11px] font-bold border-r w-24 text-center">Qty</TableHead>
-                    <TableHead className="text-[11px] font-bold border-r w-20">UOM</TableHead>
-                    <TableHead className="text-[11px] font-bold border-r w-14 text-center">Rate</TableHead>
-                    <TableHead className="text-[11px] font-bold text-right w-40 pr-4">{isNonTax || isDeliveryChallan ? "Invoice Amount" : "Taxable Amount"}</TableHead>
-                    {!isLockedByTime && <TableHead className="w-8"></TableHead>}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {items.map((row, idx) => (
-                    <TableRow key={row.id} className="h-7 hover:bg-blue-50/30">
-                      <TableCell className="p-0 text-center text-[10px] text-gray-400">{idx + 1}</TableCell>
-<TableCell className="p-0 border-r" >
-                        <Select value={row.desc} onValueChange={v => updateItem(row.id, 'desc', v)} disabled={isIrnGenerated}>
-                          <SelectTrigger className="h-full border-none bg-transparent text-xs rounded-none px-2 shadow-none focus:bg-[#fff9c4] [&>span]:line-clamp-none [&>span]:whitespace-normal"><SelectValue>{row.descName || "Select material..."}</SelectValue></SelectTrigger>
-<SelectContent>{availableOptions?.map((o, i) => <SelectItem key={`${o.materialCode}-${i}`} value={o.materialCode}>{o.materialName || o.materialCode}</SelectItem>)}</SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell className="p-0 border-r">
-                        <Input 
-                          className="h-full border-none shadow-none focus:bg-[#fff9c4]" 
-                          value={row.activity} 
-                          onChange={e => updateItem(row.id, 'activity', e.target.value)} 
-                          
-                          placeholder="Enter activity..."
-                        />
-                      </TableCell>
-                      {customHeaders.map((_, hIdx) => (
-                        <TableCell key={hIdx} className="p-0 border-r bg-blue-50/10">
-                          <Input 
-                            className="h-full border-none shadow-none focus:bg-[#fff9c4]" 
-                            value={row.customValues?.[hIdx] || ""} 
-                            onChange={e => updateItem(row.id, hIdx, e.target.value)} 
-                            
-                          />
-                        </TableCell>
+                {isReimbursementCharge ? (
+                  /* REIMBURSEMENT CHARGE: Description, HSN/SAC, Basic Rate, GST Rate all editable */
+                  <>
+                    <TableHeader className="bg-[#e7ebf1]">
+                      <TableRow className="h-7">
+                        <TableHead className="text-[11px] font-bold border-r w-10 text-center">#</TableHead>
+                        <TableHead className="text-[11px] font-bold border-r">Description</TableHead>
+                        <TableHead className="text-[11px] font-bold border-r w-40">Activity</TableHead>
+                        {customHeaders.map((header, idx) => (
+                          <TableHead key={idx} className="text-[11px] font-bold border-r bg-blue-50/30 text-blue-900 min-w-[120px]">{header}</TableHead>
+                        ))}
+                        <TableHead className="text-[11px] font-bold border-r w-24 text-center">HSN/SAC</TableHead>
+                        <TableHead className="text-[11px] font-bold border-r w-24 text-center">Qty</TableHead>
+                        <TableHead className="text-[11px] font-bold border-r w-20">UOM</TableHead>
+                        <TableHead className="text-[11px] font-bold border-r w-20 text-center">GST Rate %</TableHead>
+                        <TableHead className="text-[11px] font-bold border-r w-24 text-center">Basic Rate</TableHead>
+                        <TableHead className="text-[11px] font-bold text-right w-40 pr-4">Taxable Amount</TableHead>
+                        {!isLockedByTime && <TableHead className="w-8"></TableHead>}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {items.map((row, idx) => (
+                        <TableRow key={row.id} className="h-7 hover:bg-blue-50/30">
+                          <TableCell className="p-0 text-center text-[10px] text-gray-400">{idx + 1}</TableCell>
+                          {/* Description — free-text input for REIMBURSEMENT CHARGE */}
+                          <TableCell className="p-0 border-r">
+                            <Input
+                              className="h-full border-none shadow-none focus:bg-[#fff9c4] text-xs px-2"
+                              value={row.descName || row.desc || ""}
+                              onChange={e => updateReimbItem(row.id, 'descName', e.target.value)}
+                              disabled={isLockedByTime}
+                              placeholder="Enter description..."
+                            />
+                          </TableCell>
+                          {/* Activity */}
+                          <TableCell className="p-0 border-r">
+                            <Input
+                              className="h-full border-none shadow-none focus:bg-[#fff9c4]"
+                              value={row.activity}
+                              onChange={e => updateReimbItem(row.id, 'activity', e.target.value)}
+                              disabled={isLockedByTime}
+                              placeholder="Enter activity..."
+                            />
+                          </TableCell>
+                          {customHeaders.map((_, hIdx) => (
+                            <TableCell key={hIdx} className="p-0 border-r bg-blue-50/10">
+                              <Input
+                                className="h-full border-none shadow-none focus:bg-[#fff9c4]"
+                                value={row.customValues?.[hIdx] || ""}
+                                onChange={e => updateReimbItem(row.id, hIdx, e.target.value)}
+                                disabled={isLockedByTime}
+                              />
+                            </TableCell>
+                          ))}
+                          {/* HSN/SAC — editable for REIMBURSEMENT CHARGE */}
+                          <TableCell className="p-0 border-r">
+                            <Input
+                              className="h-full border-none shadow-none focus:bg-[#fff9c4] text-center text-xs font-mono"
+                              value={row.hsn}
+                              onChange={e => updateReimbItem(row.id, 'hsn', e.target.value)}
+                              disabled={isLockedByTime}
+                              placeholder="HSN/SAC"
+                            />
+                          </TableCell>
+                          {/* Qty */}
+                          <TableCell className="p-0 border-r">
+                            <Input
+                              type="number"
+                              className="h-full border-none shadow-none text-center font-bold text-blue-800"
+                              value={row.qty}
+                              onChange={e => updateReimbItem(row.id, 'qty', e.target.value)}
+                              disabled={isLockedByTime}
+                            />
+                          </TableCell>
+                          {/* UOM — read-only */}
+                          <TableCell className="p-0 border-r text-center text-[10px] text-gray-500">{row.uom || "PCS"}</TableCell>
+                          {/* GST Rate % — editable for REIMBURSEMENT CHARGE */}
+                          <TableCell className="p-0 border-r">
+                            <Input
+                              type="number"
+                              className="h-full border-none shadow-none focus:bg-[#fff9c4] text-center font-bold text-purple-700 text-xs"
+                              value={row.gstRate ?? ""}
+                              onChange={e => updateReimbItem(row.id, 'gstRate', e.target.value)}
+                              disabled={isLockedByTime}
+                              placeholder="GST %"
+                            />
+                          </TableCell>
+                          {/* Basic Rate — always editable for REIMBURSEMENT CHARGE */}
+                          <TableCell className="p-0 border-r">
+                            <Input
+                              type="number"
+                              className="h-full border-none shadow-none focus:bg-[#fff9c4] text-center font-bold text-emerald-700 text-xs"
+                              value={row.rate}
+                              onChange={e => updateReimbItem(row.id, 'rate', e.target.value)}
+                              disabled={isLockedByTime}
+                              placeholder="Rate"
+                            />
+                          </TableCell>
+                          <TableCell className="p-0 border-r bg-gray-50/50 text-right text-[11px] px-2 font-mono font-bold pr-4">{formatAmount(row.amount)}</TableCell>
+                          {!isLockedByTime && (
+                            <TableCell className="p-0 text-center">
+                              <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => items.length > 1 && setItems(items.filter(i => i.id !== row.id))}><Trash2 className="h-3 w-3" /></Button>
+                            </TableCell>
+                          )}
+                        </TableRow>
                       ))}
-                      <TableCell className="p-0 border-r"><Input className="h-full border-none shadow-none bg-gray-100" value={row.hsn} readOnly /></TableCell>
-                      <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none shadow-none text-center font-bold text-blue-800" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} disabled={isLockedByTime} /></TableCell>
-                      <TableCell className="p-0 border-r text-center text-[10px] text-gray-500">{row.uom}</TableCell>
+                    </TableBody>
+                  </>
+                ) : (
+                  /* Standard table — all other charge types, EXACTLY UNCHANGED */
+                  <>
+                    <TableHeader className="bg-[#e7ebf1]">
+                      <TableRow className="h-7">
+                        <TableHead className="text-[11px] font-bold border-r w-10 text-center">#</TableHead>
+                        <TableHead className="text-[11px] font-bold border-r">Description</TableHead>
+                        <TableHead className="text-[11px] font-bold border-r w-40">Activity</TableHead>
+                        {customHeaders.map((header, idx) => (
+                          <TableHead key={idx} className="text-[11px] font-bold border-r bg-blue-50/30 text-blue-900 min-w-[120px]">{header}</TableHead>
+                        ))}
+                        <TableHead className="text-[11px] font-bold border-r w-20 text-center">HSN/SAC</TableHead>
+                        <TableHead className="text-[11px] font-bold border-r w-24 text-center">Qty</TableHead>
+                        <TableHead className="text-[11px] font-bold border-r w-20">UOM</TableHead>
+                        <TableHead className="text-[11px] font-bold border-r w-14 text-center">Rate</TableHead>
+                        <TableHead className="text-[11px] font-bold text-right w-40 pr-4">{isNonTax || isDeliveryChallan ? "Invoice Amount" : "Taxable Amount"}</TableHead>
+                        {!isLockedByTime && <TableHead className="w-8"></TableHead>}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {items.map((row, idx) => (
+                        <TableRow key={row.id} className="h-7 hover:bg-blue-50/30">
+                          <TableCell className="p-0 text-center text-[10px] text-gray-400">{idx + 1}</TableCell>
+<TableCell className="p-0 border-r" >
+                            <Select value={row.desc} onValueChange={v => updateItem(row.id, 'desc', v)} disabled={isIrnGenerated}>
+                              <SelectTrigger className="h-full border-none bg-transparent text-xs rounded-none px-2 shadow-none focus:bg-[#fff9c4] [&>span]:line-clamp-none [&>span]:whitespace-normal"><SelectValue>{row.descName || "Select material..."}</SelectValue></SelectTrigger>
+<SelectContent>{availableOptions?.map((o, i) => <SelectItem key={`${o.materialCode}-${i}`} value={o.materialCode}>{o.materialName || o.materialCode}</SelectItem>)}</SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell className="p-0 border-r">
+                            <Input
+                              className="h-full border-none shadow-none focus:bg-[#fff9c4]"
+                              value={row.activity}
+                              onChange={e => updateItem(row.id, 'activity', e.target.value)}
+                              placeholder="Enter activity..."
+                            />
+                          </TableCell>
+                          {customHeaders.map((_, hIdx) => (
+                            <TableCell key={hIdx} className="p-0 border-r bg-blue-50/10">
+                              <Input
+                                className="h-full border-none shadow-none focus:bg-[#fff9c4]"
+                                value={row.customValues?.[hIdx] || ""}
+                                onChange={e => updateItem(row.id, hIdx, e.target.value)}
+                              />
+                            </TableCell>
+                          ))}
+                          <TableCell className="p-0 border-r"><Input className="h-full border-none shadow-none bg-gray-100" value={row.hsn} readOnly /></TableCell>
+                          <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none shadow-none text-center font-bold text-blue-800" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} disabled={isLockedByTime} /></TableCell>
+                          <TableCell className="p-0 border-r text-center text-[10px] text-gray-500">{row.uom}</TableCell>
 <TableCell className="p-0 border-r">
-                        <Input
-                          type="number"
-                          className={cn("h-full border-none shadow-none text-center", row.isFixedCharge ? "bg-white font-bold text-emerald-700" : "bg-gray-100 text-gray-600")}
-                          value={row.rate}
-                          onChange={e => updateItem(row.id, 'rate', e.target.value)}
-                          readOnly={!row.isFixedCharge}
-                          disabled={isLockedByTime}
-                          title={row.isFixedCharge ? "Fixed charge - editable" : "Basic Rate from VK13 - read only"}
-                        />
-                      </TableCell>
-                      <TableCell className="p-0 border-r bg-gray-50/50 text-right text-[11px] px-2 font-mono font-bold pr-4">{formatAmount(row.amount)}</TableCell>
-                      {!isLockedByTime && (
-                        <TableCell className="p-0 text-center">
-                          <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => items.length > 1 && setItems(items.filter(i => i.id !== row.id))}><Trash2 className="h-3 w-3" /></Button>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))}
-                </TableBody>
+                            <Input
+                              type="number"
+                              className={cn("h-full border-none shadow-none text-center", row.isFixedCharge ? "bg-white font-bold text-emerald-700" : "bg-gray-100 text-gray-600")}
+                              value={row.rate}
+                              onChange={e => updateItem(row.id, 'rate', e.target.value)}
+                              readOnly={!row.isFixedCharge}
+                              disabled={isLockedByTime}
+                              title={row.isFixedCharge ? "Fixed charge - editable" : "Basic Rate from VK13 - read only"}
+                            />
+                          </TableCell>
+                          <TableCell className="p-0 border-r bg-gray-50/50 text-right text-[11px] px-2 font-mono font-bold pr-4">{formatAmount(row.amount)}</TableCell>
+                          {!isLockedByTime && (
+                            <TableCell className="p-0 text-center">
+                              <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => items.length > 1 && setItems(items.filter(i => i.id !== row.id))}><Trash2 className="h-3 w-3" /></Button>
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </>
+                )}
               </Table>
             </div>
+
 
             <div className="grid grid-cols-2 gap-4">
               <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9] p-3 space-y-3">
