@@ -33,15 +33,15 @@ export default function OP03() {
     const filtered = plants.filter(p => 
       p.name?.toLowerCase().includes(search.toLowerCase()) || 
       p.plantId?.toUpperCase().includes(search.toUpperCase()) ||
-      (p.division || "Division A").toLowerCase().includes(search.toLowerCase()) ||
+      (p.division || "").toLowerCase().includes(search.toLowerCase()) ||
       p.location?.toLowerCase().includes(search.toLowerCase())
     );
     
     if (!sortConfig) return filtered;
 
     return [...filtered].sort((a, b) => {
-      const aVal = String(a[sortConfig.key as keyof typeof a] || (sortConfig.key === 'division' ? 'Division A' : "")).toLowerCase();
-      const bVal = String(b[sortConfig.key as keyof typeof b] || (sortConfig.key === 'division' ? 'Division A' : "")).toLowerCase();
+      const aVal = String(a[sortConfig.key as keyof typeof a] || "").toLowerCase();
+      const bVal = String(b[sortConfig.key as keyof typeof b] || "").toLowerCase();
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
@@ -135,7 +135,7 @@ export default function OP03() {
                 <TableCell className="p-0 px-2 text-[11px] border-r border-gray-100">{p.name}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r border-gray-100 font-bold text-purple-700">
                   <span className="bg-purple-50 border border-purple-200 px-2 py-0.5 rounded text-[10px]">
-                    {p.division || "Division A"}
+                    {p.division || "-"}
                   </span>
                 </TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r border-gray-100">{p.location}</TableCell>

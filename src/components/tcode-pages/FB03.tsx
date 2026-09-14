@@ -27,7 +27,7 @@ import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master
 import { formatAmount } from "@/lib/number-utils";
 import PlantMultiSelect from "./PlantMultiSelect";
 import DivisionMultiSelect from "./DivisionMultiSelect";
-import { DEFAULT_DIVISIONS, getPlantDivision, isAllDivisions } from "@/lib/division-master";
+import { getDivisionsFromPlants, getPlantDivision, isAllDivisions } from "@/lib/division-master";
 import { InvoicePreview } from "./VF03";
 
 // Helper to calculate current Indian Financial Year (e.g. FY 2024-25) safely
@@ -84,30 +84,10 @@ export default function FB03() {
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
   const { data: plants } = useCollection(plantsQuery);
 
-  const divisionsQuery = useMemoDatabase(() => collection(db, "divisions"), [db]);
-  const { data: dbDivisions } = useCollection(divisionsQuery);
+  // Only display divisions that are currently applied on records in OP03 page (Plant Master)
   const divisions = useMemo(() => {
-    const base = ((dbDivisions && dbDivisions.length > 0 ? dbDivisions : DEFAULT_DIVISIONS) as any[]).map((d: any) => ({
-      id: d.id || d.name,
-      divisionId: d.divisionId || d.id || d.name,
-      name: d.name,
-      description: d.description
-    }));
-    const existingNames = new Set(base.map(d => (d.name || "").trim().toLowerCase()));
-    plants?.forEach((p: any) => {
-      const divName = (p.division || "").trim();
-      if (divName && !existingNames.has(divName.toLowerCase())) {
-        existingNames.add(divName.toLowerCase());
-        base.push({
-          id: divName,
-          divisionId: divName,
-          name: divName,
-          description: divName
-        });
-      }
-    });
-    return base;
-  }, [dbDivisions, plants]);
+    return getDivisionsFromPlants(plants);
+  }, [plants]);
 
   const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
   const { data: customers } = useCollection(customersQuery);
@@ -222,6 +202,8 @@ export default function FB03() {
     return map;
   }, [allReceipts]);
 
+  const registeredDivisionNames = useMemo(() => new Set(divisions.map((d) => d.name)), [divisions]);
+
   // Main Processing Logic
   const processedData = useMemo(() => {
     if (!allInvoices) return [];
@@ -229,11 +211,11 @@ export default function FB03() {
       if (!isAdmin && assignedPlantIds.length > 0 && !assignedPlantIds.includes(inv.plantId)) return false;
       if (inv.status === "Cancelled") return false;
 
-      // Division Filter: determine Division strictly from Plant Master
+      // Division Filter: determine Division strictly from Plant Master (OP03)
       if (!isAllDivisions(filterDivisions)) {
         const invPlant = plantMap[inv.plantId];
         const invDivision = getPlantDivision(invPlant);
-        const selectedDivs = filterDivisions.filter((d) => d !== "ALL");
+        const selectedDivs = filterDivisions.filter((d) => d !== "ALL" && registeredDivisionNames.has(d));
         if (!selectedDivs.includes(invDivision)) return false;
       }
 
@@ -306,16 +288,26 @@ export default function FB03() {
 
   const overallSummary = useMemo(() => calculateSummary(processedData), [processedData]);
 
-  // Check if multiple specific divisions are selected
-  const isMultipleDivisions = useMemo(() => {
-    return !isAllDivisions(filterDivisions) && filterDivisions.filter((d) => d !== "ALL").length > 1;
-  }, [filterDivisions]);
+  const formatDivisionHeader = (name: string): string => {
+    const trimmed = (name || "").trim();
+    if (!trimmed) return "General Division";
+    if (trimmed.toLowerCase().includes("division")) {
+      return trimmed;
+    }
+    return `${trimmed} Division`;
+  };
 
-  // Per-division breakdown widgets when multiple divisions are selected
+  // Determine active divisions for division-wise sections (strictly from OP03 registered divisions)
+  const activeDivisionList = useMemo(() => {
+    if (!isAllDivisions(filterDivisions)) {
+      return filterDivisions.filter((d) => d !== "ALL" && registeredDivisionNames.has(d));
+    }
+    return divisions.map((d) => d.name);
+  }, [filterDivisions, divisions, registeredDivisionNames]);
+
+  // Per-division breakdown widgets
   const divisionSummaries = useMemo(() => {
-    if (!isMultipleDivisions) return [];
-    const selectedDivs = filterDivisions.filter((d) => d !== "ALL");
-    return selectedDivs.map((divName) => {
+    return activeDivisionList.map((divName) => {
       const recordsForDiv = processedData.filter((r) => r.division === divName);
       return {
         division: divName,
@@ -323,7 +315,7 @@ export default function FB03() {
         summary: calculateSummary(recordsForDiv),
       };
     });
-  }, [isMultipleDivisions, filterDivisions, processedData]);
+  }, [activeDivisionList, processedData]);
 
   const sortedData = useMemo(() => {
     const dataToSort = showAllInvoices ? processedData : pendingInvoices;
@@ -529,46 +521,46 @@ export default function FB03() {
       </div>
 
       {/* DASHBOARD SUMMARY WIDGETS */}
-      {isMultipleDivisions ? (
-        <div className="p-4 space-y-6">
+      {divisionSummaries.length > 0 ? (
+        <div className="p-4 space-y-4 bg-gray-50 border-b border-gray-200">
           {divisionSummaries.map((divItem) => (
-            <div key={divItem.division} className="space-y-2 border border-[#b5c7de] rounded-sm p-3 bg-[#f8fafc]">
-              <div className="flex items-center justify-between pb-1 border-b border-gray-200">
+            <div key={divItem.division} className="space-y-2.5 border border-[#b5c7de] rounded-sm p-3.5 bg-white shadow-2xs">
+              <div className="flex items-center justify-between pb-1.5 border-b border-gray-200">
                 <div className="flex items-center gap-2">
                   <Building2 className="h-4 w-4 text-blue-700" />
                   <span className="text-xs font-black uppercase text-blue-900 tracking-wider">
-                    {divItem.division}
+                    {formatDivisionHeader(divItem.division)}
                   </span>
-                  <span className="text-[10px] font-bold text-gray-500 bg-white border border-gray-300 px-2 py-0.5 rounded">
+                  <span className="text-[10px] font-bold text-gray-500 bg-gray-100 border border-gray-300 px-2 py-0.5 rounded font-mono">
                     {divItem.count} Invoices
                   </span>
                 </div>
-                <span className="text-[10px] font-semibold text-gray-500">
+                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
                   Division-wise Financial Breakdown
                 </span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-                <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-3 flex items-center gap-3">
+                <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-blue-300 transition-colors">
                   <div className="bg-blue-50 p-2.5 rounded-full"><Receipt className="h-5 w-5 text-blue-600" /></div>
                   <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoice Amount</p><p className="text-lg font-black text-gray-800 font-mono">₹ {formatAmount(divItem.summary.total)}</p></div>
                 </div>
-                <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-3 flex items-center gap-3">
+                <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-emerald-300 transition-colors">
                   <div className="bg-emerald-50 p-2.5 rounded-full"><Wallet className="h-5 w-5 text-emerald-600" /></div>
                   <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Receipt Amount</p><p className="text-lg font-black text-emerald-700 font-mono">₹ {formatAmount(divItem.summary.receipt)}</p></div>
                 </div>
-                <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-3 flex items-center gap-3">
+                <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-orange-300 transition-colors">
                   <div className="bg-orange-50 p-2.5 rounded-full"><MinusCircle className="h-5 w-5 text-orange-600" /></div>
                   <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total TDS Amount</p><p className="text-lg font-black text-orange-700 font-mono">₹ {formatAmount(divItem.summary.tds)}</p></div>
                 </div>
-                <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-3 flex items-center gap-3">
+                <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-purple-300 transition-colors">
                   <div className="bg-purple-50 p-2.5 rounded-full"><PlusCircle className="h-5 w-5 text-purple-600" /></div>
                   <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Deduction Amount</p><p className="text-lg font-black text-purple-700 font-mono">₹ {formatAmount(divItem.summary.deduction)}</p></div>
                 </div>
-                <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-3 flex items-center gap-3">
+                <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-amber-300 transition-colors">
                   <div className="bg-amber-50 p-2.5 rounded-full"><PlusCircle className="h-5 w-5 text-amber-600" /></div>
                   <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Interest Amount</p><p className="text-lg font-black text-amber-700 font-mono">₹ {formatAmount(divItem.summary.interest)}</p></div>
                 </div>
-                <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-3 flex items-center gap-3">
+                <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-red-300 transition-colors">
                   <div className="bg-red-50 p-2.5 rounded-full"><ArrowRight className="h-5 w-5 text-red-600" /></div>
                   <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Balance Amount</p><p className="text-lg font-black text-red-700 font-mono">₹ {formatAmount(divItem.summary.balance)}</p></div>
                 </div>

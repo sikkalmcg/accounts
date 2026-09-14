@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useDatabase, useCollection, useMemoDatabase, addDocumentNonBlocking } from "@/database";
 import { collection, serverTimestamp } from "@/database/mongo";
 import { validateDuplicate } from "@/lib/duplicate-validator";
@@ -18,9 +18,26 @@ export default function OP01() {
   const [formData, setFormData] = useState(initialData);
   const [loading, setLoading] = useState(false);
 
+  const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
+  const { data: plants } = useCollection(plantsQuery);
+
   const divisionsQuery = useMemoDatabase(() => collection(db, "divisions"), [db]);
   const { data: dbDivisions } = useCollection(divisionsQuery);
-  const divisions = (dbDivisions && dbDivisions.length > 0) ? dbDivisions : DEFAULT_DIVISIONS;
+  const divisions = useMemo(() => {
+    const base = ((dbDivisions && dbDivisions.length > 0 ? dbDivisions : DEFAULT_DIVISIONS) as any[]).map((d: any) => ({
+      id: d.id || d.name,
+      name: d.name
+    }));
+    const existingNames = new Set(base.map(d => (d.name || "").trim().toLowerCase()));
+    plants?.forEach((p: any) => {
+      const divName = (p.division || "").trim();
+      if (divName && !existingNames.has(divName.toLowerCase())) {
+        existingNames.add(divName.toLowerCase());
+        base.push({ id: divName, name: divName });
+      }
+    });
+    return base;
+  }, [dbDivisions, plants]);
 
   const handleExecute = useCallback(async () => {
     // 1. Mandatory Validation: Plant ID, Plant Name, Division

@@ -29,10 +29,10 @@ import {
   ChevronUp,
   X,
   ArrowUpDown,
-  Building2,
-  Layers,
   Wallet,
   ArrowRight,
+  MinusCircle,
+  PlusCircle,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -47,12 +47,13 @@ import {
 } from "@/components/ui/select";
 
 import PlantMultiSelect from "./PlantMultiSelect";
-import DivisionMultiSelect from "./DivisionMultiSelect";
+import ConsignorMultiSelect from "./ConsignorMultiSelect";
+import BillToMultiSelect from "./BillToMultiSelect";
 import { getRecordPlantIds } from "@/lib/plant-master";
 import { formatAmount } from "@/lib/number-utils";
 import { toSAPDate } from "@/lib/date-utils";
 import { downloadCsv } from "@/lib/csv-export";
-import { DEFAULT_DIVISIONS, getPlantDivision, isAllDivisions } from "@/lib/division-master";
+import { getPlantDivision } from "@/lib/division-master";
 
 /* =========================================================
    DATE HELPERS
@@ -177,8 +178,8 @@ export default function F110() {
   ======================================================= */
 
   const [filterPlants, setFilterPlants] = useState<string[]>([]);
-  const [filterConsignor, setFilterConsignor] = useState<string>("ALL");
-  const [filterBillTo, setFilterBillTo] = useState<string>("ALL");
+  const [filterConsignors, setFilterConsignors] = useState<string[]>(["ALL"]);
+  const [filterBillTo, setFilterBillTo] = useState<string[]>(["ALL"]);
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
   const [searchText, setSearchText] = useState<string>("");
@@ -269,31 +270,6 @@ export default function F110() {
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
   const { data: plants } = useCollection(plantsQuery);
 
-  const divisionsQuery = useMemoDatabase(() => collection(db, "divisions"), [db]);
-  const { data: dbDivisions } = useCollection(divisionsQuery);
-  const divisions = useMemo(() => {
-    const base = ((dbDivisions && dbDivisions.length > 0 ? dbDivisions : DEFAULT_DIVISIONS) as any[]).map((d: any) => ({
-      id: d.id || d.name,
-      divisionId: d.divisionId || d.id || d.name,
-      name: d.name,
-      description: d.description
-    }));
-    const existingNames = new Set(base.map(d => (d.name || "").trim().toLowerCase()));
-    plants?.forEach((p: any) => {
-      const divName = (p.division || "").trim();
-      if (divName && !existingNames.has(divName.toLowerCase())) {
-        existingNames.add(divName.toLowerCase());
-        base.push({
-          id: divName,
-          divisionId: divName,
-          name: divName,
-          description: divName
-        });
-      }
-    });
-    return base;
-  }, [dbDivisions, plants]);
-
   const plantMap = useMemo(() => {
     const map = new Map<string, any>();
     (plants || []).forEach((p: any) => {
@@ -301,8 +277,6 @@ export default function F110() {
     });
     return map;
   }, [plants]);
-
-  const [filterDivisions, setFilterDivisions] = useState<string[]>(["ALL"]);
 
   const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
   const { data: customers } = useCollection(customersQuery);
@@ -326,34 +300,7 @@ export default function F110() {
     );
   }, [plants, isAdmin, authorizedPlantIds]);
 
-  /* =======================================================
-     CASCADING PLANTS (DEPENDENT ON DIVISION)
-  ======================================================= */
-
-  const availablePlants = useMemo(() => {
-    if (isAllDivisions(filterDivisions)) {
-      return allowedPlants;
-    }
-    const selectedDivs = filterDivisions.filter((d) => d !== "ALL");
-    return allowedPlants.filter((plant: any) =>
-      selectedDivs.includes(getPlantDivision(plant))
-    );
-  }, [allowedPlants, filterDivisions]);
-
-  const handleDivisionChange = (newDivisions: string[]) => {
-    setFilterDivisions(newDivisions);
-    if (!isAllDivisions(newDivisions)) {
-      const selectedDivs = newDivisions.filter((d) => d !== "ALL");
-      const validPlantIds = new Set(
-        allowedPlants
-          .filter((p: any) => selectedDivs.includes(getPlantDivision(p)))
-          .map((p: any) => normalizeString(p.plantId))
-      );
-      setFilterPlants((prev) =>
-        prev.filter((id) => validPlantIds.has(normalizeString(id)))
-      );
-    }
-  };
+  const availablePlants = allowedPlants;
 
   /* =======================================================
      SECURITY: Remove unauthorized selected plants
@@ -377,6 +324,14 @@ export default function F110() {
     if (!firms) return [];
 
     if (filterPlants.length === 0) {
+      if (!isAdmin) {
+        const allowedPlantIds = allowedPlants.map((p: any) => normalizeString(p.plantId));
+        return firms.filter((firm: any) =>
+          getRecordPlantIds(firm).some((plantId: string) =>
+            allowedPlantIds.includes(normalizeString(plantId))
+          )
+        );
+      }
       return firms;
     }
 
@@ -385,7 +340,7 @@ export default function F110() {
         filterPlants.includes(plantId)
       )
     );
-  }, [firms, filterPlants]);
+  }, [firms, filterPlants, isAdmin, allowedPlants]);
 
   /* =======================================================
      FILTERED BILL TO PARTIES
@@ -395,6 +350,14 @@ export default function F110() {
     if (!customers) return [];
 
     if (filterPlants.length === 0) {
+      if (!isAdmin) {
+        const allowedPlantIds = allowedPlants.map((p: any) => normalizeString(p.plantId));
+        return customers.filter((customer: any) =>
+          getRecordPlantIds(customer).some((plantId: string) =>
+            allowedPlantIds.includes(normalizeString(plantId))
+          )
+        );
+      }
       return customers;
     }
 
@@ -403,7 +366,27 @@ export default function F110() {
         filterPlants.includes(plantId)
       )
     );
-  }, [customers, filterPlants]);
+  }, [customers, filterPlants, isAdmin, allowedPlants]);
+
+  useEffect(() => {
+    if (!filterConsignors.includes("ALL")) {
+      const validKeys = new Set(filteredFirms.map((f: any) => f.firmId || f.id));
+      setFilterConsignors((prev) => {
+        const next = prev.filter((id) => validKeys.has(id));
+        return next.length > 0 ? next : ["ALL"];
+      });
+    }
+  }, [filteredFirms]);
+
+  useEffect(() => {
+    if (!filterBillTo.includes("ALL")) {
+      const validKeys = new Set(filteredCustomers.map((c: any) => c.customerId || c.id));
+      setFilterBillTo((prev) => {
+        const next = prev.filter((id) => validKeys.has(id));
+        return next.length > 0 ? next : ["ALL"];
+      });
+    }
+  }, [filteredCustomers]);
 
   /* =======================================================
       MB03 INVOICE NORMALIZATION
@@ -735,6 +718,10 @@ export default function F110() {
 
         const paymentInfo = paymentsByInvoice.get(invoice.invoiceNumber);
         const totalPaid = toNumber(invoice.totalPaidAmount !== undefined && invoice.totalPaidAmount !== null ? invoice.totalPaidAmount : paymentInfo?.totalPaid);
+        const receiptAmount = toNumber(invoice.receiptAmount !== undefined && invoice.receiptAmount !== null ? invoice.receiptAmount : (paymentInfo?.totalPaid ? totalPaid : 0));
+        const tdsAmount = toNumber(invoice.tdsAmount ?? 0);
+        const deductionAmount = toNumber(invoice.deductionAmount ?? 0);
+        const interestAmount = toNumber(invoice.interestAmount ?? 0);
         const grossAmount = toNumber(invoice.grossAmount);
         const balanceAmount = Math.max(0, grossAmount - totalPaid);
 
@@ -805,6 +792,10 @@ export default function F110() {
           workingMonth,
           chargeType: invoice.chargeType || "N/A",
           grossAmount,
+          receiptAmount,
+          tdsAmount,
+          deductionAmount,
+          interestAmount,
           totalPaidAmount: totalPaid,
           paymentDate: displayPaymentDate,
           balanceAmount,
@@ -817,26 +808,31 @@ export default function F110() {
       });
 
       /* ===================================================
-         STEP 7 & 8: CONSIGNOR, BILL TO & DIVISION FILTERS
+         STEP 7 & 8: CONSIGNOR & BILL TO FILTERS
       =================================================== */
-
-      if (!isAllDivisions(filterDivisions)) {
-        const selectedDivs = filterDivisions.filter((d) => d !== "ALL");
-        processed = processed.filter((row: any) => selectedDivs.includes(row.division));
-      }
 
       if (filterPlants.length > 0) {
         processed = processed.filter((row: any) => filterPlants.includes(row.plantId));
       }
 
-      if (filterConsignor !== "ALL") {
+      const isAllConsignors = !filterConsignors || filterConsignors.length === 0 || filterConsignors.includes("ALL");
+      if (!isAllConsignors) {
+        const selectedConsignorKeys = filterConsignors.filter((c) => c !== "ALL").map(normalizeString);
         processed = processed.filter(
-          (row: any) => row._consignorId === filterConsignor
+          (row: any) =>
+            selectedConsignorKeys.includes(normalizeString(row._consignorId)) ||
+            selectedConsignorKeys.includes(normalizeString(row.consignorName))
         );
       }
 
-      if (filterBillTo !== "ALL") {
-        processed = processed.filter((row: any) => row._billToId === filterBillTo);
+      const isAllBillTo = !filterBillTo || filterBillTo.length === 0 || filterBillTo.includes("ALL");
+      if (!isAllBillTo) {
+        const selectedBillToKeys = filterBillTo.filter((b) => b !== "ALL").map(normalizeString);
+        processed = processed.filter(
+          (row: any) =>
+            selectedBillToKeys.includes(normalizeString(row._billToId)) ||
+            selectedBillToKeys.includes(normalizeString(row.billToName))
+        );
       }
 
       /* ===================================================
@@ -921,29 +917,26 @@ export default function F110() {
 
   /* =======================================================
      DIVISION BREAKDOWN SUMMARY
+  /* =======================================================
+     6-KPI REPORT SUMMARY
   ======================================================= */
 
-  const isMultipleDivisions = useMemo(() => {
-    return !isAllDivisions(filterDivisions) && filterDivisions.filter((d) => d !== "ALL").length > 1;
-  }, [filterDivisions]);
-
-  const divisionSummaries = useMemo(() => {
-    if (!isMultipleDivisions) return [];
-    const selectedDivs = filterDivisions.filter((d) => d !== "ALL");
-    return selectedDivs.map((divName) => {
-      const recordsForDiv = filteredResults.filter((r) => r.division === divName);
-      const grossAmount = recordsForDiv.reduce((s, r) => s + (Number(r.grossAmount) || 0), 0);
-      const totalPaidAmount = recordsForDiv.reduce((s, r) => s + (Number(r.totalPaidAmount) || 0), 0);
-      const balanceAmount = recordsForDiv.reduce((s, r) => s + (Number(r.balanceAmount) || 0), 0);
-      return {
-        division: divName,
-        count: recordsForDiv.length,
-        grossAmount,
-        totalPaidAmount,
-        balanceAmount,
-      };
-    });
-  }, [isMultipleDivisions, filterDivisions, filteredResults]);
+  const summary = useMemo(() => {
+    const totalInvoice = filteredResults.reduce((s, r) => s + (Number(r.grossAmount) || 0), 0);
+    const totalReceipt = filteredResults.reduce((s, r) => s + (Number(r.receiptAmount) || (Number(r.totalPaidAmount) || 0)), 0);
+    const totalTds = filteredResults.reduce((s, r) => s + (Number(r.tdsAmount) || 0), 0);
+    const totalDeduction = filteredResults.reduce((s, r) => s + (Number(r.deductionAmount) || 0), 0);
+    const totalInterest = filteredResults.reduce((s, r) => s + (Number(r.interestAmount) || 0), 0);
+    const totalBalance = filteredResults.reduce((s, r) => s + (Number(r.balanceAmount) || 0), 0);
+    return {
+      totalInvoice,
+      totalReceipt,
+      totalTds,
+      totalDeduction,
+      totalInterest,
+      totalBalance,
+    };
+  }, [filteredResults]);
 
   /* =======================================================
      EXCEL / CSV EXPORT
@@ -1008,7 +1001,7 @@ export default function F110() {
       {/* FILTER SECTION */}
       {showFilters && (
         <div className="sap-selection-area">
-          <div className="p-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4 items-end">
+          <div className="p-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
             {/* PLANT */}
             <div className="space-y-1">
               <label className="sap-label font-bold text-gray-700">
@@ -1022,55 +1015,24 @@ export default function F110() {
               />
             </div>
 
-            {/* DIVISION */}
-            <div className="space-y-1">
-              <label className="sap-label font-bold text-gray-700">
-                Division
-              </label>
-              <DivisionMultiSelect
-                divisions={divisions}
-                selected={filterDivisions}
-                onChange={handleDivisionChange}
-              />
-            </div>
-
             {/* CONSIGNOR */}
             <div className="space-y-1">
-              <label className="sap-label">Consignor</label>
-              <Select
-                value={filterConsignor}
-                onValueChange={setFilterConsignor}
-              >
-                <SelectTrigger className="h-8 text-xs rounded-none border-gray-400">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All</SelectItem>
-                  {filteredFirms.map((firm: any) => (
-                    <SelectItem key={firm.id} value={firm.firmId}>
-                      {firm.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <label className="sap-label font-bold text-gray-700">Consignor</label>
+              <ConsignorMultiSelect
+                consignors={filteredFirms}
+                selected={filterConsignors}
+                onChange={setFilterConsignors}
+              />
             </div>
 
             {/* BILL TO PARTY */}
             <div className="space-y-1">
-              <label className="sap-label">Bill to Party</label>
-              <Select value={filterBillTo} onValueChange={setFilterBillTo}>
-                <SelectTrigger className="h-8 text-xs rounded-none border-gray-400">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All</SelectItem>
-                  {filteredCustomers.map((customer: any) => (
-                    <SelectItem key={customer.id} value={customer.customerId}>
-                      {customer.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <label className="sap-label font-bold text-gray-700">Bill to Party</label>
+              <BillToMultiSelect
+                customers={filteredCustomers}
+                selected={filterBillTo}
+                onChange={setFilterBillTo}
+              />
             </div>
 
             {/* FROM DATE */}
@@ -1179,57 +1141,64 @@ export default function F110() {
               records
             </div>
 
-            {/* DIVISION BREAKDOWN WIDGETS (When multiple Divisions selected) */}
-            {isMultipleDivisions && divisionSummaries.length > 0 && (
-              <div className="p-4 space-y-4 bg-gray-50 border-b border-gray-200">
-                {divisionSummaries.map((divItem) => (
-                  <div key={divItem.division} className="space-y-2 border border-[#b5c7de] rounded-sm p-3 bg-white shadow-sm">
-                    <div className="flex items-center justify-between pb-1 border-b border-gray-200">
-                      <div className="flex items-center gap-2">
-                        <Building2 className="h-4 w-4 text-blue-700" />
-                        <span className="text-xs font-black uppercase text-blue-900 tracking-wider">
-                          {divItem.division}
-                        </span>
-                        <span className="text-[10px] font-bold text-gray-500 bg-gray-100 border border-gray-300 px-2 py-0.5 rounded">
-                          {divItem.count} Invoices
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-semibold text-gray-500">
-                        Division Payment Breakdown
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                      <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3">
-                        <div className="bg-blue-50 p-2.5 rounded-full"><Receipt className="h-5 w-5 text-blue-600" /></div>
-                        <div>
-                          <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoice Gross Amount</p>
-                          <p className="text-lg font-black text-gray-800 font-mono">₹ {formatAmount(divItem.grossAmount)}</p>
-                        </div>
-                      </div>
-                      <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3">
-                        <div className="bg-emerald-50 p-2.5 rounded-full"><Wallet className="h-5 w-5 text-emerald-600" /></div>
-                        <div>
-                          <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Payment Amount</p>
-                          <p className="text-lg font-black text-emerald-700 font-mono">₹ {formatAmount(divItem.totalPaidAmount)}</p>
-                        </div>
-                      </div>
-                      <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3">
-                        <div className="bg-red-50 p-2.5 rounded-full"><ArrowRight className="h-5 w-5 text-red-600" /></div>
-                        <div>
-                          <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Balance Amount</p>
-                          <p className="text-lg font-black text-red-700 font-mono">₹ {formatAmount(divItem.balanceAmount)}</p>
-                        </div>
-                      </div>
-                      <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3">
-                        <div className="bg-indigo-50 p-2.5 rounded-full"><Layers className="h-5 w-5 text-indigo-600" /></div>
-                        <div>
-                          <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoices</p>
-                          <p className="text-lg font-black text-indigo-800 font-mono">{divItem.count}</p>
-                        </div>
-                      </div>
+            {/* 6-KPI SUMMARY WIDGETS */}
+            {filteredResults.length > 0 && (
+              <div className="p-4 bg-gray-50 border-b border-gray-200">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+                  {/* 1. Total Invoice Amount */}
+                  <div className="bg-white border border-gray-200 rounded-sm shadow-2xs p-3 flex items-center gap-3 hover:border-blue-300 transition-colors">
+                    <div className="bg-blue-50 p-2.5 rounded-full"><Receipt className="h-5 w-5 text-blue-600" /></div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoice Amount</p>
+                      <p className="text-lg font-black text-gray-800 font-mono">₹ {formatAmount(summary.totalInvoice)}</p>
                     </div>
                   </div>
-                ))}
+
+                  {/* 2. Total Receipt Amount */}
+                  <div className="bg-white border border-gray-200 rounded-sm shadow-2xs p-3 flex items-center gap-3 hover:border-emerald-300 transition-colors">
+                    <div className="bg-emerald-50 p-2.5 rounded-full"><Wallet className="h-5 w-5 text-emerald-600" /></div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Receipt Amount</p>
+                      <p className="text-lg font-black text-emerald-700 font-mono">₹ {formatAmount(summary.totalReceipt)}</p>
+                    </div>
+                  </div>
+
+                  {/* 3. Total TDS Amount */}
+                  <div className="bg-white border border-gray-200 rounded-sm shadow-2xs p-3 flex items-center gap-3 hover:border-orange-300 transition-colors">
+                    <div className="bg-orange-50 p-2.5 rounded-full"><MinusCircle className="h-5 w-5 text-orange-600" /></div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total TDS Amount</p>
+                      <p className="text-lg font-black text-orange-700 font-mono">₹ {formatAmount(summary.totalTds)}</p>
+                    </div>
+                  </div>
+
+                  {/* 4. Total Deduction Amount */}
+                  <div className="bg-white border border-gray-200 rounded-sm shadow-2xs p-3 flex items-center gap-3 hover:border-purple-300 transition-colors">
+                    <div className="bg-purple-50 p-2.5 rounded-full"><PlusCircle className="h-5 w-5 text-purple-600" /></div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Deduction Amount</p>
+                      <p className="text-lg font-black text-purple-700 font-mono">₹ {formatAmount(summary.totalDeduction)}</p>
+                    </div>
+                  </div>
+
+                  {/* 5. Total Interest Amount */}
+                  <div className="bg-white border border-gray-200 rounded-sm shadow-2xs p-3 flex items-center gap-3 hover:border-amber-300 transition-colors">
+                    <div className="bg-amber-50 p-2.5 rounded-full"><PlusCircle className="h-5 w-5 text-amber-600" /></div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Interest Amount</p>
+                      <p className="text-lg font-black text-amber-700 font-mono">₹ {formatAmount(summary.totalInterest)}</p>
+                    </div>
+                  </div>
+
+                  {/* 6. Total Balance Amount */}
+                  <div className="bg-white border border-gray-200 rounded-sm shadow-2xs p-3 flex items-center gap-3 hover:border-red-300 transition-colors">
+                    <div className="bg-red-50 p-2.5 rounded-full"><ArrowRight className="h-5 w-5 text-red-600" /></div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Balance Amount</p>
+                      <p className="text-lg font-black text-red-700 font-mono">₹ {formatAmount(summary.totalBalance)}</p>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 

@@ -36,12 +36,7 @@ export default function DivisionMultiSelect({
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const divisionList = useMemo(() => {
-    return divisions && divisions.length > 0
-      ? divisions
-      : [
-          { id: "DIV_A", name: "Division A" },
-          { id: "DIV_B", name: "Division B" },
-        ];
+    return divisions || [];
   }, [divisions]);
 
   const allDivisionNames = useMemo(() => divisionList.map((d) => d.name), [divisionList]);
@@ -177,22 +172,28 @@ export default function DivisionMultiSelect({
         <div className="border-t border-gray-200 my-1" />
 
         {/* Individual Divisions */}
-        {divisionList.map((d) => {
-          const isSelected = !isAll && activeSelections.includes(d.name);
-          return (
-            <div
-              key={d.id || d.name}
-              className={cn(
-                "flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors",
-                isSelected ? "bg-blue-50/70 font-semibold text-blue-900" : "hover:bg-gray-100 text-gray-800"
-              )}
-              onClick={() => handleToggleDivision(d.name)}
-            >
-              <Checkbox checked={isSelected} className="h-3.5 w-3.5 pointer-events-none" />
-              <span className="text-[11px] flex-1">{d.name}</span>
-            </div>
-          );
-        })}
+        {divisionList.length === 0 ? (
+          <div className="px-3 py-3 text-center text-[11px] text-gray-400">
+            No divisions found
+          </div>
+        ) : (
+          divisionList.map((d) => {
+            const isSelected = !isAll && activeSelections.includes(d.name);
+            return (
+              <div
+                key={d.id || d.name}
+                className={cn(
+                  "flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors",
+                  isSelected ? "bg-blue-50/70 font-semibold text-blue-900" : "hover:bg-gray-100 text-gray-800"
+                )}
+                onClick={() => handleToggleDivision(d.name)}
+              >
+                <Checkbox checked={isSelected} className="h-3.5 w-3.5 pointer-events-none" />
+                <span className="text-[11px] flex-1">{d.name}</span>
+              </div>
+            );
+          })
+        )}
       </div>
 
       <div className="bg-[#e7ebf1] border-t border-gray-300 px-2 py-1 text-[9px] font-bold text-gray-500 uppercase flex justify-between">

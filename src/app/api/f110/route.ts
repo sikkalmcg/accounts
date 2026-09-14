@@ -103,13 +103,38 @@ export async function GET(request: NextRequest) {
       .toArray();
     const paymentRecords = await database.collection("payment_receipts").find({}).toArray();
 
-    const paymentsByInvoice = new Map<string, { totalPaid: number; latestPaymentDate: Date | null }>();
+    const paymentsByInvoice = new Map<
+      string,
+      {
+        totalPaid: number;
+        receiptAmount: number;
+        tdsAmount: number;
+        deductionAmount: number;
+        interestAmount: number;
+        latestPaymentDate: Date | null;
+      }
+    >();
     for (const payment of paymentRecords) {
       if (normalize(payment.status).toLowerCase() === "reversed") continue;
       const key = invoiceKey(payment.invoiceNo || payment.invoiceNumber || payment.invoice);
       if (!key) continue;
-      const summary = paymentsByInvoice.get(key) || { totalPaid: 0, latestPaymentDate: null };
-      summary.totalPaid += amount(payment.receiptAmount) + amount(payment.tds) + amount(payment.deduction) + amount(payment.interest);
+      const summary = paymentsByInvoice.get(key) || {
+        totalPaid: 0,
+        receiptAmount: 0,
+        tdsAmount: 0,
+        deductionAmount: 0,
+        interestAmount: 0,
+        latestPaymentDate: null,
+      };
+      const rec = amount(payment.receiptAmount ?? payment.paymentAmount ?? payment.paidAmount);
+      const tds = amount(payment.tds ?? payment.tdsAmount);
+      const ded = amount(payment.deduction ?? payment.deductionAmount);
+      const int = amount(payment.interest ?? payment.interestAmount);
+      summary.receiptAmount += rec;
+      summary.tdsAmount += tds;
+      summary.deductionAmount += ded;
+      summary.interestAmount += int;
+      summary.totalPaid += (rec + tds + ded + int);
       const paymentDate = parseDate(payment.paymentDate || payment.postingDate || payment.receiptDate);
       if (paymentDate && (!summary.latestPaymentDate || paymentDate > summary.latestPaymentDate)) {
         summary.latestPaymentDate = paymentDate;
@@ -132,6 +157,10 @@ export async function GET(request: NextRequest) {
           invoiceNumber,
           invoiceDate: invoice.invoiceDate || invoice.billingDate || invoice.date || "",
           grossAmount,
+          receiptAmount: payment?.receiptAmount ?? 0,
+          tdsAmount: payment?.tdsAmount ?? 0,
+          deductionAmount: payment?.deductionAmount ?? 0,
+          interestAmount: payment?.interestAmount ?? 0,
           totalPaidAmount: payment?.totalPaid ?? 0,
           paymentDate: payment?.latestPaymentDate?.toISOString() ?? "",
         };

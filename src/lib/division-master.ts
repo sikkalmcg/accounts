@@ -5,10 +5,7 @@ export interface Division {
   description?: string;
 }
 
-export const DEFAULT_DIVISIONS: Division[] = [
-  { id: "DIV_A", divisionId: "DIV_A", name: "Division A", description: "Primary Operations Division" },
-  { id: "DIV_B", divisionId: "DIV_B", name: "Division B", description: "Secondary Operations Division" },
-];
+export const DEFAULT_DIVISIONS: Division[] = [];
 
 /**
  * Returns true if the selection represents 'All' divisions.
@@ -21,12 +18,12 @@ export function isAllDivisions(selectedDivisions: string[] | null | undefined): 
 
 /**
  * Extracts and normalizes the Division assigned to a Plant.
- * Falls back to "Division A" if not specified on legacy plant records.
+ * Returns empty string if not specified on the plant record.
  */
 export function getPlantDivision(plant: any): string {
-  if (!plant) return "Division A";
-  const div = plant.division || plant.divisionName || plant.divisionId;
-  return (div && String(div).trim()) ? String(div).trim() : "Division A";
+  if (!plant) return "";
+  const div = plant.division ?? plant.divisionName ?? plant.divisionId;
+  return (div && String(div).trim()) ? String(div).trim() : "";
 }
 
 /**
@@ -47,4 +44,32 @@ export function filterPlantsByDivisions<T extends Record<string, any>>(
     const plantDiv = getPlantDivision(plant);
     return validDivisions.includes(plantDiv);
   });
+}
+
+/**
+ * Extracts the distinct divisions currently registered on plant records (OP03 page).
+ * Only returns divisions that actually appear on the provided plant records.
+ */
+export function getDivisionsFromPlants(plants: any[] | null | undefined): Division[] {
+  if (!plants || plants.length === 0) return [];
+  const seen = new Set<string>();
+  const list: Division[] = [];
+
+  plants.forEach((p: any) => {
+    const rawDiv = p?.division ?? p?.divisionName ?? p?.divisionId;
+    if (!rawDiv || !String(rawDiv).trim()) return;
+    const name = String(rawDiv).trim();
+    const key = name.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      list.push({
+        id: name,
+        divisionId: name,
+        name: name,
+        description: `${name} Division`,
+      });
+    }
+  });
+
+  return list.sort((a, b) => a.name.localeCompare(b.name));
 }

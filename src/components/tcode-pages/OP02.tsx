@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking, deleteDocumentNonBlocking, addDocumentNonBlocking } from "@/database";
 import { collection, doc, serverTimestamp, query, where, getDocs } from "@/database/mongo";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -21,7 +21,21 @@ export default function OP02() {
 
   const divisionsQuery = useMemoDatabase(() => collection(db, "divisions"), [db]);
   const { data: dbDivisions } = useCollection(divisionsQuery);
-  const divisions = (dbDivisions && dbDivisions.length > 0) ? dbDivisions : DEFAULT_DIVISIONS;
+  const divisions = useMemo(() => {
+    const base = ((dbDivisions && dbDivisions.length > 0 ? dbDivisions : DEFAULT_DIVISIONS) as any[]).map((d: any) => ({
+      id: d.id || d.name,
+      name: d.name
+    }));
+    const existingNames = new Set(base.map(d => (d.name || "").trim().toLowerCase()));
+    plants?.forEach((p: any) => {
+      const divName = (p.division || "").trim();
+      if (divName && !existingNames.has(divName.toLowerCase())) {
+        existingNames.add(divName.toLowerCase());
+        base.push({ id: divName, name: divName });
+      }
+    });
+    return base;
+  }, [dbDivisions, plants]);
 
   const handleSelect = useCallback((id: string) => {
     const plant = plants?.find(p => p.id === id);
