@@ -1,10 +1,8 @@
-
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
 import { useDatabase, useCollection, useMemoDatabase, addDocumentNonBlocking } from "@/database";
-import { collection, serverTimestamp, query, where, getDocs } from "@/database/mongo";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { collection, serverTimestamp } from "@/database/mongo";
 import { validateDuplicate } from "@/lib/duplicate-validator";
 import { DEFAULT_DIVISIONS } from "@/lib/division-master";
 
@@ -25,16 +23,24 @@ export default function OP01() {
   const divisions = (dbDivisions && dbDivisions.length > 0) ? dbDivisions : DEFAULT_DIVISIONS;
 
   const handleExecute = useCallback(async () => {
-    if (!formData.division || !formData.division.trim()) {
+    // 1. Mandatory Validation: Plant ID, Plant Name, Division
+    if (!formData.plantId || !formData.plantId.trim()) {
       window.dispatchEvent(new CustomEvent('sap-status', {
-        detail: { text: "Division is required.", isError: true }
+        detail: { text: "Plant ID is required.", isError: true }
       }));
       return;
     }
 
-    if (!formData.plantId || !formData.name || !formData.location) {
+    if (!formData.name || !formData.name.trim()) {
       window.dispatchEvent(new CustomEvent('sap-status', {
-        detail: { text: "Validation Error: All fields are required", isError: true }
+        detail: { text: "Plant Name is required.", isError: true }
+      }));
+      return;
+    }
+
+    if (!formData.division || !formData.division.trim()) {
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "Division is required.", isError: true }
       }));
       return;
     }
@@ -52,13 +58,25 @@ export default function OP01() {
       }
 
       const normalizedPlantId = formData.plantId.trim().toUpperCase();
+      const normalizedDivision = formData.division.trim();
 
       addDocumentNonBlocking(collection(db, "plants"), {
-        ...formData,
         plantId: normalizedPlantId,
-        division: formData.division.trim(),
+        name: formData.name.trim(),
+        location: formData.location ? formData.location.trim() : "",
+        division: normalizedDivision,
         createdAt: serverTimestamp(),
       });
+
+      // Automatically register new manual division into divisions collection if not already present
+      const existsInDb = divisions.some((d: any) => (d.name || d).toLowerCase() === normalizedDivision.toLowerCase());
+      if (!existsInDb) {
+        addDocumentNonBlocking(collection(db, "divisions"), {
+          name: normalizedDivision,
+          code: normalizedDivision.toUpperCase().replace(/[^A-Z0-9]/g, "_"),
+          createdAt: serverTimestamp(),
+        });
+      }
 
       window.dispatchEvent(new CustomEvent('sap-status', {
         detail: { text: `Plant ${normalizedPlantId} created successfully`, isError: false }
@@ -71,7 +89,7 @@ export default function OP01() {
     } finally {
       setLoading(false);
     }
-  }, [formData, db]);
+  }, [formData, db, divisions]);
 
   useEffect(() => {
     const onExecute = () => handleExecute();
@@ -96,47 +114,53 @@ export default function OP01() {
 
           <div className="p-2 space-y-1">
             <div className="sap-selection-row">
-              <label className="sap-label">Plant ID</label>
+              <label className="sap-label">
+                Plant ID <span className="text-red-500 font-bold">*</span>
+              </label>
               <div className="sap-input-wrapper max-w-[150px]">
                 <input
                   type="text"
                   value={formData.plantId}
                   onChange={(e) => setFormData({ ...formData, plantId: e.target.value.replace(/[^a-zA-Z0-9@-]/g, "").toUpperCase().slice(0, 16) })}
+                  placeholder="e.g. ID20"
                   className="flex h-6 w-full rounded-none border border-gray-400 bg-white px-1.5 py-1 text-xs shadow-inner focus-visible:outline-none focus:bg-[#fff9c4]"
                 />
               </div>
             </div>
 
             <div className="sap-selection-row">
-              <label className="sap-label">Plant Name</label>
+              <label className="sap-label">
+                Plant Name <span className="text-red-500 font-bold">*</span>
+              </label>
               <div className="sap-input-wrapper max-w-md">
                 <input
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="e.g. Sikka Central Plant"
                   className="flex h-6 w-full rounded-none border border-gray-400 bg-white px-1.5 py-1 text-xs shadow-inner focus-visible:outline-none focus:bg-[#fff9c4]"
                 />
               </div>
             </div>
 
             <div className="sap-selection-row">
-              <label className="sap-label">Division <span className="text-red-500 font-bold">*</span></label>
+              <label className="sap-label">
+                Division <span className="text-red-500 font-bold">*</span>
+              </label>
               <div className="sap-input-wrapper max-w-md">
-                <Select
+                <input
+                  type="text"
+                  list="op01-division-list"
                   value={formData.division}
-                  onValueChange={(val) => setFormData({ ...formData, division: val })}
-                >
-                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
-                    <SelectValue placeholder="Select Division *" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {divisions.map((d: any) => (
-                      <SelectItem key={d.id || d.name} value={d.name}>
-                        {d.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onChange={(e) => setFormData({ ...formData, division: e.target.value })}
+                  placeholder="Enter Division *"
+                  className="flex h-6 w-full rounded-none border border-gray-400 bg-white px-1.5 py-1 text-xs shadow-inner focus-visible:outline-none focus:bg-[#fff9c4]"
+                />
+                <datalist id="op01-division-list">
+                  {divisions.map((d: any) => (
+                    <option key={d.id || d.name} value={d.name} />
+                  ))}
+                </datalist>
               </div>
             </div>
 
@@ -147,6 +171,7 @@ export default function OP01() {
                   type="text"
                   value={formData.location}
                   onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                  placeholder="Optional"
                   className="flex h-6 w-full rounded-none border border-gray-400 bg-white px-1.5 py-1 text-xs shadow-inner focus-visible:outline-none focus:bg-[#fff9c4]"
                 />
               </div>
@@ -162,5 +187,3 @@ export default function OP01() {
     </div>
   );
 }
-
-

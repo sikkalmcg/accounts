@@ -2,8 +2,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from "@/database";
-import { collection, doc, query, where, getDocs } from "@/database/mongo";
+import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking, deleteDocumentNonBlocking, addDocumentNonBlocking } from "@/database";
+import { collection, doc, serverTimestamp, query, where, getDocs } from "@/database/mongo";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,13 @@ export default function OP02() {
       return;
     }
 
+    if (!formData.name || !formData.name.trim()) {
+      window.dispatchEvent(new CustomEvent('sap-status', { 
+        detail: { text: "Plant Name is required.", isError: true } 
+      }));
+      return;
+    }
+
     if (!formData.division || !formData.division.trim()) {
       window.dispatchEvent(new CustomEvent('sap-status', { 
         detail: { text: "Division is required.", isError: true } 
@@ -65,12 +72,25 @@ export default function OP02() {
 
     setLoading(true);
     try {
+      const normalizedDivision = formData.division.trim();
       const { id, ...data } = formData;
       updateDocumentNonBlocking(doc(db, "plants", selectedId), {
         ...data,
         plantId: (formData.plantId || "").trim().toUpperCase(),
-        division: formData.division.trim()
+        name: (formData.name || "").trim(),
+        division: normalizedDivision
       });
+
+      // Automatically register division if new
+      const existsInDb = divisions.some((d: any) => (d.name || d).toLowerCase() === normalizedDivision.toLowerCase());
+      if (!existsInDb) {
+        addDocumentNonBlocking(collection(db, "divisions"), {
+          name: normalizedDivision,
+          code: normalizedDivision.toUpperCase().replace(/[^A-Z0-9]/g, "_"),
+          createdAt: serverTimestamp(),
+        });
+      }
+
       window.dispatchEvent(new CustomEvent('sap-status', { 
         detail: { text: `Plant ${formData.plantId} updated successfully`, isError: false } 
       }));
@@ -157,12 +177,13 @@ export default function OP02() {
                 </div>
               </div>
               <div className="sap-selection-row">
-                <label className="sap-label">Plant Name</label>
+                <label className="sap-label">Plant Name <span className="text-red-500 font-bold">*</span></label>
                 <div className="sap-input-wrapper max-w-md">
                   <input
                     type="text"
                     value={formData.name}
                     onChange={(e) => setFormData({...formData, name: e.target.value})}
+                    placeholder="e.g. Sikka Central Plant"
                     className="flex h-6 w-full rounded-none border border-gray-400 bg-white px-1.5 py-1 text-xs shadow-inner focus-visible:outline-none focus:bg-[#fff9c4]"
                   />
                 </div>
@@ -170,21 +191,19 @@ export default function OP02() {
               <div className="sap-selection-row">
                 <label className="sap-label">Division <span className="text-red-500 font-bold">*</span></label>
                 <div className="sap-input-wrapper max-w-md">
-                  <Select
+                  <input
+                    type="text"
+                    list="op02-division-list"
                     value={formData.division || ""}
-                    onValueChange={(val) => setFormData({ ...formData, division: val })}
-                  >
-                    <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
-                      <SelectValue placeholder="Select Division *" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {divisions.map((d: any) => (
-                        <SelectItem key={d.id || d.name} value={d.name}>
-                          {d.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    onChange={(e) => setFormData({ ...formData, division: e.target.value })}
+                    placeholder="Enter Division *"
+                    className="flex h-6 w-full rounded-none border border-gray-400 bg-white px-1.5 py-1 text-xs shadow-inner focus-visible:outline-none focus:bg-[#fff9c4]"
+                  />
+                  <datalist id="op02-division-list">
+                    {divisions.map((d: any) => (
+                      <option key={d.id || d.name} value={d.name} />
+                    ))}
+                  </datalist>
                 </div>
               </div>
 

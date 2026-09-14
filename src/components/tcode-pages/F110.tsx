@@ -271,7 +271,28 @@ export default function F110() {
 
   const divisionsQuery = useMemoDatabase(() => collection(db, "divisions"), [db]);
   const { data: dbDivisions } = useCollection(divisionsQuery);
-  const divisions = dbDivisions && dbDivisions.length > 0 ? dbDivisions : DEFAULT_DIVISIONS;
+  const divisions = useMemo(() => {
+    const base = ((dbDivisions && dbDivisions.length > 0 ? dbDivisions : DEFAULT_DIVISIONS) as any[]).map((d: any) => ({
+      id: d.id || d.name,
+      divisionId: d.divisionId || d.id || d.name,
+      name: d.name,
+      description: d.description
+    }));
+    const existingNames = new Set(base.map(d => (d.name || "").trim().toLowerCase()));
+    plants?.forEach((p: any) => {
+      const divName = (p.division || "").trim();
+      if (divName && !existingNames.has(divName.toLowerCase())) {
+        existingNames.add(divName.toLowerCase());
+        base.push({
+          id: divName,
+          divisionId: divName,
+          name: divName,
+          description: divName
+        });
+      }
+    });
+    return base;
+  }, [dbDivisions, plants]);
 
   const plantMap = useMemo(() => {
     const map = new Map<string, any>();
