@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking } from "@/database";
+import { useDatabase, useCollection, useMemoDatabase, updateDocumentNonBlocking, updateDoc } from "@/database";
 import { collection, doc, query, where, getDocs } from "@/database/mongo";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -89,6 +89,7 @@ export default function VF02() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [availableOptions, setAvailableOptions] = useState<PricingOption[]>([]);
   const [isFetchingOptions, setIsFetchingOptions] = useState(false);
+  const [materialValidationError, setMaterialValidationError] = useState<string | null>(null);
 
   // Authorization Check
   useEffect(() => {
@@ -161,32 +162,68 @@ export default function VF02() {
   // Fetch pricing options
   useEffect(() => {
     async function fetchOptions() {
-      if (!plantId || !docCategory || !billTo) {
+      if (!plantId || !docCategory) {
         setAvailableOptions([]);
         return;
       }
       setIsFetchingOptions(true);
       try {
-        const q = query(
+        const customerPricingQuery = billTo ? query(
           collection(db, "pricing"),
           where("plantId", "==", plantId),
           where("documentCategory", "==", docCategory),
           where("customerCode", "==", billTo)
+        ) : null;
+
+        const genericPricingQuery = query(
+          collection(db, "pricing"),
+          where("plantId", "==", plantId),
+          where("documentCategory", "==", docCategory),
+          where("customerCode", "==", "")
         );
-        const snap = await getDocs(q);
-const options: PricingOption[] = snap.docs.map(doc => {
+
+        const [customerSnap, genericSnap] = await Promise.all([
+          customerPricingQuery ? getDocs(customerPricingQuery) : Promise.resolve({ empty: true, docs: [] }),
+          getDocs(genericPricingQuery)
+        ]);
+
+        const map = new Map<string, PricingOption>();
+
+        // Customer pricing takes priority
+        customerSnap.docs.forEach(doc => {
           const data = doc.data();
-          const matMaster = materials?.find(m => m.productName === data.materialCode || m.materialCode === data.materialCode);
-          return {
-            materialCode: data.materialCode || "",
-            materialName: data.materialName || matMaster?.productName || data.materialCode || "",
-            hsn: data.hsnSac || matMaster?.hsnSac || "",
-            uom: matMaster?.uom || "PCS",
-            price: data.price || 0,
-            gstRate: Number(data.gstRate) || 0
-          };
+          const matCode = data.materialCode || "";
+          if (matCode) {
+            const matMaster = materials?.find(m => m.productName === matCode || m.materialCode === matCode);
+            map.set(matCode, {
+              materialCode: matCode,
+              materialName: data.materialName || matMaster?.productName || matCode,
+              hsn: data.hsnSac || matMaster?.hsnSac || "",
+              uom: matMaster?.uom || "PCS",
+              price: data.price !== undefined ? data.price : 0,
+              gstRate: Number(data.gstRate) || 0
+            });
+          }
         });
-        setAvailableOptions(options);
+
+        // Generic pricing fills in remaining
+        genericSnap.docs.forEach(doc => {
+          const data = doc.data();
+          const matCode = data.materialCode || "";
+          if (matCode && !map.has(matCode)) {
+            const matMaster = materials?.find(m => m.productName === matCode || m.materialCode === matCode);
+            map.set(matCode, {
+              materialCode: matCode,
+              materialName: data.materialName || matMaster?.productName || matCode,
+              hsn: data.hsnSac || matMaster?.hsnSac || "",
+              uom: matMaster?.uom || "PCS",
+              price: data.price !== undefined ? data.price : 0,
+              gstRate: Number(data.gstRate) || 0
+            });
+          }
+        });
+
+        setAvailableOptions(Array.from(map.values()));
       } catch (e) {
         console.error("Pricing fetch failed", e);
       } finally {
@@ -292,7 +329,7 @@ return {
     };
   }, [items, firms, customers, billTo, plantId, isNonTax]);
 
-  // Standard item updater (non-REIMBURSEMENT charge types – unchanged)
+  // Standard item updater (non-REIMBURSEMENT charge types)
   const updateItem = (id: string, field: keyof InvoiceItem | number, val: string) => {
     if (isLockedByTime) return;
     setItems(prev => prev.map(i => {
@@ -303,9 +340,61 @@ return {
           return { ...i, customValues: updatedCustom };
         }
 
-let updated = { ...i, [field]: val };
+        let updated = { ...i, [field]: val };
         if (field === 'desc') {
-          const opt = availableOptions?.find(o => o.materialCode === val);
+          const opt = availableOptions?.find(o => o.materialCode === val || o.materialName === val);
+          const matMaster = materials?.find(m => m.productName === val || m.materialCode === val);
+
+          if (isIrnGenerated) {
+            // Compare replacement material against existing invoice item (Section 4)
+            const origItem = invoiceRecord?.items?.find((o: any) => o.id === id) || i;
+            const existingRate = roundToTwo(Number(origItem.rate || i.rate || 0));
+            const existingHsn = String(origItem.hsn || i.hsn || '').trim();
+
+            const newRateRaw = (opt?.price !== undefined && opt?.price !== '' && opt?.price !== null)
+              ? Number(opt.price)
+              : ((matMaster?.price !== undefined && matMaster?.price !== '' && matMaster?.price !== null)
+                ? Number(matMaster.price)
+                : NaN);
+            const newRate = isNaN(newRateRaw) ? null : roundToTwo(newRateRaw);
+            const newHsn = String(opt?.hsn || matMaster?.hsnSac || '').trim();
+
+            const rateMatch = newRate !== null && Math.abs(newRate - existingRate) < 0.001;
+            const hsnMatch = newHsn === existingHsn;
+
+            if (!rateMatch || !hsnMatch) {
+              let errorMsg = "";
+              if (!rateMatch && !hsnMatch) {
+                errorMsg = "Material cannot be changed because the Basic Rate and HSN/SAC of the selected material are different from the existing invoice item. After IRN generation, Material can be changed only when both Basic Rate and HSN/SAC are the same.";
+              } else if (!hsnMatch) {
+                errorMsg = "Material cannot be changed because the HSN/SAC of the selected material is different from the existing invoice item. After IRN generation, Material can be changed only when both Basic Rate and HSN/SAC are the same.";
+              } else {
+                errorMsg = "Material cannot be changed because the Basic Rate of the selected material is different from the existing invoice rate. After IRN generation, Material can be changed only when both Basic Rate and HSN/SAC are the same.";
+              }
+
+              setMaterialValidationError(errorMsg);
+              window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: errorMsg, isError: true } }));
+              return i; // Reject change and keep existing item unchanged
+            }
+
+            // ALLOW Material change: update only description/material name, preserve all financial fields
+            setMaterialValidationError(null);
+            window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Material updated. Basic Rate and Taxable Amount preserved.", isError: false } }));
+            return {
+              ...i,
+              desc: val,
+              descName: opt?.materialName || matMaster?.productName || opt?.materialCode || val,
+              // Strictly preserve existing values:
+              rate: origItem.rate || i.rate,
+              amount: origItem.amount !== undefined ? origItem.amount : i.amount,
+              gstRate: origItem.gstRate !== undefined ? origItem.gstRate : i.gstRate,
+              hsn: origItem.hsn || i.hsn,
+              qty: origItem.qty || i.qty,
+              uom: origItem.uom || i.uom,
+            };
+          }
+
+          // Non-IRN: allow normal assignment
           if (opt) {
             const isManualRate = !opt.price || (typeof opt.price === 'number' && opt.price <= 0) || String(opt.price).trim().toUpperCase() === 'FIX';
             updated.descName = opt.materialName || opt.materialCode;
@@ -323,6 +412,10 @@ let updated = { ...i, [field]: val };
             updated.isFixedCharge = true;
           }
         }
+        if (field === 'hsn') {
+          updated.hsn = val;
+          return updated;
+        }
         if (field === 'rate') {
           if (isIrnGenerated) return i;
           updated.rate = sanitizeAmountInput(val);
@@ -339,6 +432,9 @@ let updated = { ...i, [field]: val };
           }
           return updated;
         }
+        if (isIrnGenerated) {
+          return updated;
+        }
         if (updated.isFixedCharge) {
           updated.amount = roundToTwo(Number(updated.rate) || 0);
         } else {
@@ -350,7 +446,7 @@ let updated = { ...i, [field]: val };
     }));
   };
 
-  // REIMBURSEMENT CHARGE item updater — allows editing desc, hsn, rate, gstRate, amount
+  // REIMBURSEMENT CHARGE item updater
   const updateReimbItem = (id: string, field: string | number, val: string) => {
     if (isLockedByTime) return;
     setItems(prev => prev.map(i => {
@@ -360,6 +456,9 @@ let updated = { ...i, [field]: val };
         updatedCustom[field] = val;
         return { ...i, customValues: updatedCustom };
       }
+      if (isIrnGenerated && (field === 'rate' || field === 'qty' || field === 'amount' || field === 'gstRate')) {
+        return i;
+      }
       let updated = { ...i, [field]: val };
       if (field === 'rate') {
         if (isIrnGenerated) return i;
@@ -368,7 +467,10 @@ let updated = { ...i, [field]: val };
       if (field === 'qty') {
         if (isIrnGenerated) return i;
       }
-      if (field === 'gstRate') updated.gstRate = Number(val) || 0;
+      if (field === 'gstRate') {
+        if (isIrnGenerated) return i;
+        updated.gstRate = Number(val) || 0;
+      }
       if (field === 'amount') {
         if (isIrnGenerated) return i;
         updated.amount = roundToTwo(Number(sanitizeAmountInput(val)) || 0);
@@ -377,13 +479,16 @@ let updated = { ...i, [field]: val };
         }
         return updated;
       }
+      if (isIrnGenerated) {
+        return updated;
+      }
       // Recalculate amount: qty × rate for reimbursement rows
       updated.amount = roundToTwo((Number(updated.qty) || 0) * (Number(updated.rate) || 0));
       return updated;
     }));
   };
 
-const handleExecute = useCallback(async () => {
+  const handleExecute = useCallback(async () => {
     if (!selectedDocId) return;
 
     if (isLockedByTime) {
@@ -401,14 +506,74 @@ const handleExecute = useCallback(async () => {
       return;
     }
 
+    // Real-Time IRN status check before Save/Update (Section 15)
+    let freshInvoiceRecord = invoiceRecord;
+    try {
+      const q = query(collection(db, "sales_invoices"), where("invoiceNumber", "==", (invoiceRecord?.invoiceNumber || invoiceNo).toUpperCase()), where("plantId", "==", plantId));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        freshInvoiceRecord = snap.docs[0].data();
+      }
+    } catch (e) {
+      console.warn("Real-time IRN check query failed, using local record", e);
+    }
+
+    const currentIsIrnGenerated = Boolean(freshInvoiceRecord?.irnNumber && String(freshInvoiceRecord.irnNumber).trim() !== '');
+
     const cleanInvoiceNo = invoiceNo.trim().toUpperCase();
 
     // If IRN is not generated and user changed invoice number, check uniqueness across invoices
-    if (!isIrnGenerated && cleanInvoiceNo !== (invoiceRecord?.invoiceNumber || '').trim().toUpperCase()) {
+    if (!currentIsIrnGenerated && cleanInvoiceNo !== (freshInvoiceRecord?.invoiceNumber || '').trim().toUpperCase()) {
       const dupError = await validateDuplicateWithExclusion(db, "sales_invoices", "invoiceNumber", cleanInvoiceNo, selectedDocId);
       if (dupError) {
         window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Error: ${dupError}`, isError: true } }));
         return;
+      }
+    }
+
+    // If IRN is generated, perform final pre-save validation on all items
+    if (currentIsIrnGenerated) {
+      for (const item of items) {
+        const orig = (freshInvoiceRecord?.items || []).find((o: any) => o.id === item.id);
+        if (orig) {
+          const isMatChanged = 
+            (item.desc && item.desc !== orig.desc) || 
+            (item.descName && item.descName !== (orig.descName || orig.desc));
+
+          if (isMatChanged) {
+            const opt = availableOptions?.find(o => o.materialCode === item.desc || o.materialName === item.desc);
+            const matMaster = materials?.find(m => m.productName === item.desc || m.materialCode === item.desc);
+
+            const existingRate = roundToTwo(Number(orig.rate || 0));
+            const existingHsn = String(orig.hsn || '').trim();
+
+            const newRateRaw = (opt?.price !== undefined && opt?.price !== '' && opt?.price !== null)
+              ? Number(opt.price)
+              : ((matMaster?.price !== undefined && matMaster?.price !== '' && matMaster?.price !== null)
+                ? Number(matMaster.price)
+                : NaN);
+            const newRate = isNaN(newRateRaw) ? null : roundToTwo(newRateRaw);
+            const newHsn = String(opt?.hsn || matMaster?.hsnSac || '').trim();
+
+            const rateMatch = newRate !== null && Math.abs(newRate - existingRate) < 0.001;
+            const hsnMatch = newHsn === existingHsn;
+
+            if (!rateMatch || !hsnMatch) {
+              let errorMsg = "";
+              if (!rateMatch && !hsnMatch) {
+                errorMsg = "Material cannot be changed because the Basic Rate and HSN/SAC of the selected material are different from the existing invoice item. After IRN generation, Material can be changed only when both Basic Rate and HSN/SAC are the same.";
+              } else if (!hsnMatch) {
+                errorMsg = "Material cannot be changed because the HSN/SAC of the selected material is different from the existing invoice item. After IRN generation, Material can be changed only when both Basic Rate and HSN/SAC are the same.";
+              } else {
+                errorMsg = "Material cannot be changed because the Basic Rate of the selected material is different from the existing invoice rate. After IRN generation, Material can be changed only when both Basic Rate and HSN/SAC are the same.";
+              }
+
+              setMaterialValidationError(errorMsg);
+              window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: errorMsg, isError: true } }));
+              return;
+            }
+          }
+        }
       }
     }
 
@@ -432,18 +597,44 @@ const handleExecute = useCallback(async () => {
     } : snapshotBillTo;
 
     // Determine final values based on IRN generation status:
-    // When IRN is generated, lock Invoice Number, Consignor Name, Bill To Party, Ship To Party, Taxable Amount (items & totals)
-    const finalInvoiceNumber = isIrnGenerated ? invoiceRecord?.invoiceNumber : cleanInvoiceNo;
-    const finalConsignorName = isIrnGenerated ? (invoiceRecord?.consignorName || consignorName) : consignorName;
-    const finalBillTo = isIrnGenerated ? invoiceRecord?.billTo : billTo;
-    const finalShipTo = isIrnGenerated ? invoiceRecord?.shipTo : ((isShipToApplicable ? shipTo : billTo) || billTo);
-    const finalItems = isIrnGenerated ? invoiceRecord?.items : items;
-    const finalTotals = isIrnGenerated ? invoiceRecord?.totals : totals;
+    // When IRN is generated:
+    // - Invoice Number, Invoice Date, Consignor Name, Bill To Party, Ship To Party, Totals (Taxable Amount) MUST remain unchanged.
+    // - In items: Basic Rate, Amount, GST Rate, Qty, UOM strictly preserved from original.
+    // - Document Type, Charge Type, Description/Material (validated), Activity, HSN/SAC allowed to update.
+    const finalInvoiceNumber = currentIsIrnGenerated ? freshInvoiceRecord?.invoiceNumber : cleanInvoiceNo;
+    const finalInvoiceDate = currentIsIrnGenerated ? toSAPDate(freshInvoiceRecord?.invoiceDate) : toSAPDate(invoiceDate);
+    const finalBillMonth = currentIsIrnGenerated ? (freshInvoiceRecord?.billMonth || billPeriod) : billPeriod;
+    const finalBillYear = currentIsIrnGenerated ? (freshInvoiceRecord?.billYear || billYear) : billYear;
+    const finalConsignorName = currentIsIrnGenerated ? (freshInvoiceRecord?.consignorName || consignorName) : consignorName;
+    const finalBillTo = currentIsIrnGenerated ? freshInvoiceRecord?.billTo : billTo;
+    const finalShipTo = currentIsIrnGenerated ? freshInvoiceRecord?.shipTo : ((isShipToApplicable ? shipTo : billTo) || billTo);
+    const finalTotals = currentIsIrnGenerated ? freshInvoiceRecord?.totals : totals;
+
+    let finalItems = items;
+    if (currentIsIrnGenerated) {
+      finalItems = items.map(item => {
+        const orig = (freshInvoiceRecord?.items || []).find((o: any) => o.id === item.id);
+        if (!orig) return item;
+        return {
+          ...orig,
+          desc: item.desc,
+          descName: item.descName,
+          activity: item.activity,
+          hsn: item.hsn,
+          customValues: item.customValues,
+          rate: orig.rate,
+          amount: orig.amount,
+          gstRate: orig.gstRate,
+          qty: orig.qty,
+          uom: orig.uom,
+        };
+      });
+    }
 
     const updatePayload: Record<string, any> = {
-      invoiceDate: toSAPDate(invoiceDate),
-      billMonth: billPeriod,
-      billYear,
+      invoiceDate: finalInvoiceDate,
+      billMonth: finalBillMonth,
+      billYear: finalBillYear,
       docType,
       docCategory,
       billType,
@@ -457,18 +648,23 @@ const handleExecute = useCallback(async () => {
       totals: finalTotals,
       customHeaders,
       note,
-      snapshotBillTo,
-      snapshotShipTo,
+      snapshotBillTo: currentIsIrnGenerated ? freshInvoiceRecord?.snapshotBillTo : snapshotBillTo,
+      snapshotShipTo: currentIsIrnGenerated ? freshInvoiceRecord?.snapshotShipTo : snapshotShipTo,
       updatedAt: new Date().toISOString()
     };
 
-    updateDocumentNonBlocking(doc(db, "sales_invoices", selectedDocId), updatePayload);
-
-    setInvoiceRecord((prev: any) => ({ ...prev, ...updatePayload }));
-    setSearchInvoiceNo(finalInvoiceNumber);
-
-    window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Document ${finalInvoiceNumber} updated successfully`, isError: false } }));
-  }, [db, selectedDocId, isLockedByTime, isIrnGenerated, invoiceDate, billPeriod, docType, docCategory, billType, inventoryType, vehicleNo, billTo, shipTo, isShipToApplicable, items, totals, invoiceNo, consignorName, customHeaders, note, customers, invoiceRecord]);
+    try {
+      await updateDoc(doc(db, "sales_invoices", selectedDocId), updatePayload);
+      setInvoiceRecord((prev: any) => ({ ...prev, ...updatePayload }));
+      setSearchInvoiceNo(finalInvoiceNumber);
+      setMaterialValidationError(null);
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: `Document ${finalInvoiceNumber} updated successfully`, isError: false } }));
+    } catch (err: any) {
+      const msg = err?.message || "Failed to update document";
+      setMaterialValidationError(msg);
+      window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: msg, isError: true } }));
+    }
+  }, [db, selectedDocId, isLockedByTime, invoiceDate, billPeriod, docType, docCategory, billType, inventoryType, vehicleNo, billTo, shipTo, isShipToApplicable, items, totals, invoiceNo, consignorName, customHeaders, note, customers, invoiceRecord, plantId, availableOptions, materials]);
 
   useEffect(() => {
     const onExec = () => handleExecute();
@@ -540,6 +736,16 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
               </Alert>
             )}
 
+            {materialValidationError && (
+              <Alert variant="destructive" className="rounded-none py-2 border-red-300 bg-red-50">
+                <AlertTriangle className="h-4 w-4 text-red-600" />
+                <AlertTitle className="text-xs font-black uppercase text-red-700">Material Validation Error</AlertTitle>
+                <AlertDescription className="text-[11px] font-bold text-red-800">
+                  {materialValidationError}
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div className="border border-[#b5c7de] rounded-sm overflow-hidden bg-[#f9f9f9]">
               <div className="bg-[#dae8f5] px-3 py-0.5 border-b border-[#b5c7de] text-[12px] font-semibold text-gray-700 flex justify-between items-center">
                 <span>Billing Header Details</span>
@@ -602,7 +808,18 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                       placeholder="Enter Invoice Number..." 
                     />
                   </div>
-                  <div className="sap-selection-row"><label className="sap-label">Date</label><SapDateInput value={invoiceDate} onChange={v => setInvoiceDate(v)} disabled={isLockedByTime} className="h-6 border border-gray-400 rounded-none bg-white" /></div>
+                  <div className="sap-selection-row">
+                    <label className="sap-label">Date</label>
+                    <SapDateInput 
+                      value={invoiceDate} 
+                      onChange={v => setInvoiceDate(v)} 
+                      disabled={isLockedByTime || isIrnGenerated} 
+                      className={cn(
+                        "h-6 border border-gray-400 rounded-none",
+                        (isLockedByTime || isIrnGenerated) ? "bg-gray-100 cursor-not-allowed text-gray-700" : "bg-white"
+                      )} 
+                    />
+                  </div>
                   
                   {/* Bill to Party */}
                   <div className="sap-selection-row">
@@ -665,10 +882,10 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                     </div>
                   </div>
 
-{/* Document Type - Master-driven Dropdown */}
+                  {/* Document Type - Master-driven Dropdown */}
                   <div className="sap-selection-row">
                     <label className="sap-label">Document Type</label>
-                    <Select value={docType} onValueChange={setDocType} disabled={isLockedByTime || isIrnGenerated}>
+                    <Select value={docType} onValueChange={setDocType} disabled={isLockedByTime}>
                       <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
                       <SelectContent>
                         {filteredDocTypes.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
@@ -681,7 +898,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
 
                   <div className="sap-selection-row">
                     <label className="sap-label">Charge Type</label>
-                    <Select value={docCategory} onValueChange={v => { setDocCategory(v); setItems([]); }} disabled={isIrnGenerated}>
+                    <Select value={docCategory} onValueChange={v => { setDocCategory(v); if (!isIrnGenerated) setItems([]); }} disabled={isLockedByTime}>
                       <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue placeholder="Select" /></SelectTrigger>
                       <SelectContent>
                         {filteredBillingCategories.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
@@ -806,14 +1023,15 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                           </TableCell>
                           {/* UOM — read-only */}
                           <TableCell className="p-0 border-r text-center text-[10px] text-gray-500">{row.uom || "PCS"}</TableCell>
-                          {/* GST Rate % — editable for REIMBURSEMENT CHARGE */}
+                          {/* GST Rate % — editable for REIMBURSEMENT CHARGE (Read-Only after IRN) */}
                           <TableCell className="p-0 border-r">
                             <Input
                               type="number"
                               className="h-full border-none shadow-none focus:bg-[#fff9c4] text-center font-bold text-purple-700 text-xs"
                               value={row.gstRate ?? ""}
                               onChange={e => updateReimbItem(row.id, 'gstRate', e.target.value)}
-                              disabled={isLockedByTime}
+                              disabled={isLockedByTime || isIrnGenerated}
+                              readOnly={isLockedByTime || isIrnGenerated}
                               placeholder="GST %"
                             />
                           </TableCell>
@@ -825,6 +1043,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                               value={row.rate}
                               onChange={e => updateReimbItem(row.id, 'rate', e.target.value)}
                               disabled={isLockedByTime || isIrnGenerated}
+                              readOnly={isLockedByTime || isIrnGenerated}
                               placeholder="Rate"
                             />
                           </TableCell>
@@ -853,7 +1072,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                     </TableBody>
                   </>
                 ) : (
-                  /* Standard table — all other charge types, EXACTLY UNCHANGED */
+                  /* Standard table — all other charge types */
                   <>
                     <TableHeader className="bg-[#e7ebf1]">
                       <TableRow className="h-7">
@@ -875,10 +1094,15 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                       {items.map((row, idx) => (
                         <TableRow key={row.id} className="h-7 hover:bg-blue-50/30">
                           <TableCell className="p-0 text-center text-[10px] text-gray-400">{idx + 1}</TableCell>
-<TableCell className="p-0 border-r" >
-                            <Select value={row.desc} onValueChange={v => updateItem(row.id, 'desc', v)} disabled={isIrnGenerated}>
+                          <TableCell className="p-0 border-r">
+                            <Select value={row.desc} onValueChange={v => updateItem(row.id, 'desc', v)} disabled={isLockedByTime}>
                               <SelectTrigger className="h-full border-none bg-transparent text-xs rounded-none px-2 shadow-none focus:bg-[#fff9c4] [&>span]:line-clamp-none [&>span]:whitespace-normal"><SelectValue>{row.descName || "Select material..."}</SelectValue></SelectTrigger>
-<SelectContent>{availableOptions?.map((o, i) => <SelectItem key={`${o.materialCode}-${i}`} value={o.materialCode}>{o.materialName || o.materialCode}</SelectItem>)}</SelectContent>
+                              <SelectContent>
+                                {row.desc && !availableOptions?.some(o => o.materialCode === row.desc) && (
+                                  <SelectItem value={row.desc}>{row.descName || row.desc}</SelectItem>
+                                )}
+                                {availableOptions?.map((o, i) => <SelectItem key={`${o.materialCode}-${i}`} value={o.materialCode}>{o.materialName || o.materialCode}</SelectItem>)}
+                              </SelectContent>
                             </Select>
                           </TableCell>
                           <TableCell className="p-0 border-r">
@@ -886,6 +1110,7 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                               className="h-full border-none shadow-none focus:bg-[#fff9c4]"
                               value={row.activity}
                               onChange={e => updateItem(row.id, 'activity', e.target.value)}
+                              disabled={isLockedByTime}
                               placeholder="Enter activity..."
                             />
                           </TableCell>
@@ -895,13 +1120,22 @@ const noBillingConfigMessage = "No Document Type and Charge Type are configured 
                                 className="h-full border-none shadow-none focus:bg-[#fff9c4]"
                                 value={row.customValues?.[hIdx] || ""}
                                 onChange={e => updateItem(row.id, hIdx, e.target.value)}
+                                disabled={isLockedByTime}
                               />
                             </TableCell>
                           ))}
-                          <TableCell className="p-0 border-r"><Input className="h-full border-none shadow-none bg-gray-100" value={row.hsn} readOnly /></TableCell>
+                          <TableCell className="p-0 border-r">
+                            <Input 
+                              className={cn("h-full border-none shadow-none text-center text-xs font-mono", isLockedByTime ? "bg-gray-100 cursor-not-allowed" : "focus:bg-[#fff9c4]")} 
+                              value={row.hsn} 
+                              onChange={e => updateItem(row.id, 'hsn', e.target.value)} 
+                              disabled={isLockedByTime} 
+                              placeholder="HSN/SAC" 
+                            />
+                          </TableCell>
                           <TableCell className="p-0 border-r"><Input type="number" className="h-full border-none shadow-none text-center font-bold text-blue-800" value={row.qty} onChange={e => updateItem(row.id, 'qty', e.target.value)} disabled={isLockedByTime || isIrnGenerated} /></TableCell>
                           <TableCell className="p-0 border-r text-center text-[10px] text-gray-500">{row.uom}</TableCell>
-<TableCell className="p-0 border-r">
+                          <TableCell className="p-0 border-r">
                             <Input
                               type="number"
                               className={cn("h-full border-none shadow-none text-center", row.isFixedCharge && !isIrnGenerated && !isLockedByTime ? "bg-white font-bold text-emerald-700" : "bg-gray-100 text-gray-600")}
