@@ -91,10 +91,27 @@ export default function DB01() {
     );
   };
 
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
   return (
-    <div className="flex flex-1 overflow-hidden bg-white">
+    <div className="db01-main-container flex flex-1 w-full h-[calc(100vh-105px)] overflow-hidden bg-white">
+      {/* Mobile Toggle Bar */}
+      <div className="md:hidden flex items-center justify-between px-3 py-1.5 bg-slate-100 border-b border-gray-300 z-30 shrink-0">
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+          <Folder className="h-3.5 w-3.5 text-primary" />
+          SAP Easy Access Menu
+        </span>
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(prev => !prev)}
+          className="px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 rounded transition-colors"
+        >
+          {sidebarOpen ? "Hide Menu ▲" : "Show Menu ▼"}
+        </button>
+      </div>
+
       {/* Left Sidebar - SAP Easy Access Menu */}
-      <div className="w-80 border-r border-gray-300 overflow-y-auto bg-white p-2 shrink-0 no-scrollbar relative z-20">
+      <div className={`db01-sidebar ${!sidebarOpen ? "max-md:hidden" : ""} border-r border-gray-300 overflow-y-auto bg-white p-2 shrink-0 no-scrollbar relative z-20`}>
         <MenuItem id="favorites" label="Favorites" icon={Star}>
           <MenuItem id="f1" label="Main Dashboard" icon={LayoutDashboard} tcode="DB01" />
           <MenuItem id="f-vf01" label="Invoicing" icon={FileText} tcode="VF01" />
@@ -141,7 +158,7 @@ export default function DB01() {
                 <MenuItem id="vk12" label="Change Condition Record" tcode="VK12" />
                 <MenuItem id="vk13" label="Display Condition Records" tcode="VK13" />
               </MenuItem>
-<MenuItem id="m-bill-grp" label="Billing Definitions" icon={Tag}>
+              <MenuItem id="m-bill-grp" label="Billing Definitions" icon={Tag}>
                 <MenuItem id="vof01" label="Define Billing Types" tcode="VOF01" />
                 <MenuItem id="vof02" label="Edit Billing Types" tcode="VOF02" />
                 <MenuItem id="vof03" label="Display Billing Types" tcode="VOF03" />
@@ -186,21 +203,20 @@ export default function DB01() {
         </MenuItem>
       </div>
 
-      {/* Main Workspace Area - Immersive Background */}
-      <div className="flex-1 relative bg-[#f8fafc] overflow-hidden">
-        <div className="absolute inset-0 z-0 animate-in fade-in duration-1000">
+      {/* Main Workspace Area - Completely Stretched Width & Height */}
+      <div className="db01-workspace relative overflow-hidden flex-1 w-full h-full">
+        <div className="db01-image-wrapper absolute inset-0 w-full h-full p-0 m-0">
           <Image 
             src={brandingImage} 
             alt="Sikka Accounts Management System Background" 
             fill 
-            className="object-cover"
+            className="db01-branding-image w-full h-full"
+            style={{ objectFit: 'fill', width: '100%', height: '100%' }}
+            sizes="100vw"
             priority
           />
         </div>
-        <div className="absolute inset-0 z-1 bg-white/5 pointer-events-none" />
       </div>
     </div>
   );
 }
-
-
