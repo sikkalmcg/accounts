@@ -29,6 +29,10 @@ import {
   ChevronUp,
   X,
   ArrowUpDown,
+  Building2,
+  Layers,
+  Wallet,
+  ArrowRight,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -43,10 +47,12 @@ import {
 } from "@/components/ui/select";
 
 import PlantMultiSelect from "./PlantMultiSelect";
+import DivisionMultiSelect from "./DivisionMultiSelect";
 import { getRecordPlantIds } from "@/lib/plant-master";
 import { formatAmount } from "@/lib/number-utils";
 import { toSAPDate } from "@/lib/date-utils";
 import { downloadCsv } from "@/lib/csv-export";
+import { DEFAULT_DIVISIONS, getPlantDivision, isAllDivisions } from "@/lib/division-master";
 
 /* =========================================================
    DATE HELPERS
@@ -263,6 +269,20 @@ export default function F110() {
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
   const { data: plants } = useCollection(plantsQuery);
 
+  const divisionsQuery = useMemoDatabase(() => collection(db, "divisions"), [db]);
+  const { data: dbDivisions } = useCollection(divisionsQuery);
+  const divisions = dbDivisions && dbDivisions.length > 0 ? dbDivisions : DEFAULT_DIVISIONS;
+
+  const plantMap = useMemo(() => {
+    const map = new Map<string, any>();
+    (plants || []).forEach((p: any) => {
+      map.set(normalizeString(p.plantId), p);
+    });
+    return map;
+  }, [plants]);
+
+  const [filterDivisions, setFilterDivisions] = useState<string[]>(["ALL"]);
+
   const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
   const { data: customers } = useCollection(customersQuery);
 
@@ -284,6 +304,35 @@ export default function F110() {
       ) || []
     );
   }, [plants, isAdmin, authorizedPlantIds]);
+
+  /* =======================================================
+     CASCADING PLANTS (DEPENDENT ON DIVISION)
+  ======================================================= */
+
+  const availablePlants = useMemo(() => {
+    if (isAllDivisions(filterDivisions)) {
+      return allowedPlants;
+    }
+    const selectedDivs = filterDivisions.filter((d) => d !== "ALL");
+    return allowedPlants.filter((plant: any) =>
+      selectedDivs.includes(getPlantDivision(plant))
+    );
+  }, [allowedPlants, filterDivisions]);
+
+  const handleDivisionChange = (newDivisions: string[]) => {
+    setFilterDivisions(newDivisions);
+    if (!isAllDivisions(newDivisions)) {
+      const selectedDivs = newDivisions.filter((d) => d !== "ALL");
+      const validPlantIds = new Set(
+        allowedPlants
+          .filter((p: any) => selectedDivs.includes(getPlantDivision(p)))
+          .map((p: any) => normalizeString(p.plantId))
+      );
+      setFilterPlants((prev) =>
+        prev.filter((id) => validPlantIds.has(normalizeString(id)))
+      );
+    }
+  };
 
   /* =======================================================
      SECURITY: Remove unauthorized selected plants
@@ -522,11 +571,15 @@ export default function F110() {
   ======================================================= */
 
   const handleExecute = async () => {
-    if (filterPlants.length === 0) {
+    const targetPlantIds = filterPlants.length > 0
+      ? filterPlants
+      : availablePlants.map((p: any) => normalizeString(p.plantId));
+
+    if (targetPlantIds.length === 0) {
       window.dispatchEvent(
         new CustomEvent("sap-status", {
           detail: {
-            text: "Error: At least one authorized Plant must be selected",
+            text: "Error: No authorized Plant available for the selected Division",
             isError: true,
           },
         })
@@ -535,7 +588,7 @@ export default function F110() {
     }
 
     if (!isAdmin) {
-      const unauthorizedPlant = filterPlants.find(
+      const unauthorizedPlant = targetPlantIds.find(
         (plantId) => !authorizedPlantIds.includes(normalizeString(plantId))
       );
 
@@ -607,7 +660,7 @@ export default function F110() {
       const storedUser = JSON.parse(localStorage.getItem("sikka_user") || "{}");
       const response = await fetch(
         `/api/f110?${new URLSearchParams({
-          plantIds: filterPlants.join(","),
+          plantIds: targetPlantIds.join(","),
           fromDate,
           toDate,
         }).toString()}`,
@@ -703,9 +756,13 @@ export default function F110() {
 
         const displayPaymentDate = latestPaymentDate ? formatSystemDate(latestPaymentDate) : (invoice.paymentDate ? formatSystemDate(invoice.paymentDate) : "");
 
+        const plantRecord = plantMap.get(normalizeString(invoice.plantId));
+        const division = getPlantDivision(plantRecord);
+
         return {
           id: invoice.id,
           plantId: invoice.plantId,
+          division,
           invoiceNo: invoice.invoiceNumber,
           invoiceDate: displayInvoiceDate,
           consignorName:
@@ -739,8 +796,17 @@ export default function F110() {
       });
 
       /* ===================================================
-         STEP 7 & 8: CONSIGNOR & BILL TO FILTERS
+         STEP 7 & 8: CONSIGNOR, BILL TO & DIVISION FILTERS
       =================================================== */
+
+      if (!isAllDivisions(filterDivisions)) {
+        const selectedDivs = filterDivisions.filter((d) => d !== "ALL");
+        processed = processed.filter((row: any) => selectedDivs.includes(row.division));
+      }
+
+      if (filterPlants.length > 0) {
+        processed = processed.filter((row: any) => filterPlants.includes(row.plantId));
+      }
 
       if (filterConsignor !== "ALL") {
         processed = processed.filter(
@@ -833,6 +899,32 @@ export default function F110() {
   }, [results, searchText, sortConfig]);
 
   /* =======================================================
+     DIVISION BREAKDOWN SUMMARY
+  ======================================================= */
+
+  const isMultipleDivisions = useMemo(() => {
+    return !isAllDivisions(filterDivisions) && filterDivisions.filter((d) => d !== "ALL").length > 1;
+  }, [filterDivisions]);
+
+  const divisionSummaries = useMemo(() => {
+    if (!isMultipleDivisions) return [];
+    const selectedDivs = filterDivisions.filter((d) => d !== "ALL");
+    return selectedDivs.map((divName) => {
+      const recordsForDiv = filteredResults.filter((r) => r.division === divName);
+      const grossAmount = recordsForDiv.reduce((s, r) => s + (Number(r.grossAmount) || 0), 0);
+      const totalPaidAmount = recordsForDiv.reduce((s, r) => s + (Number(r.totalPaidAmount) || 0), 0);
+      const balanceAmount = recordsForDiv.reduce((s, r) => s + (Number(r.balanceAmount) || 0), 0);
+      return {
+        division: divName,
+        count: recordsForDiv.length,
+        grossAmount,
+        totalPaidAmount,
+        balanceAmount,
+      };
+    });
+  }, [isMultipleDivisions, filterDivisions, filteredResults]);
+
+  /* =======================================================
      EXCEL / CSV EXPORT
   ======================================================= */
 
@@ -844,6 +936,7 @@ export default function F110() {
 
     const headers = [
       "Plant",
+      "Division",
       "Invoice No.",
       "Invoice Date",
       "Consignor",
@@ -860,6 +953,7 @@ export default function F110() {
 
     const rows = dataToExport.map((row: any) => [
       row.plantId,
+      row.division || "Division A",
       row.invoiceNo,
       row.invoiceDate,
       row.consignorName,
@@ -893,16 +987,29 @@ export default function F110() {
       {/* FILTER SECTION */}
       {showFilters && (
         <div className="sap-selection-area">
-          <div className="p-3 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
+          <div className="p-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4 items-end">
             {/* PLANT */}
             <div className="space-y-1">
-              <label className="sap-label font-bold text-red-700">
-                Plant *
+              <label className="sap-label font-bold text-gray-700">
+                Plant(s)
               </label>
               <PlantMultiSelect
-                plants={allowedPlants}
+                plants={availablePlants}
                 selected={filterPlants}
                 onChange={setFilterPlants}
+                placeholder="All Plants"
+              />
+            </div>
+
+            {/* DIVISION */}
+            <div className="space-y-1">
+              <label className="sap-label font-bold text-gray-700">
+                Division
+              </label>
+              <DivisionMultiSelect
+                divisions={divisions}
+                selected={filterDivisions}
+                onChange={handleDivisionChange}
               />
             </div>
 
@@ -994,7 +1101,7 @@ export default function F110() {
           <div className="flex flex-col items-center justify-center py-32 text-gray-400 opacity-30 select-none">
             <Receipt className="h-20 w-20 stroke-1 mb-4" />
             <p className="text-sm font-black uppercase tracking-[0.2em]">
-              Enter mandatory parameters (Plant, From Date, To Date) & Execute
+              Enter mandatory parameters (From Date, To Date) & Execute
             </p>
           </div>
         ) : (
@@ -1051,6 +1158,60 @@ export default function F110() {
               records
             </div>
 
+            {/* DIVISION BREAKDOWN WIDGETS (When multiple Divisions selected) */}
+            {isMultipleDivisions && divisionSummaries.length > 0 && (
+              <div className="p-4 space-y-4 bg-gray-50 border-b border-gray-200">
+                {divisionSummaries.map((divItem) => (
+                  <div key={divItem.division} className="space-y-2 border border-[#b5c7de] rounded-sm p-3 bg-white shadow-sm">
+                    <div className="flex items-center justify-between pb-1 border-b border-gray-200">
+                      <div className="flex items-center gap-2">
+                        <Building2 className="h-4 w-4 text-blue-700" />
+                        <span className="text-xs font-black uppercase text-blue-900 tracking-wider">
+                          {divItem.division}
+                        </span>
+                        <span className="text-[10px] font-bold text-gray-500 bg-gray-100 border border-gray-300 px-2 py-0.5 rounded">
+                          {divItem.count} Invoices
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-semibold text-gray-500">
+                        Division Payment Breakdown
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3">
+                        <div className="bg-blue-50 p-2.5 rounded-full"><Receipt className="h-5 w-5 text-blue-600" /></div>
+                        <div>
+                          <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoice Gross Amount</p>
+                          <p className="text-lg font-black text-gray-800 font-mono">₹ {formatAmount(divItem.grossAmount)}</p>
+                        </div>
+                      </div>
+                      <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3">
+                        <div className="bg-emerald-50 p-2.5 rounded-full"><Wallet className="h-5 w-5 text-emerald-600" /></div>
+                        <div>
+                          <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Payment Amount</p>
+                          <p className="text-lg font-black text-emerald-700 font-mono">₹ {formatAmount(divItem.totalPaidAmount)}</p>
+                        </div>
+                      </div>
+                      <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3">
+                        <div className="bg-red-50 p-2.5 rounded-full"><ArrowRight className="h-5 w-5 text-red-600" /></div>
+                        <div>
+                          <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Balance Amount</p>
+                          <p className="text-lg font-black text-red-700 font-mono">₹ {formatAmount(divItem.balanceAmount)}</p>
+                        </div>
+                      </div>
+                      <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3">
+                        <div className="bg-indigo-50 p-2.5 rounded-full"><Layers className="h-5 w-5 text-indigo-600" /></div>
+                        <div>
+                          <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoices</p>
+                          <p className="text-lg font-black text-indigo-800 font-mono">{divItem.count}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* GRID DISPLAY */}
             {isSearching ? (
               <div className="flex items-center justify-center py-20">
@@ -1071,6 +1232,16 @@ export default function F110() {
                     >
                       <div className="flex items-center justify-center gap-1 font-bold">
                         Plant <SortIcon column="plantId" />
+                      </div>
+                    </TableHead>
+
+                    <TableHead
+                      onClick={() => handleSort("division")}
+                      className="w-28 text-center cursor-pointer hover:bg-[#c5d7ed] transition-colors"
+                      title="Sort by Division"
+                    >
+                      <div className="flex items-center justify-center gap-1 font-bold">
+                        Division <SortIcon column="division" />
                       </div>
                     </TableHead>
 
@@ -1203,6 +1374,11 @@ export default function F110() {
                     >
                       <TableCell className="font-bold text-center">
                         {row.plantId}
+                      </TableCell>
+                      <TableCell className="text-center font-semibold text-purple-700">
+                        <span className="bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded text-[10px]">
+                          {row.division || "Division A"}
+                        </span>
                       </TableCell>
                       <TableCell className="font-mono font-black text-blue-800">
                         {row.invoiceNo}

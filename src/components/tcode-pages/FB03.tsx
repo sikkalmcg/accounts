@@ -1,10 +1,24 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDatabase, useCollection, useMemoDatabase } from "@/database";
 import { collection, query, orderBy } from "@/database/mongo";
-import { ArrowUpDown, ChevronUp, ChevronDown, LayoutDashboard, Receipt, Wallet, ArrowRight, Download, MinusCircle, PlusCircle, Printer, X, } from "lucide-react";
+import {
+  ArrowUpDown,
+  ChevronUp,
+  ChevronDown,
+  LayoutDashboard,
+  Receipt,
+  Wallet,
+  ArrowRight,
+  Download,
+  MinusCircle,
+  PlusCircle,
+  Printer,
+  X,
+  Building2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -12,6 +26,8 @@ import { getFinancialYears, toSAPDate } from "@/lib/date-utils";
 import { getRecordPlantIds, NO_MASTER_RECORDS_MESSAGE } from "@/lib/plant-master";
 import { formatAmount } from "@/lib/number-utils";
 import PlantMultiSelect from "./PlantMultiSelect";
+import DivisionMultiSelect from "./DivisionMultiSelect";
+import { DEFAULT_DIVISIONS, getPlantDivision, isAllDivisions } from "@/lib/division-master";
 import { InvoicePreview } from "./VF03";
 
 // Helper to calculate current Indian Financial Year (e.g. FY 2024-25) safely
@@ -26,16 +42,16 @@ const getCurrentFY = () => {
 
 export default function FB03() {
   const db = useDatabase();
-  
+
   // 1. User Context & Permissions
   const [assignedPlantIds, setAssignedPlantIds] = useState<string[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
-  
+
   useEffect(() => {
     const stored = localStorage.getItem("sikka_user");
     if (stored) {
       const parsed = JSON.parse(stored);
-      setIsAdmin(parsed.username === "ajaysomra" || parsed.role === 'admin');
+      setIsAdmin(parsed.username === "ajaysomra" || parsed.role === "admin");
       setAssignedPlantIds(Array.isArray(parsed.assignedPlantIds) ? parsed.assignedPlantIds : []);
     }
   }, []);
@@ -51,10 +67,11 @@ export default function FB03() {
 
   const [filterPlants, setFilterPlants] = useState<string[]>([]);
   const [filterConsignee, setFilterConsignee] = useState("ALL");
+  const [filterDivisions, setFilterDivisions] = useState<string[]>(["ALL"]);
   const [filterFY, setFilterYear] = useState<string>(() => financialYears[0] || getCurrentFY());
   const [showDetail, setShowDetail] = useState(false);
   const [showAllInvoices, setShowAllInvoices] = useState(false); // Toggle between pending and all invoices
-  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: "asc" | "desc" } | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
 
   // 3. Data Fetching
@@ -67,33 +84,67 @@ export default function FB03() {
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
   const { data: plants } = useCollection(plantsQuery);
 
-const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
+  const divisionsQuery = useMemoDatabase(() => collection(db, "divisions"), [db]);
+  const { data: dbDivisions } = useCollection(divisionsQuery);
+  const divisions = dbDivisions && dbDivisions.length > 0 ? dbDivisions : DEFAULT_DIVISIONS;
+
+  const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
   const { data: customers } = useCollection(customersQuery);
 
   const firmsQuery = useMemoDatabase(() => collection(db, "firms"), [db]);
   const { data: firms } = useCollection(firmsQuery);
 
-  // 4. Derived Logic
+  // 4. Plant Map & Plant-Division Association
+  const plantMap = useMemo(() => {
+    const map: Record<string, any> = {};
+    plants?.forEach((p) => {
+      map[p.plantId] = p;
+    });
+    return map;
+  }, [plants]);
+
+  // Dynamic Plant List depending on selected Division(s)
+  const availablePlants = useMemo(() => {
+    if (!plants) return [];
+    if (isAllDivisions(filterDivisions)) return plants;
+    const selectedDivs = filterDivisions.filter((d) => d !== "ALL");
+    return plants.filter((p) => selectedDivs.includes(getPlantDivision(p)));
+  }, [plants, filterDivisions]);
+
+  // Handle Division filter changes: clear incompatible plant selections immediately
+  const handleDivisionChange = (newDivisions: string[]) => {
+    setFilterDivisions(newDivisions);
+    if (!isAllDivisions(newDivisions)) {
+      const selectedDivs = newDivisions.filter((d) => d !== "ALL");
+      const validPlantIds = new Set(
+        (plants || [])
+          .filter((p) => selectedDivs.includes(getPlantDivision(p)))
+          .map((p) => p.plantId)
+      );
+      setFilterPlants((prev) => prev.filter((id) => validPlantIds.has(id)));
+    }
+  };
+
   const allowedPlantIds = useMemo(() => {
     if (isAdmin) return undefined; // Admin can see all, so no restrictions
     return assignedPlantIds;
   }, [isAdmin, assignedPlantIds]);
 
-// Customers assigned to the currently selected Plant
+  // Customers assigned to the currently selected Plant
   const filteredCustomers = useMemo(() => {
     if (!customers) return [];
     if (filterPlants.length !== 1) return customers;
     const singlePlant = filterPlants[0];
-    return customers.filter(c => getRecordPlantIds(c).includes(singlePlant));
+    return customers.filter((c) => getRecordPlantIds(c).includes(singlePlant));
   }, [customers, filterPlants]);
 
   // Lookup maps for consignor (firm) and bill-to party (customer) names
   const firmMap = useMemo(() => {
     const map: Record<string, any> = {};
-    firms?.forEach(f => {
+    firms?.forEach((f) => {
       const ids = Array.isArray(f.assignedPlantIds) && f.assignedPlantIds.length > 0
         ? f.assignedPlantIds
-        : (f.plantId ? [f.plantId] : []);
+        : f.plantId ? [f.plantId] : [];
       ids.forEach((id: string) => { map[id] = f; });
     });
     return map;
@@ -101,9 +152,9 @@ const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
 
   const customerMap = useMemo(() => {
     const map: Record<string, any> = {};
-    customers?.forEach(c => {
+    customers?.forEach((c) => {
       const aliases = [c.customerId, c.code, c.id, c.customerCode].filter(Boolean);
-      aliases.forEach(alias => {
+      aliases.forEach((alias) => {
         const key = (alias ?? "").toString().trim().toUpperCase();
         if (key) map[key] = c;
       });
@@ -114,10 +165,22 @@ const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
   // Aggregate receipts by Invoice Number
   const invoiceReceiptMap = useMemo(() => {
     const map: Record<string, any> = {};
-    allReceipts?.forEach(r => {
+    allReceipts?.forEach((r) => {
       const invNo = r.invoiceNo;
       if (!map[invNo]) {
-        map[invNo] = { receiptAmount: 0, tds: 0, deduction: 0, interest: 0, reversedAmount: 0, reversedTds: 0, reversedDeduction: 0, reversedInterest: 0, paymentDate: r.paymentDate, paymentAdviceNo: r.paymentAdviceNo, bankingUtr: r.bankingUtr };
+        map[invNo] = {
+          receiptAmount: 0,
+          tds: 0,
+          deduction: 0,
+          interest: 0,
+          reversedAmount: 0,
+          reversedTds: 0,
+          reversedDeduction: 0,
+          reversedInterest: 0,
+          paymentDate: r.paymentDate,
+          paymentAdviceNo: r.paymentAdviceNo,
+          bankingUtr: r.bankingUtr,
+        };
       }
       const amount = Number(r.receiptAmount) || 0;
       const tds = Number(r.tds) || 0;
@@ -141,25 +204,47 @@ const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
   // Main Processing Logic
   const processedData = useMemo(() => {
     if (!allInvoices) return [];
-    let base = allInvoices.filter(inv => {
+    const base = allInvoices.filter((inv) => {
       if (!isAdmin && assignedPlantIds.length > 0 && !assignedPlantIds.includes(inv.plantId)) return false;
       if (inv.status === "Cancelled") return false;
+
+      // Division Filter: determine Division strictly from Plant Master
+      if (!isAllDivisions(filterDivisions)) {
+        const invPlant = plantMap[inv.plantId];
+        const invDivision = getPlantDivision(invPlant);
+        const selectedDivs = filterDivisions.filter((d) => d !== "ALL");
+        if (!selectedDivs.includes(invDivision)) return false;
+      }
+
       if (filterPlants.length > 0 && !filterPlants.includes(inv.plantId)) return false;
       if (filterConsignee !== "ALL" && inv.billTo !== filterConsignee) return false;
       if (filterFY !== "ALL" && inv.billYear !== filterFY) return false;
       return true;
     });
 
-    return base.map(inv => {
-      const receipt = invoiceReceiptMap[inv.invoiceNumber] || { receiptAmount: 0, tds: 0, deduction: 0, interest: 0, reversedAmount: 0, reversedTds: 0, reversedDeduction: 0, reversedInterest: 0 };
+    return base.map((inv) => {
+      const receipt = invoiceReceiptMap[inv.invoiceNumber] || {
+        receiptAmount: 0,
+        tds: 0,
+        deduction: 0,
+        interest: 0,
+        reversedAmount: 0,
+        reversedTds: 0,
+        reversedDeduction: 0,
+        reversedInterest: 0,
+      };
       const gross = inv.totals?.grossAmount || 0;
       const totalCollection = (receipt.receiptAmount || 0) + (receipt.tds || 0) + (receipt.deduction || 0);
       const firm = firmMap[inv.plantId];
+      const plant = plantMap[inv.plantId];
+      const division = getPlantDivision(plant);
       const billToCandidates = [inv.billTo, inv.customerCode, inv.customerId, inv.billToParty, inv.billToCode].filter(Boolean);
-      const billToKey = billToCandidates.map(value => (value ?? "").toString().trim().toUpperCase()).find(Boolean) || "";
+      const billToKey = billToCandidates.map((value) => (value ?? "").toString().trim().toUpperCase()).find(Boolean) || "";
       const consignee = customerMap[billToKey] || customerMap[(inv.billTo ?? "").toString().trim().toUpperCase()] || customerMap[(inv.customerId ?? "").toString().trim().toUpperCase()] || customerMap[(inv.customerCode ?? "").toString().trim().toUpperCase()];
+
       return {
         ...inv,
+        division,
         invoiceDate: toSAPDate(inv.invoiceDate),
         receiptAmount: receipt.receiptAmount,
         tdsAmount: receipt.tds,
@@ -171,28 +256,53 @@ const customersQuery = useMemoDatabase(() => collection(db, "customers"), [db]);
         balanceAmount: Math.max(0, gross - totalCollection),
         consignorName: firm?.name || "N/A",
         billToName: consignee?.name || inv.billToName || inv.customerName || billToCandidates[0] || "N/A",
-        chargeType: inv.docCategory ? (inv.billMonth ? `${inv.docCategory} - ${inv.billMonth}` : inv.docCategory) : (inv.billMonth || "-")
+        chargeType: inv.docCategory ? (inv.billMonth ? `${inv.docCategory} - ${inv.billMonth}` : inv.docCategory) : (inv.billMonth || "-"),
       };
     });
-  }, [allInvoices, isAdmin, assignedPlantIds, filterPlants, filterConsignee, filterFY, invoiceReceiptMap, firmMap, customerMap]);
+  }, [allInvoices, isAdmin, assignedPlantIds, filterDivisions, filterPlants, filterConsignee, filterFY, invoiceReceiptMap, firmMap, plantMap, customerMap]);
 
   // Filter for pending invoices (balance > 1)
-  const pendingInvoices = useMemo(() => processedData.filter(i => i.balanceAmount > 1), [processedData]);
+  const pendingInvoices = useMemo(() => processedData.filter((i) => i.balanceAmount > 1), [processedData]);
 
   // Determine which data set to display
-  const displayedData = useMemo(() => showAllInvoices ? processedData : pendingInvoices, [showAllInvoices, processedData, pendingInvoices]);
+  const displayedData = useMemo(() => (showAllInvoices ? processedData : pendingInvoices), [showAllInvoices, processedData, pendingInvoices]);
 
-  const summary = useMemo(() => {
-return processedData.reduce((acc, curr) => ({
-      total: acc.total + (curr.totals?.grossAmount || 0),
-      receipt: acc.receipt + (curr.receiptAmount || 0),
-      tds: acc.tds + (curr.tdsAmount || 0),
-      deduction: acc.deduction + (curr.deductionAmount || 0),
-      interest: acc.interest + (curr.interestAmount || 0),
-      collected: acc.collected + (curr.receiptAmount || 0) + (curr.tdsAmount || 0) + (curr.deductionAmount || 0),
-      balance: acc.balance + curr.balanceAmount
-    }), { total: 0, receipt: 0, tds: 0, deduction: 0, interest: 0, collected: 0, balance: 0 });
-  }, [processedData]);
+  // Helper to compute summary for a collection of records
+  const calculateSummary = (records: any[]) => {
+    return records.reduce(
+      (acc, curr) => ({
+        total: acc.total + (curr.totals?.grossAmount || 0),
+        receipt: acc.receipt + (curr.receiptAmount || 0),
+        tds: acc.tds + (curr.tdsAmount || 0),
+        deduction: acc.deduction + (curr.deductionAmount || 0),
+        interest: acc.interest + (curr.interestAmount || 0),
+        collected: acc.collected + (curr.receiptAmount || 0) + (curr.tdsAmount || 0) + (curr.deductionAmount || 0),
+        balance: acc.balance + curr.balanceAmount,
+      }),
+      { total: 0, receipt: 0, tds: 0, deduction: 0, interest: 0, collected: 0, balance: 0 }
+    );
+  };
+
+  const overallSummary = useMemo(() => calculateSummary(processedData), [processedData]);
+
+  // Check if multiple specific divisions are selected
+  const isMultipleDivisions = useMemo(() => {
+    return !isAllDivisions(filterDivisions) && filterDivisions.filter((d) => d !== "ALL").length > 1;
+  }, [filterDivisions]);
+
+  // Per-division breakdown widgets when multiple divisions are selected
+  const divisionSummaries = useMemo(() => {
+    if (!isMultipleDivisions) return [];
+    const selectedDivs = filterDivisions.filter((d) => d !== "ALL");
+    return selectedDivs.map((divName) => {
+      const recordsForDiv = processedData.filter((r) => r.division === divName);
+      return {
+        division: divName,
+        count: recordsForDiv.length,
+        summary: calculateSummary(recordsForDiv),
+      };
+    });
+  }, [isMultipleDivisions, filterDivisions, processedData]);
 
   const sortedData = useMemo(() => {
     const dataToSort = showAllInvoices ? processedData : pendingInvoices;
@@ -200,73 +310,102 @@ return processedData.reduce((acc, curr) => ({
     return [...dataToSort].sort((a, b) => {
       let aVal = a[sortConfig.key];
       let bVal = b[sortConfig.key];
-      if (sortConfig.key.includes('totals.')) {
-        const key = sortConfig.key.split('.')[1];
+      if (sortConfig.key.includes("totals.")) {
+        const key = sortConfig.key.split(".")[1];
         aVal = a.totals?.[key] || 0;
         bVal = b.totals?.[key] || 0;
       }
-      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      if (aVal < bVal) return sortConfig.direction === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === "asc" ? 1 : -1;
       return 0;
     });
   }, [showAllInvoices, processedData, pendingInvoices, sortConfig]);
 
-  const hasIgst = useMemo(() => pendingInvoices.some(i => (i.totals?.igst || 0) > 0), [pendingInvoices]);
-  const hasCsgst = useMemo(() => pendingInvoices.some(i => (i.totals?.cgst || 0) > 0), [pendingInvoices]);
+  const hasIgst = useMemo(() => pendingInvoices.some((i) => (i.totals?.igst || 0) > 0), [pendingInvoices]);
+  const hasCsgst = useMemo(() => pendingInvoices.some((i) => (i.totals?.cgst || 0) > 0), [pendingInvoices]);
 
   const SortIcon = ({ col }: { col: string }) => {
     if (sortConfig?.key !== col) return <ArrowUpDown className="h-3 w-3 ml-1 opacity-20" />;
-    return sortConfig.direction === 'asc' ? <ChevronUp className="h-3 w-3 ml-1 text-blue-600" /> : <ChevronDown className="h-3 w-3 ml-1 text-blue-600" />;
+    return sortConfig.direction === "asc" ? (
+      <ChevronUp className="h-3 w-3 ml-1 text-blue-600" />
+    ) : (
+      <ChevronDown className="h-3 w-3 ml-1 text-blue-600" />
+    );
   };
 
   const handleSort = (key: string) => {
-    let direction: 'asc' | 'desc' = 'asc';
-    if (sortConfig?.key === key && sortConfig.direction === 'asc') direction = 'desc';
+    let direction: "asc" | "desc" = "asc";
+    if (sortConfig?.key === key && sortConfig.direction === "asc") direction = "desc";
     setSortConfig({ key, direction });
   };
 
   const handleExport = () => {
     if (sortedData.length === 0) return;
     const csvContent = [
-      ["#", "Plant", "Invoice No", "Inv. Date", "Consignor", "Bill-to Party Name", "Bill Month", "Charge type", "Taxable Amt", "CGST", "SGST", "IGST", "Gross Payable", "Receipt Amt", "TDS Amt", "Deduction Amt", "Balance", "Pay Date", "Advice No", "UTR"].join(","),
-      ...sortedData.map((row, idx) => [
-        idx + 1,
-        row.plantId,
-        row.invoiceNumber,
-        row.invoiceDate,
-        `"${row.consignorName || ""}"`,
-        `"${row.billToName || ""}"`,
-        `"${row.billMonth || ""}"`,
-        `"${row.chargeType || row.docCategory || ""}"`,
-        row.totals?.taxableAmount || 0,
-        row.totals?.cgst || 0,
-        row.totals?.sgst || 0,
-        row.totals?.igst || 0,
-        row.totals?.grossAmount || 0,
-        row.receiptAmount || 0,
-        row.tdsAmount || 0,
-        row.deductionAmount || 0,
-        row.balanceAmount || 0,
-        row.paymentDate || "",
-        row.paymentAdviceNo || "",
-        row.bankingUtr || ""
-      ].join(","))
+      [
+        "#",
+        "Plant",
+        "Division",
+        "Invoice No",
+        "Inv. Date",
+        "Consignor",
+        "Bill-to Party Name",
+        "Bill Month",
+        "Charge type",
+        "Taxable Amt",
+        "CGST",
+        "SGST",
+        "IGST",
+        "Gross Payable",
+        "Receipt Amt",
+        "TDS Amt",
+        "Deduction Amt",
+        "Balance",
+        "Pay Date",
+        "Advice No",
+        "UTR",
+      ].join(","),
+      ...sortedData.map((row, idx) =>
+        [
+          idx + 1,
+          row.plantId,
+          `"${row.division || ""}"`,
+          row.invoiceNumber,
+          row.invoiceDate,
+          `"${row.consignorName || ""}"`,
+          `"${row.billToName || ""}"`,
+          `"${row.billMonth || ""}"`,
+          `"${row.chargeType || row.docCategory || ""}"`,
+          row.totals?.taxableAmount || 0,
+          row.totals?.cgst || 0,
+          row.totals?.sgst || 0,
+          row.totals?.igst || 0,
+          row.totals?.grossAmount || 0,
+          row.receiptAmount || 0,
+          row.tdsAmount || 0,
+          row.deductionAmount || 0,
+          row.balanceAmount || 0,
+          row.paymentDate || "",
+          row.paymentAdviceNo || "",
+          row.bankingUtr || "",
+        ].join(",")
+      ),
     ].join("\n");
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `FB03_Pending_Payment_List_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("download", `FB03_Pending_Payment_List_${new Date().toISOString().split("T")[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    window.dispatchEvent(new CustomEvent('sap-status', { detail: { text: "Excel Export triggered successfully", isError: false } }));
+    window.dispatchEvent(new CustomEvent("sap-status", { detail: { text: "Excel Export triggered successfully", isError: false } }));
   };
 
   const handlePrint = () => {
-    const printWindow = window.open('', '_blank');
-    const content = document.getElementById('invoice-print-area')?.innerHTML;
+    const printWindow = window.open("", "_blank");
+    const content = document.getElementById("invoice-print-area")?.innerHTML;
     if (printWindow && content) {
       printWindow.document.write(`
         <html>
@@ -293,25 +432,31 @@ return processedData.reduce((acc, curr) => ({
     <div className="w-full flex flex-col bg-white min-h-full select-text">
       <div className="sap-header-title">FB03 - Invoice Payment Status Control Center</div>
 
-      <div className="bg-[#e7ebf1] border-b border-[#b5c7de] p-3 grid grid-cols-4 gap-6 items-end">
+      {/* FILTER AREA: PLANT(S) | CONSIGNEE (BILL TO) | DIVISION | FINANCIAL YEAR */}
+      <div className="bg-[#e7ebf1] border-b border-[#b5c7de] p-3 grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
         <div className="space-y-1">
           <label className="text-[10px] font-bold text-gray-500 uppercase">Plant(s)</label>
           <PlantMultiSelect
-            plants={plants || []}
+            plants={availablePlants}
             selected={filterPlants}
             onChange={setFilterPlants}
             placeholder="Select Plant(s)..."
             allowedPlantIds={allowedPlantIds}
           />
         </div>
+
         <div className="space-y-1">
           <label className="text-[10px] font-bold text-gray-500 uppercase">Consignee (Bill To)</label>
           <Select value={filterConsignee} onValueChange={setFilterConsignee}>
-            <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">All Partners</SelectItem>
-              {filteredCustomers.map(c => (
-                <SelectItem key={c.id} value={c.customerId}>{c.customerId} - {c.name}</SelectItem>
+              {filteredCustomers.map((c) => (
+                <SelectItem key={c.id} value={c.customerId}>
+                  {c.customerId} - {c.name}
+                </SelectItem>
               ))}
               {filteredCustomers.length === 0 && (
                 <div className="px-2 py-3 text-center text-[10px] font-bold text-red-500">{NO_MASTER_RECORDS_MESSAGE}</div>
@@ -319,76 +464,173 @@ return processedData.reduce((acc, curr) => ({
             </SelectContent>
           </Select>
         </div>
+
+        <div className="space-y-1">
+          <label className="text-[10px] font-bold text-gray-500 uppercase">Division</label>
+          <DivisionMultiSelect
+            divisions={divisions}
+            selected={filterDivisions}
+            onChange={handleDivisionChange}
+          />
+        </div>
+
         <div className="space-y-1">
           <label className="text-[10px] font-bold text-gray-500 uppercase">Financial Year</label>
           <Select value={filterFY} onValueChange={setFilterYear}>
-            <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">All Years</SelectItem>
-              {financialYears.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}
+              {financialYears.map((y) => (
+                <SelectItem key={y} value={y}>
+                  {y}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
+
         <div className="flex gap-2">
           <Button onClick={() => setShowDetail(!showDetail)} className="h-6 rounded-none bg-blue-700 hover:bg-blue-800 text-[11px] font-bold gap-2 shadow-sm">
             <LayoutDashboard className="h-3.5 w-3.5" />
             {showDetail ? "Hide Details" : "View Detail"}
           </Button>
-          <Button onClick={() => setShowAllInvoices(!showAllInvoices)} className={`h-6 rounded-none text-[11px] font-bold gap-2 shadow-sm ${showAllInvoices ? 'bg-gray-500 hover:bg-gray-600' : 'bg-green-600 hover:bg-green-700'}`}>
+          <Button
+            onClick={() => setShowAllInvoices(!showAllInvoices)}
+            className={`h-6 rounded-none text-[11px] font-bold gap-2 shadow-sm ${
+              showAllInvoices ? "bg-gray-500 hover:bg-gray-600" : "bg-green-600 hover:bg-green-700"
+            }`}
+          >
             {showAllInvoices ? "Show Pending" : "Show All Invoices"}
           </Button>
         </div>
       </div>
 
-<div className="p-4 grid grid-cols-6 gap-4">
-        <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-blue-300 transition-colors">
-          <div className="bg-blue-50 p-3 rounded-full group-hover:bg-blue-100 transition-colors"><Receipt className="h-6 w-6 text-blue-600" /></div>
-<div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoice Amount</p><p className="text-xl font-black text-gray-800 font-mono">₹ {formatAmount(summary.total)}</p></div>
+      {/* DASHBOARD SUMMARY WIDGETS */}
+      {isMultipleDivisions ? (
+        <div className="p-4 space-y-6">
+          {divisionSummaries.map((divItem) => (
+            <div key={divItem.division} className="space-y-2 border border-[#b5c7de] rounded-sm p-3 bg-[#f8fafc]">
+              <div className="flex items-center justify-between pb-1 border-b border-gray-200">
+                <div className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-blue-700" />
+                  <span className="text-xs font-black uppercase text-blue-900 tracking-wider">
+                    {divItem.division}
+                  </span>
+                  <span className="text-[10px] font-bold text-gray-500 bg-white border border-gray-300 px-2 py-0.5 rounded">
+                    {divItem.count} Invoices
+                  </span>
+                </div>
+                <span className="text-[10px] font-semibold text-gray-500">
+                  Division-wise Financial Breakdown
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+                <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-3 flex items-center gap-3">
+                  <div className="bg-blue-50 p-2.5 rounded-full"><Receipt className="h-5 w-5 text-blue-600" /></div>
+                  <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoice Amount</p><p className="text-lg font-black text-gray-800 font-mono">₹ {formatAmount(divItem.summary.total)}</p></div>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-3 flex items-center gap-3">
+                  <div className="bg-emerald-50 p-2.5 rounded-full"><Wallet className="h-5 w-5 text-emerald-600" /></div>
+                  <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Receipt Amount</p><p className="text-lg font-black text-emerald-700 font-mono">₹ {formatAmount(divItem.summary.receipt)}</p></div>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-3 flex items-center gap-3">
+                  <div className="bg-orange-50 p-2.5 rounded-full"><MinusCircle className="h-5 w-5 text-orange-600" /></div>
+                  <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total TDS Amount</p><p className="text-lg font-black text-orange-700 font-mono">₹ {formatAmount(divItem.summary.tds)}</p></div>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-3 flex items-center gap-3">
+                  <div className="bg-purple-50 p-2.5 rounded-full"><PlusCircle className="h-5 w-5 text-purple-600" /></div>
+                  <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Deduction Amount</p><p className="text-lg font-black text-purple-700 font-mono">₹ {formatAmount(divItem.summary.deduction)}</p></div>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-3 flex items-center gap-3">
+                  <div className="bg-amber-50 p-2.5 rounded-full"><PlusCircle className="h-5 w-5 text-amber-600" /></div>
+                  <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Interest Amount</p><p className="text-lg font-black text-amber-700 font-mono">₹ {formatAmount(divItem.summary.interest)}</p></div>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-3 flex items-center gap-3">
+                  <div className="bg-red-50 p-2.5 rounded-full"><ArrowRight className="h-5 w-5 text-red-600" /></div>
+                  <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Balance Amount</p><p className="text-lg font-black text-red-700 font-mono">₹ {formatAmount(divItem.summary.balance)}</p></div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
-        <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-emerald-300 transition-colors">
-          <div className="bg-emerald-50 p-3 rounded-full group-hover:bg-emerald-100 transition-colors"><Wallet className="h-6 w-6 text-emerald-600" /></div>
-<div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Receipt Amount</p><p className="text-xl font-black text-emerald-700 font-mono">₹ {formatAmount(summary.receipt)}</p></div>
+      ) : (
+        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+          <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-blue-300 transition-colors">
+            <div className="bg-blue-50 p-3 rounded-full group-hover:bg-blue-100 transition-colors"><Receipt className="h-6 w-6 text-blue-600" /></div>
+            <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoice Amount</p><p className="text-xl font-black text-gray-800 font-mono">₹ {formatAmount(overallSummary.total)}</p></div>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-emerald-300 transition-colors">
+            <div className="bg-emerald-50 p-3 rounded-full group-hover:bg-emerald-100 transition-colors"><Wallet className="h-6 w-6 text-emerald-600" /></div>
+            <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Receipt Amount</p><p className="text-xl font-black text-emerald-700 font-mono">₹ {formatAmount(overallSummary.receipt)}</p></div>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-orange-300 transition-colors">
+            <div className="bg-orange-50 p-3 rounded-full group-hover:bg-orange-100 transition-colors"><MinusCircle className="h-6 w-6 text-orange-600" /></div>
+            <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total TDS Amount</p><p className="text-xl font-black text-orange-700 font-mono">₹ {formatAmount(overallSummary.tds)}</p></div>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-purple-300 transition-colors">
+            <div className="bg-purple-50 p-3 rounded-full group-hover:bg-purple-100 transition-colors"><PlusCircle className="h-6 w-6 text-purple-600" /></div>
+            <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Deduction Amount</p><p className="text-xl font-black text-purple-700 font-mono">₹ {formatAmount(overallSummary.deduction)}</p></div>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-amber-300 transition-colors">
+            <div className="bg-amber-50 p-3 rounded-full group-hover:bg-amber-100 transition-colors"><PlusCircle className="h-6 w-6 text-amber-600" /></div>
+            <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Interest Amount</p><p className="text-xl font-black text-amber-700 font-mono">₹ {formatAmount(overallSummary.interest)}</p></div>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-red-300 transition-colors">
+            <div className="bg-red-50 p-3 rounded-full group-hover:bg-red-100 transition-colors"><ArrowRight className="h-6 w-6 text-red-600" /></div>
+            <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Balance Amount</p><p className="text-xl font-black text-red-700 font-mono">₹ {formatAmount(overallSummary.balance)}</p></div>
+          </div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-orange-300 transition-colors">
-          <div className="bg-orange-50 p-3 rounded-full group-hover:bg-orange-100 transition-colors"><MinusCircle className="h-6 w-6 text-orange-600" /></div>
-<div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total TDS Amount</p><p className="text-xl font-black text-orange-700 font-mono">₹ {formatAmount(summary.tds)}</p></div>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-purple-300 transition-colors">
-          <div className="bg-purple-50 p-3 rounded-full group-hover:bg-purple-100 transition-colors"><PlusCircle className="h-6 w-6 text-purple-600" /></div>
-<div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Deduction Amount</p><p className="text-xl font-black text-purple-700 font-mono">₹ {formatAmount(summary.deduction)}</p></div>
-        </div>
-<div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-amber-300 transition-colors">
-          <div className="bg-amber-50 p-3 rounded-full group-hover:bg-amber-100 transition-colors"><PlusCircle className="h-6 w-6 text-amber-600" /></div>
-<div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Interest Amount</p><p className="text-xl font-black text-amber-700 font-mono">₹ {formatAmount(summary.interest)}</p></div>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-red-300 transition-colors">
-          <div className="bg-red-50 p-3 rounded-full group-hover:bg-red-100 transition-colors"><ArrowRight className="h-6 w-6 text-red-600" /></div>
-<div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Balance Amount</p><p className="text-xl font-black text-red-700 font-mono">₹ {formatAmount(summary.balance)}</p></div>
-        </div>
-      </div>
+      )}
 
       {showDetail && (
         <div className="flex-1 flex flex-col animate-in slide-in-from-bottom-4 duration-500 overflow-hidden">
           <div className="bg-[#dae8f5] px-4 py-1.5 border-y border-gray-300 flex items-center justify-between shadow-sm">
-            <h3 className="text-[11px] font-black text-blue-900 uppercase tracking-widest">{showAllInvoices ? "All Invoice Details" : "Pending Payment Invoice Details"} (ALV Grid)</h3>
-            <Button onClick={handleExport} variant="outline" className="h-6 rounded-none bg-white border-gray-400 text-emerald-700 text-[10px] font-bold uppercase gap-1.5 shadow-sm hover:bg-emerald-50">
+            <h3 className="text-[11px] font-black text-blue-900 uppercase tracking-widest">
+              {showAllInvoices ? "All Invoice Details" : "Pending Payment Invoice Details"} (ALV Grid)
+            </h3>
+            <Button
+              onClick={handleExport}
+              variant="outline"
+              className="h-6 rounded-none bg-white border-gray-400 text-emerald-700 text-[10px] font-bold uppercase gap-1.5 shadow-sm hover:bg-emerald-50"
+            >
               <Download className="h-3.5 w-3.5" /> Export Excel
             </Button>
           </div>
           <div className="flex-1 overflow-auto bg-white no-scrollbar">
-            <Table className="min-w-[1700px] sap-alv-grid">
+            <Table className="min-w-[1800px] sap-alv-grid">
               <TableHeader className="sap-alv-header">
                 <TableRow className="h-8 border-b-[#b5c7de]">
                   <TableHead className="w-12 text-center text-[10px] font-bold border-r border-[#b5c7de]">#</TableHead>
-                  <TableHead onClick={() => handleSort('plantId')} className="w-24 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Plant <SortIcon col="plantId"/></div></TableHead>
-                  <TableHead onClick={() => handleSort('invoiceNumber')} className="w-40 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Invoice No <SortIcon col="invoiceNumber"/></div></TableHead>
-                  <TableHead onClick={() => handleSort('invoiceDate')} className="w-32 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Inv. Date <SortIcon col="invoiceDate"/></div></TableHead>
-                  <TableHead onClick={() => handleSort('consignorName')} className="w-44 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Consignor <SortIcon col="consignorName"/></div></TableHead>
-                  <TableHead onClick={() => handleSort('billToName')} className="w-56 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Bill-to Party Name <SortIcon col="billToName"/></div></TableHead>
-                  <TableHead onClick={() => handleSort('billMonth')} className="w-28 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Bill Month <SortIcon col="billMonth"/></div></TableHead>
-                  <TableHead onClick={() => handleSort('chargeType')} className="w-48 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center">Charge type <SortIcon col="chargeType"/></div></TableHead>
+                  <TableHead onClick={() => handleSort("plantId")} className="w-24 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">
+                    <div className="flex items-center">Plant <SortIcon col="plantId" /></div>
+                  </TableHead>
+                  <TableHead onClick={() => handleSort("division")} className="w-28 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">
+                    <div className="flex items-center">Division <SortIcon col="division" /></div>
+                  </TableHead>
+                  <TableHead onClick={() => handleSort("invoiceNumber")} className="w-40 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">
+                    <div className="flex items-center">Invoice No <SortIcon col="invoiceNumber" /></div>
+                  </TableHead>
+                  <TableHead onClick={() => handleSort("invoiceDate")} className="w-32 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">
+                    <div className="flex items-center">Inv. Date <SortIcon col="invoiceDate" /></div>
+                  </TableHead>
+                  <TableHead onClick={() => handleSort("consignorName")} className="w-44 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">
+                    <div className="flex items-center">Consignor <SortIcon col="consignorName" /></div>
+                  </TableHead>
+                  <TableHead onClick={() => handleSort("billToName")} className="w-56 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">
+                    <div className="flex items-center">Bill-to Party Name <SortIcon col="billToName" /></div>
+                  </TableHead>
+                  <TableHead onClick={() => handleSort("billMonth")} className="w-28 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">
+                    <div className="flex items-center">Bill Month <SortIcon col="billMonth" /></div>
+                  </TableHead>
+                  <TableHead onClick={() => handleSort("chargeType")} className="w-48 text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">
+                    <div className="flex items-center">Charge type <SortIcon col="chargeType" /></div>
+                  </TableHead>
 
-                  <TableHead onClick={() => handleSort('totals.taxableAmount')} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center justify-end">Taxable Amt <SortIcon col="totals.taxableAmount"/></div></TableHead>
+                  <TableHead onClick={() => handleSort("totals.taxableAmount")} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">
+                    <div className="flex items-center justify-end">Taxable Amt <SortIcon col="totals.taxableAmount" /></div>
+                  </TableHead>
                   {hasCsgst && (
                     <>
                       <TableHead className="w-28 text-right text-[10px] font-bold border-r border-[#b5c7de]">CGST</TableHead>
@@ -396,72 +638,164 @@ return processedData.reduce((acc, curr) => ({
                     </>
                   )}
                   {hasIgst && <TableHead className="w-28 text-right text-[10px] font-bold border-r border-[#b5c7de]">IGST</TableHead>}
-                  <TableHead onClick={() => handleSort('totals.grossAmount')} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-blue-50/50"><div className="flex items-center justify-end">Gross Payable <SortIcon col="totals.grossAmount"/></div></TableHead>
-                  <TableHead onClick={() => handleSort('receiptAmount')} className="w-28 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-emerald-50/30"><div className="flex items-center justify-end">Receipt Amt <SortIcon col="receiptAmount"/></div></TableHead>
-                  <TableHead onClick={() => handleSort('tdsAmount')} className="w-24 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-orange-50/30"><div className="flex items-center justify-end">TDS Amt <SortIcon col="tdsAmount"/></div></TableHead>
-                  <TableHead onClick={() => handleSort('deductionAmount')} className="w-24 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-purple-50/30"><div className="flex items-center justify-end">Ded. Amt <SortIcon col="deductionAmount"/></div></TableHead>
-                  <TableHead onClick={() => handleSort('interestAmount')} className="w-24 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-amber-50/30"><div className="flex items-center justify-end">Int. Amt <SortIcon col="interestAmount"/></div></TableHead>
-                  <TableHead onClick={() => handleSort('paymentDate')} className="w-28 text-center text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200"><div className="flex items-center justify-center">Payment Date <SortIcon col="paymentDate"/></div></TableHead>
-                  <TableHead onClick={() => handleSort('balanceAmount')} className="w-32 text-right text-[10px] font-bold text-red-700 bg-red-50/30 cursor-pointer hover:bg-gray-200"><div className="flex items-center justify-end">Balance <SortIcon col="balanceAmount"/></div></TableHead>
+                  <TableHead onClick={() => handleSort("totals.grossAmount")} className="w-32 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-blue-50/50">
+                    <div className="flex items-center justify-end">Gross Payable <SortIcon col="totals.grossAmount" /></div>
+                  </TableHead>
+                  <TableHead onClick={() => handleSort("receiptAmount")} className="w-28 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-emerald-50/30">
+                    <div className="flex items-center justify-end">Receipt Amt <SortIcon col="receiptAmount" /></div>
+                  </TableHead>
+                  <TableHead onClick={() => handleSort("tdsAmount")} className="w-24 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-orange-50/30">
+                    <div className="flex items-center justify-end">TDS Amt <SortIcon col="tdsAmount" /></div>
+                  </TableHead>
+                  <TableHead onClick={() => handleSort("deductionAmount")} className="w-24 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-purple-50/30">
+                    <div className="flex items-center justify-end">Ded. Amt <SortIcon col="deductionAmount" /></div>
+                  </TableHead>
+                  <TableHead onClick={() => handleSort("interestAmount")} className="w-24 text-right text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200 bg-amber-50/30">
+                    <div className="flex items-center justify-end">Int. Amt <SortIcon col="interestAmount" /></div>
+                  </TableHead>
+                  <TableHead onClick={() => handleSort("paymentDate")} className="w-28 text-center text-[10px] font-bold border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">
+                    <div className="flex items-center justify-center">Payment Date <SortIcon col="paymentDate" /></div>
+                  </TableHead>
+                  <TableHead onClick={() => handleSort("balanceAmount")} className="w-32 text-right text-[10px] font-bold text-red-700 bg-red-50/30 cursor-pointer hover:bg-gray-200">
+                    <div className="flex items-center justify-end">Balance <SortIcon col="balanceAmount" /></div>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isInvoicesLoading ? (
-                  <TableRow><TableCell colSpan={18} className="text-center py-20 text-[11px] uppercase tracking-widest animate-pulse">Syncing System Records...</TableCell></TableRow>
-                ) : sortedData.length === 0 ? (
-                  <TableRow><TableCell colSpan={18} className="text-center py-20 text-[11px] font-bold text-emerald-600 uppercase">{showAllInvoices ? "No records found for the selected filters." : "All Invoices in this view are fully settled."}</TableCell></TableRow>
-                ) : sortedData.map((row, idx) => (
-                  <TableRow key={row.id} className={`h-8 hover:bg-blue-50/30 transition-colors border-b border-gray-100 group ${row.balanceAmount <= 1 && showAllInvoices ? 'bg-gray-50/50 text-gray-500' : ''}`}>
-                    <TableCell className="p-0 text-center text-[10px] border-r border-gray-100 text-gray-400 group-hover:text-blue-600">{idx + 1}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-bold text-center">{row.plantId}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono font-black text-blue-800">
-                      <button
-                        className="text-left w-full h-full hover:underline"
-                        onClick={() => setSelectedInvoice(row)}
-                      >{row.invoiceNumber}</button>
+                  <TableRow>
+                    <TableCell colSpan={19} className="text-center py-20 text-[11px] uppercase tracking-widest animate-pulse">
+                      Syncing System Records...
                     </TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">{row.invoiceDate}</TableCell>
-
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 whitespace-normal font-semibold text-gray-800">
-                      {row.consignorName}
-                    </TableCell>
-
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 whitespace-normal font-semibold text-blue-900">
-                      {row.billToName}
-                    </TableCell>
-
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase text-center font-medium">{row.billMonth || "-"}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase italic text-gray-700 whitespace-nowrap font-medium">
-                      {row.chargeType || (row.docCategory ? (row.billMonth ? `${row.docCategory} - ${row.billMonth}` : row.docCategory) : (row.billMonth || "-"))}
-                    </TableCell>
-
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono">{(row.totals?.taxableAmount || 0).toLocaleString()}</TableCell>
-                    {hasCsgst && (
-                      <>
-                        <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{(row.totals?.cgst || 0).toLocaleString()}</TableCell>
-                        <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{(row.totals?.sgst || 0).toLocaleString()}</TableCell>
-                      </>
-                    )}
-                    {hasIgst && <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">{(row.totals?.igst || 0).toLocaleString()}</TableCell>}
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-black text-blue-900 bg-blue-50/20">{formatAmount(row.totals?.grossAmount)}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-emerald-700 bg-emerald-50/20">{formatAmount(row.receiptAmount)}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-orange-700 bg-orange-50/20">{formatAmount(row.tdsAmount)}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-purple-700 bg-purple-50/20">{formatAmount(row.deductionAmount)}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-amber-700 bg-amber-50/20">{formatAmount(row.interestAmount)}</TableCell>
-                    <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">{row.paymentDate || "-"}</TableCell>
-                    <TableCell className={`p-0 px-2 text-[10px] text-right font-black ${row.balanceAmount <= 1 && showAllInvoices ? 'text-gray-500' : 'text-red-700'} bg-red-50/10`}>{formatAmount(row.balanceAmount)}</TableCell>
                   </TableRow>
-                ))}
+                ) : sortedData.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={19} className="text-center py-20 text-[11px] font-bold text-emerald-600 uppercase">
+                      {showAllInvoices ? "No records found for the selected filters." : "All Invoices in this view are fully settled."}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  sortedData.map((row, idx) => (
+                    <TableRow
+                      key={row.id}
+                      className={`h-8 hover:bg-blue-50/30 transition-colors border-b border-gray-100 group ${
+                        row.balanceAmount <= 1 && showAllInvoices ? "bg-gray-50/50 text-gray-500" : ""
+                      }`}
+                    >
+                      <TableCell className="p-0 text-center text-[10px] border-r border-gray-100 text-gray-400 group-hover:text-blue-600">
+                        {idx + 1}
+                      </TableCell>
+                      <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-bold text-center">
+                        {row.plantId}
+                      </TableCell>
+                      <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-semibold text-center text-purple-700">
+                        {row.division}
+                      </TableCell>
+                      <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono font-black text-blue-800">
+                        <button
+                          className="text-left w-full h-full hover:underline"
+                          onClick={() => setSelectedInvoice(row)}
+                        >
+                          {row.invoiceNumber}
+                        </button>
+                      </TableCell>
+                      <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">
+                        {row.invoiceDate}
+                      </TableCell>
+
+                      <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 whitespace-normal font-semibold text-gray-800">
+                        {row.consignorName}
+                      </TableCell>
+
+                      <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 whitespace-normal font-semibold text-blue-900">
+                        {row.billToName}
+                      </TableCell>
+
+                      <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase text-center font-medium">
+                        {row.billMonth || "-"}
+                      </TableCell>
+                      <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 uppercase italic text-gray-700 whitespace-nowrap font-medium">
+                        {row.chargeType || (row.docCategory ? (row.billMonth ? `${row.docCategory} - ${row.billMonth}` : row.docCategory) : (row.billMonth || "-"))}
+                      </TableCell>
+
+                      <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono">
+                        {(row.totals?.taxableAmount || 0).toLocaleString()}
+                      </TableCell>
+                      {hasCsgst && (
+                        <>
+                          <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">
+                            {(row.totals?.cgst || 0).toLocaleString()}
+                          </TableCell>
+                          <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">
+                            {(row.totals?.sgst || 0).toLocaleString()}
+                          </TableCell>
+                        </>
+                      )}
+                      {hasIgst && (
+                        <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-mono text-gray-500">
+                          {(row.totals?.igst || 0).toLocaleString()}
+                        </TableCell>
+                      )}
+                      <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-black text-blue-900 bg-blue-50/20">
+                        {formatAmount(row.totals?.grossAmount)}
+                      </TableCell>
+                      <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-emerald-700 bg-emerald-50/20">
+                        {formatAmount(row.receiptAmount)}
+                      </TableCell>
+                      <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-orange-700 bg-orange-50/20">
+                        {formatAmount(row.tdsAmount)}
+                      </TableCell>
+                      <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-purple-700 bg-purple-50/20">
+                        {formatAmount(row.deductionAmount)}
+                      </TableCell>
+                      <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 text-right font-bold text-amber-700 bg-amber-50/20">
+                        {formatAmount(row.interestAmount)}
+                      </TableCell>
+                      <TableCell className="p-0 px-2 text-[10px] border-r border-gray-100 font-mono text-center">
+                        {row.paymentDate || "-"}
+                      </TableCell>
+                      <TableCell
+                        className={`p-0 px-2 text-[10px] text-right font-black ${
+                          row.balanceAmount <= 1 && showAllInvoices ? "text-gray-500" : "text-red-700"
+                        } bg-red-50/10`}
+                      >
+                        {formatAmount(row.balanceAmount)}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </div>
           <div className="bg-[#333e4f] p-2 flex justify-between items-center text-white text-[10px] font-bold uppercase tracking-widest shadow-inner sticky bottom-0 z-20">
-            <div className="flex items-center gap-6"><span>ALV Grid Status: {sortedData.length} Document(s) Displayed</span></div>
+            <div className="flex items-center gap-6">
+              <span>ALV Grid Status: {sortedData.length} Document(s) Displayed</span>
+            </div>
             <div className="flex items-center gap-10 pr-4">
-              <div className="flex flex-col items-end"><span className="opacity-50 text-[8px]">Total Taxable</span><span className="text-[12px] font-black text-sky-300">₹ {displayedData.reduce((s, r) => s + (r.totals?.taxableAmount || 0), 0).toLocaleString()}</span></div>
-              <div className="flex flex-col items-end border-l border-white/20 pl-6"><span className="opacity-50 text-[8px]">Total GST</span><span className="text-[12px] font-black text-emerald-300">₹ {displayedData.reduce((s, r) => s + (r.totals?.cgst || 0) + (r.totals?.sgst || 0) + (r.totals?.igst || 0), 0).toLocaleString()}</span></div>
-              <div className="flex flex-col items-end border-l border-white/20 pl-6"><span className="opacity-50 text-[8px]">Net Payable</span><span className="text-[12px] font-black text-blue-300">₹ {displayedData.reduce((s, r) => s + (r.totals?.grossAmount || 0), 0).toLocaleString()}</span></div>
-              <div className="flex flex-col items-end border-l border-white/20 pl-6"><span className="opacity-50 text-[8px]">Outstanding</span><span className="text-[12px] font-black text-red-400">₹ {displayedData.reduce((s, r) => s + (r.balanceAmount || 0), 0).toLocaleString()}</span></div>
+              <div className="flex flex-col items-end">
+                <span className="opacity-50 text-[8px]">Total Taxable</span>
+                <span className="text-[12px] font-black text-sky-300">
+                  ₹ {displayedData.reduce((s, r) => s + (r.totals?.taxableAmount || 0), 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="flex flex-col items-end border-l border-white/20 pl-6">
+                <span className="opacity-50 text-[8px]">Total GST</span>
+                <span className="text-[12px] font-black text-emerald-300">
+                  ₹ {displayedData.reduce((s, r) => s + (r.totals?.cgst || 0) + (r.totals?.sgst || 0) + (r.totals?.igst || 0), 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="flex flex-col items-end border-l border-white/20 pl-6">
+                <span className="opacity-50 text-[8px]">Net Payable</span>
+                <span className="text-[12px] font-black text-blue-300">
+                  ₹ {displayedData.reduce((s, r) => s + (r.totals?.grossAmount || 0), 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="flex flex-col items-end border-l border-white/20 pl-6">
+                <span className="opacity-50 text-[8px]">Outstanding</span>
+                <span className="text-[12px] font-black text-red-400">
+                  ₹ {displayedData.reduce((s, r) => s + (r.balanceAmount || 0), 0).toLocaleString()}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -518,7 +852,6 @@ return processedData.reduce((acc, curr) => ({
           </DialogContent>
         </Dialog>
       )}
-
     </div>
   );
 }

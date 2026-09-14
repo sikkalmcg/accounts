@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { validateDuplicateWithExclusion } from "@/lib/duplicate-validator";
+import { DEFAULT_DIVISIONS } from "@/lib/division-master";
 
 export default function OP02() {
   const db = useDatabase();
@@ -18,16 +19,37 @@ export default function OP02() {
   const plantsQuery = useMemoDatabase(() => collection(db, "plants"), [db]);
   const { data: plants } = useCollection(plantsQuery);
 
-  const handleSelect = (id: string) => {
+  const divisionsQuery = useMemoDatabase(() => collection(db, "divisions"), [db]);
+  const { data: dbDivisions } = useCollection(divisionsQuery);
+  const divisions = (dbDivisions && dbDivisions.length > 0) ? dbDivisions : DEFAULT_DIVISIONS;
+
+  const handleSelect = useCallback((id: string) => {
     const plant = plants?.find(p => p.id === id);
-    setFormData(plant);
+    setFormData(plant ? { ...plant, division: plant.division || "" } : null);
     setSelectedId(id);
-  };
+  }, [plants]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && plants && plants.length > 0 && !selectedId) {
+      const params = new URLSearchParams(window.location.search);
+      const targetId = params.get("id");
+      if (targetId) {
+        handleSelect(targetId);
+      }
+    }
+  }, [plants, selectedId, handleSelect]);
 
   const handleExecute = useCallback(async () => {
     if (!formData || !selectedId) {
        window.dispatchEvent(new CustomEvent('sap-status', { 
         detail: { text: "Please select a plant to edit", isError: true } 
+      }));
+      return;
+    }
+
+    if (!formData.division || !formData.division.trim()) {
+      window.dispatchEvent(new CustomEvent('sap-status', { 
+        detail: { text: "Division is required.", isError: true } 
       }));
       return;
     }
@@ -44,7 +66,11 @@ export default function OP02() {
     setLoading(true);
     try {
       const { id, ...data } = formData;
-      updateDocumentNonBlocking(doc(db, "plants", selectedId), { ...data, plantId: (formData.plantId || "").trim().toUpperCase() });
+      updateDocumentNonBlocking(doc(db, "plants", selectedId), {
+        ...data,
+        plantId: (formData.plantId || "").trim().toUpperCase(),
+        division: formData.division.trim()
+      });
       window.dispatchEvent(new CustomEvent('sap-status', { 
         detail: { text: `Plant ${formData.plantId} updated successfully`, isError: false } 
       }));
@@ -141,6 +167,27 @@ export default function OP02() {
                   />
                 </div>
               </div>
+              <div className="sap-selection-row">
+                <label className="sap-label">Division <span className="text-red-500 font-bold">*</span></label>
+                <div className="sap-input-wrapper max-w-md">
+                  <Select
+                    value={formData.division || ""}
+                    onValueChange={(val) => setFormData({ ...formData, division: val })}
+                  >
+                    <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
+                      <SelectValue placeholder="Select Division *" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {divisions.map((d: any) => (
+                        <SelectItem key={d.id || d.name} value={d.name}>
+                          {d.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
               <div className="sap-selection-row">
                 <label className="sap-label">Plant Location</label>
                 <div className="sap-input-wrapper max-w-md">

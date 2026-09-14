@@ -33,8 +33,14 @@ const seededAdmin: Doc = {
   updatedAt: now(),
 };
 
+const seededDivisions: Doc[] = [
+  { _id: 'div_a_001', divisionId: 'DIV_A', name: 'Division A', description: 'Primary Operations Division', createdAt: now(), updatedAt: now() },
+  { _id: 'div_b_002', divisionId: 'DIV_B', name: 'Division B', description: 'Secondary Operations Division', createdAt: now(), updatedAt: now() },
+];
+
 const store: Record<string, Doc[]> = {
   users: [seededAdmin],
+  divisions: seededDivisions,
 };
 
 function clone(doc: Doc) {

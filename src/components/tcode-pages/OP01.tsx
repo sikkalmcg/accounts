@@ -2,14 +2,17 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useDatabase, addDocumentNonBlocking } from "@/database";
+import { useDatabase, useCollection, useMemoDatabase, addDocumentNonBlocking } from "@/database";
 import { collection, serverTimestamp, query, where, getDocs } from "@/database/mongo";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { validateDuplicate } from "@/lib/duplicate-validator";
+import { DEFAULT_DIVISIONS } from "@/lib/division-master";
 
 const initialData = {
   plantId: "",
   name: "",
   location: "",
+  division: "",
 };
 
 export default function OP01() {
@@ -17,7 +20,18 @@ export default function OP01() {
   const [formData, setFormData] = useState(initialData);
   const [loading, setLoading] = useState(false);
 
+  const divisionsQuery = useMemoDatabase(() => collection(db, "divisions"), [db]);
+  const { data: dbDivisions } = useCollection(divisionsQuery);
+  const divisions = (dbDivisions && dbDivisions.length > 0) ? dbDivisions : DEFAULT_DIVISIONS;
+
   const handleExecute = useCallback(async () => {
+    if (!formData.division || !formData.division.trim()) {
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: "Division is required.", isError: true }
+      }));
+      return;
+    }
+
     if (!formData.plantId || !formData.name || !formData.location) {
       window.dispatchEvent(new CustomEvent('sap-status', {
         detail: { text: "Validation Error: All fields are required", isError: true }
@@ -42,6 +56,7 @@ export default function OP01() {
       addDocumentNonBlocking(collection(db, "plants"), {
         ...formData,
         plantId: normalizedPlantId,
+        division: formData.division.trim(),
         createdAt: serverTimestamp(),
       });
 
@@ -101,6 +116,27 @@ export default function OP01() {
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className="flex h-6 w-full rounded-none border border-gray-400 bg-white px-1.5 py-1 text-xs shadow-inner focus-visible:outline-none focus:bg-[#fff9c4]"
                 />
+              </div>
+            </div>
+
+            <div className="sap-selection-row">
+              <label className="sap-label">Division <span className="text-red-500 font-bold">*</span></label>
+              <div className="sap-input-wrapper max-w-md">
+                <Select
+                  value={formData.division}
+                  onValueChange={(val) => setFormData({ ...formData, division: val })}
+                >
+                  <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
+                    <SelectValue placeholder="Select Division *" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {divisions.map((d: any) => (
+                      <SelectItem key={d.id || d.name} value={d.name}>
+                        {d.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 

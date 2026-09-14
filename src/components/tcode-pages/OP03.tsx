@@ -1,15 +1,16 @@
-
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDatabase, useCollection, useMemoDatabase } from "@/database";
 import { collection, query, orderBy } from "@/database/mongo";
-import { Search, ArrowUpDown, ChevronUp, ChevronDown, Filter, Printer, Download } from "lucide-react";
+import { Search, ArrowUpDown, ChevronUp, ChevronDown, Filter, Printer, Download, Edit } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export default function OP03() {
   const database = useDatabase();
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
@@ -31,14 +32,16 @@ export default function OP03() {
     if (!plants) return [];
     const filtered = plants.filter(p => 
       p.name?.toLowerCase().includes(search.toLowerCase()) || 
-      p.plantId?.toUpperCase().includes(search.toUpperCase())
+      p.plantId?.toUpperCase().includes(search.toUpperCase()) ||
+      (p.division || "Division A").toLowerCase().includes(search.toLowerCase()) ||
+      p.location?.toLowerCase().includes(search.toLowerCase())
     );
     
     if (!sortConfig) return filtered;
 
     return [...filtered].sort((a, b) => {
-      const aVal = String(a[sortConfig.key as keyof typeof a] || "").toLowerCase();
-      const bVal = String(b[sortConfig.key as keyof typeof b] || "").toLowerCase();
+      const aVal = String(a[sortConfig.key as keyof typeof a] || (sortConfig.key === 'division' ? 'Division A' : "")).toLowerCase();
+      const bVal = String(b[sortConfig.key as keyof typeof b] || (sortConfig.key === 'division' ? 'Division A' : "")).toLowerCase();
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
@@ -65,6 +68,7 @@ export default function OP03() {
             <input 
               value={search} 
               onChange={(e) => setSearch(e.target.value)} 
+              placeholder="Search Plant ID / Name / Division..."
               className="w-full text-xs outline-none" 
             />
           </div>
@@ -99,28 +103,56 @@ export default function OP03() {
           <TableHeader className="bg-[#e7ebf1] sticky top-0 z-10">
             <TableRow className="h-8 border-b-[#b5c7de]">
               <TableHead className="text-[11px] font-bold text-gray-700 border-r border-[#b5c7de] w-12 text-center">#</TableHead>
-              <TableHead onClick={() => handleSort('plantId')} className="text-[11px] font-bold text-gray-700 border-r border-[#b5c7de] w-48 cursor-pointer hover:bg-gray-200">
-                <div className="flex items-center">Plant ID <SortIcon column="plantId" /></div>
+              <TableHead onClick={() => handleSort('plantId')} className="text-[11px] font-bold text-gray-700 border-r border-[#b5c7de] w-40 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">Plant <SortIcon column="plantId" /></div>
               </TableHead>
               <TableHead onClick={() => handleSort('name')} className="text-[11px] font-bold text-gray-700 border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Plant Name <SortIcon column="name" /></div>
               </TableHead>
-              <TableHead onClick={() => handleSort('location')} className="text-[11px] font-bold text-gray-700 cursor-pointer hover:bg-gray-200">
+              <TableHead onClick={() => handleSort('division')} className="text-[11px] font-bold text-gray-700 border-r border-[#b5c7de] w-44 cursor-pointer hover:bg-gray-200">
+                <div className="flex items-center">Division <SortIcon column="division" /></div>
+              </TableHead>
+              <TableHead onClick={() => handleSort('location')} className="text-[11px] font-bold text-gray-700 border-r border-[#b5c7de] cursor-pointer hover:bg-gray-200">
                 <div className="flex items-center">Location <SortIcon column="location" /></div>
+              </TableHead>
+              <TableHead className="text-[11px] font-bold text-gray-700 border-r border-[#b5c7de] w-24 text-center">
+                Status
+              </TableHead>
+              <TableHead className="text-[11px] font-bold text-gray-700 w-24 text-center">
+                Action
               </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={4} className="text-center py-4 text-xs">LOADING MASTER DATA...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="text-center py-4 text-xs">LOADING MASTER DATA...</TableCell></TableRow>
             ) : sortedData.length === 0 ? (
-              <TableRow><TableCell colSpan={4} className="text-center py-10 text-xs text-red-500 font-bold uppercase tracking-widest">NO RECORDS MATCHING SELECTION CRITERIA</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="text-center py-10 text-xs text-red-500 font-bold uppercase tracking-widest">NO RECORDS MATCHING SELECTION CRITERIA</TableCell></TableRow>
             ) : sortedData.map((p, i) => (
               <TableRow key={p.id} className="h-8 hover:bg-blue-50/50 border-b border-gray-100 transition-colors">
                 <TableCell className="p-0 text-center text-[11px] border-r border-gray-100 text-gray-400">{i + 1}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r border-gray-100 font-bold text-blue-700">{p.plantId}</TableCell>
                 <TableCell className="p-0 px-2 text-[11px] border-r border-gray-100">{p.name}</TableCell>
-                <TableCell className="p-0 px-2 text-[11px]">{p.location}</TableCell>
+                <TableCell className="p-0 px-2 text-[11px] border-r border-gray-100 font-bold text-purple-700">
+                  <span className="bg-purple-50 border border-purple-200 px-2 py-0.5 rounded text-[10px]">
+                    {p.division || "Division A"}
+                  </span>
+                </TableCell>
+                <TableCell className="p-0 px-2 text-[11px] border-r border-gray-100">{p.location}</TableCell>
+                <TableCell className="p-0 px-2 text-[11px] border-r border-gray-100 text-center">
+                  <span className="text-emerald-800 bg-emerald-50 border border-emerald-300 px-2 py-0.5 rounded text-[10px] font-bold">
+                    Active
+                  </span>
+                </TableCell>
+                <TableCell className="p-0 px-2 text-[11px] text-center">
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/tcode/OP02?id=${p.id}`)}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 hover:text-blue-900 hover:underline px-2 py-0.5 rounded hover:bg-blue-50 transition-colors"
+                  >
+                    <Edit className="h-3 w-3" /> Edit
+                  </button>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -129,5 +161,3 @@ export default function OP03() {
     </div>
   );
 }
-
-
