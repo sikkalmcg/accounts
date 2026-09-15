@@ -305,9 +305,27 @@ export default function FB03() {
     return divisions.map((d) => d.name);
   }, [filterDivisions, divisions, registeredDivisionNames]);
 
+  // Selected plants breakdown when more than 1 plant is selected
+  const selectedPlantsBreakdown = useMemo(() => {
+    if (filterPlants.length <= 1) return [];
+    return filterPlants.map((pId) => {
+      const plantRecords = processedData.filter((r) => r.plantId === pId);
+      const plantSummary = calculateSummary(plantRecords);
+      const pObj = plantMap[pId];
+      return {
+        plantId: pId,
+        plantName: pObj?.name || pId,
+        invoiceCount: plantRecords.length,
+        totalBalance: plantSummary.balance,
+        totalGross: plantSummary.total,
+        totalReceipt: plantSummary.receipt,
+      };
+    });
+  }, [filterPlants, processedData, plantMap]);
+
   // Per-division breakdown widgets
   const divisionSummaries = useMemo(() => {
-    return activeDivisionList.map((divName) => {
+    const summaries = activeDivisionList.map((divName) => {
       const recordsForDiv = processedData.filter((r) => r.division === divName);
       return {
         division: divName,
@@ -315,7 +333,19 @@ export default function FB03() {
         summary: calculateSummary(recordsForDiv),
       };
     });
-  }, [activeDivisionList, processedData]);
+
+    if (filterPlants.length > 0) {
+      const withRecords = summaries.filter((s) => s.count > 0);
+      return withRecords.length > 0 ? withRecords : summaries;
+    }
+
+    return summaries;
+  }, [activeDivisionList, processedData, filterPlants]);
+
+  // Combined Total Balance Amount of all currently selected / active divisions
+  const selectedDivisionsTotalBalance = useMemo(() => {
+    return divisionSummaries.reduce((sum, item) => sum + (item.summary?.balance || 0), 0);
+  }, [divisionSummaries]);
 
   const sortedData = useMemo(() => {
     const dataToSort = showAllInvoices ? processedData : pendingInvoices;
@@ -443,11 +473,24 @@ export default function FB03() {
 
   return (
     <div className="w-full flex flex-col bg-white min-h-full select-text">
-      <div className="sap-header-title">FB03 - Invoice Payment Status Control Center</div>
+      <div className="sap-header-title flex items-center justify-between">
+        <span>FB03 - Invoice Payment Status Control Center</span>
+        {filterPlants.length > 1 && (
+          <div className="flex items-center gap-2 text-xs font-normal normal-case">
+            <span className="bg-blue-100 text-blue-900 font-bold border border-blue-300 px-2 py-0.5 rounded text-[11px]">
+              {filterPlants.length} Plants Selected ({filterPlants.join(", ")})
+            </span>
+            <span className="bg-red-700 text-white font-black px-2.5 py-0.5 rounded font-mono text-[11px] shadow-xs flex items-center gap-1.5">
+              <span>Total Balance:</span>
+              <span className="text-yellow-200">₹ {formatAmount(overallSummary.balance)}</span>
+            </span>
+          </div>
+        )}
+      </div>
 
       {/* FILTER AREA: PLANT(S) | CONSIGNEE (BILL TO) | DIVISION | FINANCIAL YEAR */}
       <div className="bg-[#e7ebf1] border-b border-[#b5c7de] p-3 grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-        <div className="space-y-1">
+        <div className="space-y-1 w-full min-w-0">
           <label className="text-[10px] font-bold text-gray-500 uppercase">Plant(s)</label>
           <PlantMultiSelect
             plants={availablePlants}
@@ -458,10 +501,10 @@ export default function FB03() {
           />
         </div>
 
-        <div className="space-y-1">
+        <div className="space-y-1 w-full min-w-0">
           <label className="text-[10px] font-bold text-gray-500 uppercase">Consignee (Bill To)</label>
           <Select value={filterConsignee} onValueChange={setFilterConsignee}>
-            <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
+            <SelectTrigger className="h-7 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -478,7 +521,7 @@ export default function FB03() {
           </Select>
         </div>
 
-        <div className="space-y-1">
+        <div className="space-y-1 w-full min-w-0">
           <label className="text-[10px] font-bold text-gray-500 uppercase">Division</label>
           <DivisionMultiSelect
             divisions={divisions}
@@ -487,10 +530,10 @@ export default function FB03() {
           />
         </div>
 
-        <div className="space-y-1">
+        <div className="space-y-1 w-full min-w-0">
           <label className="text-[10px] font-bold text-gray-500 uppercase">Financial Year</label>
           <Select value={filterFY} onValueChange={setFilterYear}>
-            <SelectTrigger className="h-6 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
+            <SelectTrigger className="h-7 rounded-none border-gray-400 bg-white text-xs px-1.5 focus:bg-[#fff9c4]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -505,13 +548,13 @@ export default function FB03() {
         </div>
 
         <div className="flex gap-2">
-          <Button onClick={() => setShowDetail(!showDetail)} className="h-6 rounded-none bg-blue-700 hover:bg-blue-800 text-[11px] font-bold gap-2 shadow-sm">
+          <Button onClick={() => setShowDetail(!showDetail)} className="h-7 rounded-none bg-blue-700 hover:bg-blue-800 text-[11px] font-bold gap-2 shadow-sm">
             <LayoutDashboard className="h-3.5 w-3.5" />
             {showDetail ? "Hide Details" : "View Detail"}
           </Button>
           <Button
             onClick={() => setShowAllInvoices(!showAllInvoices)}
-            className={`h-6 rounded-none text-[11px] font-bold gap-2 shadow-sm ${
+            className={`h-7 rounded-none text-[11px] font-bold gap-2 shadow-sm ${
               showAllInvoices ? "bg-gray-500 hover:bg-gray-600" : "bg-green-600 hover:bg-green-700"
             }`}
           >
@@ -521,81 +564,216 @@ export default function FB03() {
       </div>
 
       {/* DASHBOARD SUMMARY WIDGETS */}
-      {divisionSummaries.length > 0 ? (
-        <div className="p-4 space-y-4 bg-gray-50 border-b border-gray-200">
-          {divisionSummaries.map((divItem) => (
-            <div key={divItem.division} className="space-y-2.5 border border-[#b5c7de] rounded-sm p-3.5 bg-white shadow-2xs">
-              <div className="flex items-center justify-between pb-1.5 border-b border-gray-200">
-                <div className="flex items-center gap-2">
-                  <Building2 className="h-4 w-4 text-blue-700" />
-                  <span className="text-xs font-black uppercase text-blue-900 tracking-wider">
-                    {formatDivisionHeader(divItem.division)}
-                  </span>
-                  <span className="text-[10px] font-bold text-gray-500 bg-gray-100 border border-gray-300 px-2 py-0.5 rounded font-mono">
-                    {divItem.count} Invoices
-                  </span>
-                </div>
-                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-                  Division-wise Financial Breakdown
+      <div className="p-4 space-y-4 bg-gray-50 border-b border-gray-200">
+        {/* COMBINED MULTI-PLANT SUMMARY WIDGET (When user selects more than 1 plant) */}
+        {filterPlants.length > 1 && (
+          <div className="space-y-2.5 border-2 border-blue-400/80 rounded-sm p-3.5 bg-gradient-to-r from-blue-50/60 via-white to-indigo-50/40 shadow-xs">
+            <div className="flex items-center justify-between pb-1.5 border-b border-blue-200">
+              <div className="flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-blue-700" />
+                <span className="text-xs font-black uppercase text-blue-900 tracking-wider">
+                  Combined Total ({filterPlants.length} Plants Selected: {filterPlants.join(", ")})
+                </span>
+                <span className="text-[10px] font-bold text-blue-800 bg-blue-100 border border-blue-300 px-2 py-0.5 rounded font-mono">
+                  {processedData.length} Total Invoices
                 </span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-                <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-blue-300 transition-colors">
-                  <div className="bg-blue-50 p-2.5 rounded-full"><Receipt className="h-5 w-5 text-blue-600" /></div>
-                  <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoice Amount</p><p className="text-lg font-black text-gray-800 font-mono">₹ {formatAmount(divItem.summary.total)}</p></div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
+                  Total Selected Plants Balance:
+                </span>
+                <span className="text-xs font-black text-red-700 font-mono bg-red-100/90 border border-red-300 px-2.5 py-0.5 rounded shadow-2xs">
+                  ₹ {formatAmount(overallSummary.balance)}
+                </span>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+              <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-blue-300 transition-colors">
+                <div className="bg-blue-50 p-2.5 rounded-full"><Receipt className="h-5 w-5 text-blue-600" /></div>
+                <div>
+                  <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoice Amount</p>
+                  <p className="text-lg font-black text-gray-800 font-mono">₹ {formatAmount(overallSummary.total)}</p>
                 </div>
-                <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-emerald-300 transition-colors">
-                  <div className="bg-emerald-50 p-2.5 rounded-full"><Wallet className="h-5 w-5 text-emerald-600" /></div>
-                  <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Receipt Amount</p><p className="text-lg font-black text-emerald-700 font-mono">₹ {formatAmount(divItem.summary.receipt)}</p></div>
+              </div>
+              <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-emerald-300 transition-colors">
+                <div className="bg-emerald-50 p-2.5 rounded-full"><Wallet className="h-5 w-5 text-emerald-600" /></div>
+                <div>
+                  <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Receipt Amount</p>
+                  <p className="text-lg font-black text-emerald-700 font-mono">₹ {formatAmount(overallSummary.receipt)}</p>
                 </div>
-                <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-orange-300 transition-colors">
-                  <div className="bg-orange-50 p-2.5 rounded-full"><MinusCircle className="h-5 w-5 text-orange-600" /></div>
-                  <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total TDS Amount</p><p className="text-lg font-black text-orange-700 font-mono">₹ {formatAmount(divItem.summary.tds)}</p></div>
+              </div>
+              <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-orange-300 transition-colors">
+                <div className="bg-orange-50 p-2.5 rounded-full"><MinusCircle className="h-5 w-5 text-orange-600" /></div>
+                <div>
+                  <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total TDS Amount</p>
+                  <p className="text-lg font-black text-orange-700 font-mono">₹ {formatAmount(overallSummary.tds)}</p>
                 </div>
-                <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-purple-300 transition-colors">
-                  <div className="bg-purple-50 p-2.5 rounded-full"><PlusCircle className="h-5 w-5 text-purple-600" /></div>
-                  <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Deduction Amount</p><p className="text-lg font-black text-purple-700 font-mono">₹ {formatAmount(divItem.summary.deduction)}</p></div>
+              </div>
+              <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-purple-300 transition-colors">
+                <div className="bg-purple-50 p-2.5 rounded-full"><PlusCircle className="h-5 w-5 text-purple-600" /></div>
+                <div>
+                  <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Deduction Amount</p>
+                  <p className="text-lg font-black text-purple-700 font-mono">₹ {formatAmount(overallSummary.deduction)}</p>
                 </div>
-                <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-amber-300 transition-colors">
-                  <div className="bg-amber-50 p-2.5 rounded-full"><PlusCircle className="h-5 w-5 text-amber-600" /></div>
-                  <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Interest Amount</p><p className="text-lg font-black text-amber-700 font-mono">₹ {formatAmount(divItem.summary.interest)}</p></div>
+              </div>
+              <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-amber-300 transition-colors">
+                <div className="bg-amber-50 p-2.5 rounded-full"><PlusCircle className="h-5 w-5 text-amber-600" /></div>
+                <div>
+                  <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Interest Amount</p>
+                  <p className="text-lg font-black text-amber-700 font-mono">₹ {formatAmount(overallSummary.interest)}</p>
                 </div>
-                <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-red-300 transition-colors">
-                  <div className="bg-red-50 p-2.5 rounded-full"><ArrowRight className="h-5 w-5 text-red-600" /></div>
-                  <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Balance Amount</p><p className="text-lg font-black text-red-700 font-mono">₹ {formatAmount(divItem.summary.balance)}</p></div>
+              </div>
+              {/* LAST BOX: TOTAL BALANCE AMOUNT IN THE UPPER RIGHT CORNER OF THE ROW */}
+              <div className="relative bg-white border-2 border-red-400 rounded-sm p-3 flex flex-col justify-between shadow-2xs hover:border-red-500 transition-colors">
+                <div className="flex items-center justify-between gap-1">
+                  <div className="flex items-center gap-2">
+                    <div className="bg-red-50 p-1.5 rounded-full"><ArrowRight className="h-4 w-4 text-red-600" /></div>
+                    <p className="text-[9px] font-bold text-gray-600 uppercase tracking-tighter">Total Balance Amount</p>
+                  </div>
+                  {/* UPPER RIGHT SIDE CORNER BADGE OF LAST BOX */}
+                  <span className="text-[9px] font-extrabold text-red-700 bg-red-100 border border-red-300 px-1.5 py-0.5 rounded font-mono shadow-2xs">
+                    {filterPlants.length} Plants Total
+                  </span>
+                </div>
+                <div className="mt-1">
+                  <p className="text-xl font-black text-red-700 font-mono">₹ {formatAmount(overallSummary.balance)}</p>
+                  {/* PLANT-WISE BALANCE BREAKDOWN */}
+                  <div className="mt-1.5 pt-1.5 border-t border-red-100 flex flex-wrap gap-1">
+                    {selectedPlantsBreakdown.map((pb) => (
+                      <span
+                        key={pb.plantId}
+                        className="text-[9px] font-medium text-gray-700 bg-red-50/80 border border-red-200 px-1.5 py-0.5 rounded flex items-center gap-1 font-mono"
+                        title={`${pb.plantName} (${pb.invoiceCount} invoices)`}
+                      >
+                        <strong className="text-gray-900">{pb.plantId}:</strong>
+                        <span className="text-red-700 font-bold">₹ {formatAmount(pb.totalBalance)}</span>
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
-          ))}
-        </div>
-      ) : (
-        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-          <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-blue-300 transition-colors">
-            <div className="bg-blue-50 p-3 rounded-full group-hover:bg-blue-100 transition-colors"><Receipt className="h-6 w-6 text-blue-600" /></div>
-            <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoice Amount</p><p className="text-xl font-black text-gray-800 font-mono">₹ {formatAmount(overallSummary.total)}</p></div>
           </div>
-          <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-emerald-300 transition-colors">
-            <div className="bg-emerald-50 p-3 rounded-full group-hover:bg-emerald-100 transition-colors"><Wallet className="h-6 w-6 text-emerald-600" /></div>
-            <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Receipt Amount</p><p className="text-xl font-black text-emerald-700 font-mono">₹ {formatAmount(overallSummary.receipt)}</p></div>
+        )}
+
+        {/* DIVISION-WISE FINANCIAL BREAKDOWN SECTION */}
+        {divisionSummaries.length > 0 ? (
+          <div className="space-y-3">
+            {/* MASTER SECTION HEADER: Centered title & right-side Total Balance Amount for all selected divisions */}
+            <div className="bg-[#dae8f5] border border-[#b5c7de] rounded-sm px-4 py-2.5 flex flex-col sm:flex-row items-center justify-between gap-2 shadow-2xs">
+              {/* Left Side: Icon & Active Divisions Count */}
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-start min-w-[200px]">
+                <Building2 className="h-4 w-4 text-blue-800 shrink-0" />
+                <span className="text-[11px] font-black uppercase text-blue-950 tracking-wider font-mono">
+                  {divisionSummaries.length} {divisionSummaries.length === 1 ? "Division" : "Divisions"}
+                </span>
+              </div>
+
+              {/* Center: Heading Positioned in the Center */}
+              <div className="flex-1 text-center w-full sm:w-auto">
+                <h3 className="text-xs sm:text-sm font-black text-blue-950 uppercase tracking-widest">
+                  DIVISION-WISE FINANCIAL BREAKDOWN
+                </h3>
+              </div>
+
+              {/* Right Side: TOTAL BALANCE AMOUNT */}
+              <div className="min-w-[200px] text-right w-full sm:w-auto flex flex-col items-end justify-center">
+                <span className="text-[10px] font-extrabold text-gray-700 uppercase tracking-tight">
+                  TOTAL BALANCE AMOUNT
+                </span>
+                <span className="text-sm sm:text-base font-black text-red-700 font-mono tracking-tight leading-tight">
+                  ₹ {formatAmount(selectedDivisionsTotalBalance)}
+                </span>
+              </div>
+            </div>
+
+            {/* Individual Division Cards */}
+            {divisionSummaries.map((divItem) => (
+              <div key={divItem.division} className="space-y-2.5 border border-[#b5c7de] rounded-sm p-3.5 bg-white shadow-2xs">
+                <div className="flex items-center justify-between pb-1.5 border-b border-gray-200">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black uppercase text-blue-900 tracking-wider">
+                      {formatDivisionHeader(divItem.division)}
+                    </span>
+                    <span className="text-[10px] font-bold text-gray-500 bg-gray-100 border border-gray-300 px-2 py-0.5 rounded font-mono">
+                      {divItem.count} Invoices
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+                      Division Balance:
+                    </span>
+                    <span className="text-xs font-bold text-red-700 font-mono bg-red-50 border border-red-200 px-2 py-0.5 rounded">
+                      ₹ {formatAmount(divItem.summary.balance)}
+                    </span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+                  <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-blue-300 transition-colors">
+                    <div className="bg-blue-50 p-2.5 rounded-full"><Receipt className="h-5 w-5 text-blue-600" /></div>
+                    <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoice Amount</p><p className="text-lg font-black text-gray-800 font-mono">₹ {formatAmount(divItem.summary.total)}</p></div>
+                  </div>
+                  <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-emerald-300 transition-colors">
+                    <div className="bg-emerald-50 p-2.5 rounded-full"><Wallet className="h-5 w-5 text-emerald-600" /></div>
+                    <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Receipt Amount</p><p className="text-lg font-black text-emerald-700 font-mono">₹ {formatAmount(divItem.summary.receipt)}</p></div>
+                  </div>
+                  <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-orange-300 transition-colors">
+                    <div className="bg-orange-50 p-2.5 rounded-full"><MinusCircle className="h-5 w-5 text-orange-600" /></div>
+                    <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total TDS Amount</p><p className="text-lg font-black text-orange-700 font-mono">₹ {formatAmount(divItem.summary.tds)}</p></div>
+                  </div>
+                  <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-purple-300 transition-colors">
+                    <div className="bg-purple-50 p-2.5 rounded-full"><PlusCircle className="h-5 w-5 text-purple-600" /></div>
+                    <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Deduction Amount</p><p className="text-lg font-black text-purple-700 font-mono">₹ {formatAmount(divItem.summary.deduction)}</p></div>
+                  </div>
+                  <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-amber-300 transition-colors">
+                    <div className="bg-amber-50 p-2.5 rounded-full"><PlusCircle className="h-5 w-5 text-amber-600" /></div>
+                    <div><p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Interest Amount</p><p className="text-lg font-black text-amber-700 font-mono">₹ {formatAmount(divItem.summary.interest)}</p></div>
+                  </div>
+                  <div className="bg-[#f8fafc] border border-gray-200 rounded-sm p-3 flex items-center gap-3 hover:border-red-300 transition-colors">
+                    <div className="bg-red-50 p-2.5 rounded-full"><ArrowRight className="h-5 w-5 text-red-600" /></div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1">
+                        <p className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Total Balance Amount</p>
+                        <span className="text-[8px] font-bold text-gray-500 bg-gray-100 border border-gray-200 px-1 py-0.2 rounded font-mono">
+                          Division Total
+                        </span>
+                      </div>
+                      <p className="text-lg font-black text-red-700 font-mono">₹ {formatAmount(divItem.summary.balance)}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-          <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-orange-300 transition-colors">
-            <div className="bg-orange-50 p-3 rounded-full group-hover:bg-orange-100 transition-colors"><MinusCircle className="h-6 w-6 text-orange-600" /></div>
-            <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total TDS Amount</p><p className="text-xl font-black text-orange-700 font-mono">₹ {formatAmount(overallSummary.tds)}</p></div>
+        ) : filterPlants.length <= 1 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+            <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-blue-300 transition-colors">
+              <div className="bg-blue-50 p-3 rounded-full group-hover:bg-blue-100 transition-colors"><Receipt className="h-6 w-6 text-blue-600" /></div>
+              <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Invoice Amount</p><p className="text-xl font-black text-gray-800 font-mono">₹ {formatAmount(overallSummary.total)}</p></div>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-emerald-300 transition-colors">
+              <div className="bg-emerald-50 p-3 rounded-full group-hover:bg-emerald-100 transition-colors"><Wallet className="h-6 w-6 text-emerald-600" /></div>
+              <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Receipt Amount</p><p className="text-xl font-black text-emerald-700 font-mono">₹ {formatAmount(overallSummary.receipt)}</p></div>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-orange-300 transition-colors">
+              <div className="bg-orange-50 p-3 rounded-full group-hover:bg-orange-100 transition-colors"><MinusCircle className="h-6 w-6 text-orange-600" /></div>
+              <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total TDS Amount</p><p className="text-xl font-black text-orange-700 font-mono">₹ {formatAmount(overallSummary.tds)}</p></div>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-purple-300 transition-colors">
+              <div className="bg-purple-50 p-3 rounded-full group-hover:bg-purple-100 transition-colors"><PlusCircle className="h-6 w-6 text-purple-600" /></div>
+              <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Deduction Amount</p><p className="text-xl font-black text-purple-700 font-mono">₹ {formatAmount(overallSummary.deduction)}</p></div>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-amber-300 transition-colors">
+              <div className="bg-amber-50 p-3 rounded-full group-hover:bg-amber-100 transition-colors"><PlusCircle className="h-6 w-6 text-amber-600" /></div>
+              <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Interest Amount</p><p className="text-xl font-black text-amber-700 font-mono">₹ {formatAmount(overallSummary.interest)}</p></div>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-red-300 transition-colors">
+              <div className="bg-red-50 p-3 rounded-full group-hover:bg-red-100 transition-colors"><ArrowRight className="h-6 w-6 text-red-600" /></div>
+              <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Balance Amount</p><p className="text-xl font-black text-red-700 font-mono">₹ {formatAmount(overallSummary.balance)}</p></div>
+            </div>
           </div>
-          <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-purple-300 transition-colors">
-            <div className="bg-purple-50 p-3 rounded-full group-hover:bg-purple-100 transition-colors"><PlusCircle className="h-6 w-6 text-purple-600" /></div>
-            <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Deduction Amount</p><p className="text-xl font-black text-purple-700 font-mono">₹ {formatAmount(overallSummary.deduction)}</p></div>
-          </div>
-          <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-amber-300 transition-colors">
-            <div className="bg-amber-50 p-3 rounded-full group-hover:bg-amber-100 transition-colors"><PlusCircle className="h-6 w-6 text-amber-600" /></div>
-            <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Interest Amount</p><p className="text-xl font-black text-amber-700 font-mono">₹ {formatAmount(overallSummary.interest)}</p></div>
-          </div>
-          <div className="bg-white border border-gray-200 rounded-sm shadow-sm p-4 flex items-center gap-4 group hover:border-red-300 transition-colors">
-            <div className="bg-red-50 p-3 rounded-full group-hover:bg-red-100 transition-colors"><ArrowRight className="h-6 w-6 text-red-600" /></div>
-            <div><p className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Total Balance Amount</p><p className="text-xl font-black text-red-700 font-mono">₹ {formatAmount(overallSummary.balance)}</p></div>
-          </div>
-        </div>
-      )}
+        ) : null}
+      </div>
 
       {showDetail && (
         <div className="flex-1 flex flex-col animate-in slide-in-from-bottom-4 duration-500 overflow-hidden">

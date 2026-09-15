@@ -217,36 +217,56 @@ export default function DivisionMultiSelect({
           }
         }}
         className={cn(
-          "flex w-full items-center justify-between h-7 rounded-none border border-gray-400 bg-white px-2 text-xs shadow-inner focus:bg-[#fff9c4] focus:outline-none hover:bg-gray-50 transition-colors",
+          "flex w-full items-center justify-between min-h-[28px] h-auto rounded-none border border-gray-400 bg-white px-1.5 py-0.5 text-xs shadow-inner focus:bg-[#fff9c4] focus:outline-none hover:bg-gray-50 transition-colors",
           disabled && "opacity-50 cursor-not-allowed bg-gray-100"
         )}
       >
-        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+        <div className="flex items-center gap-1 min-w-0 flex-1 flex-wrap py-0.5">
           {isAll ? (
-            <span className="text-gray-800 font-semibold truncate">All</span>
+            <span className="text-gray-800 font-semibold px-0.5">All</span>
           ) : activeSelections.length === 1 ? (
-            <span className="text-gray-800 font-semibold truncate">{activeSelections[0]}</span>
-          ) : activeSelections.length > 1 ? (
-            <div className="flex items-center gap-1 min-w-0 flex-wrap">
-              <span className="text-[10px] font-black text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-sm whitespace-nowrap">
-                {activeSelections.length} Selected
+            <span
+              className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-950 bg-blue-50 border border-blue-300 px-1.5 py-0.5 rounded-sm shadow-2xs"
+              title={activeSelections[0]}
+            >
+              <span className="truncate max-w-[160px]">{activeSelections[0]}</span>
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleToggleDivision(activeSelections[0]);
+                }}
+                className="hover:text-red-600 hover:bg-blue-100 rounded-full p-0.5 cursor-pointer transition-colors"
+                title={`Remove ${activeSelections[0]}`}
+              >
+                <X className="h-2.5 w-2.5" />
               </span>
-              {activeSelections.slice(0, 2).map((divName) => (
+            </span>
+          ) : activeSelections.length > 1 ? (
+            activeSelections.map((divName) => (
+              <span
+                key={divName}
+                className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-950 bg-blue-50 border border-blue-300 px-1.5 py-0.5 rounded-sm shadow-2xs"
+                title={divName}
+              >
+                <span className="truncate max-w-[130px]">{divName}</span>
                 <span
-                  key={divName}
-                  className="text-[10px] font-bold text-gray-700 bg-gray-100 border border-gray-300 px-1 py-0.5 rounded-sm whitespace-nowrap"
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggleDivision(divName);
+                  }}
+                  className="hover:text-red-600 hover:bg-blue-100 rounded-full p-0.5 cursor-pointer transition-colors"
+                  title={`Remove ${divName}`}
                 >
-                  {divName}
+                  <X className="h-2.5 w-2.5" />
                 </span>
-              ))}
-              {activeSelections.length > 2 && (
-                <span className="text-[10px] font-bold text-gray-500 whitespace-nowrap">
-                  +{activeSelections.length - 2}
-                </span>
-              )}
-            </div>
+              </span>
+            ))
           ) : (
-            <span className="text-gray-400 truncate">{placeholder}</span>
+            <span className="text-gray-400 truncate px-0.5">{placeholder}</span>
           )}
         </div>
         <ChevronDown className={cn("h-3.5 w-3.5 text-gray-500 shrink-0 ml-1 transition-transform", isOpen && "rotate-180")} />
