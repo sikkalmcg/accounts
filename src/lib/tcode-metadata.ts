@@ -77,3 +77,5 @@ export function getTcodeTitle(code: string): string | null {
   if (!code) return null;
   return TCODE_TITLES[code.trim().toUpperCase()] || null;
 }
+
+export const TCODE_METADATA = TCODE_TITLES;

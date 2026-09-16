@@ -36,7 +36,11 @@ import {
   User,
   KeyRound,
   Star,
-  Plus
+  Plus,
+  Bot,
+  HelpCircle,
+  Keyboard,
+  Terminal
 } from "lucide-react";
 
 // System Menu Components
@@ -48,6 +52,7 @@ import SoundSettingsDialog from "@/components/system/SoundSettingsDialog";
 import KeyboardShortcutsDialog from "@/components/system/KeyboardShortcutsDialog";
 import AddFavoriteDialog from "@/components/system/AddFavoriteDialog";
 import RemoveFavoriteDialog from "@/components/system/RemoveFavoriteDialog";
+import { HelpAiChat } from "@/components/system/HelpAiChat";
 
 // System Hooks
 import { useSounds, setGlobalSoundPlayer, playGlobalSound } from "@/hooks/use-sounds";
@@ -264,6 +269,8 @@ export default function AppShell({ children }: AppShellProps) {
   // Top Menubar Dropdown States
   const [menuDropdownOpen, setMenuDropdownOpen] = useState(false);
   const [favoritesDropdownOpen, setFavoritesDropdownOpen] = useState(false);
+  const [helpDropdownOpen, setHelpDropdownOpen] = useState(false);
+  const [showAiChat, setShowAiChat] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showAddFavorite, setShowAddFavorite] = useState(false);
   const [showRemoveFavorite, setShowRemoveFavorite] = useState(false);
@@ -498,28 +505,36 @@ useEffect(() => {
       if (!target?.closest?.('.menubar-dropdown-container')) {
         setMenuDropdownOpen(false);
         setFavoritesDropdownOpen(false);
+        setHelpDropdownOpen(false);
       }
     };
-    const handleEsc = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setMenuDropdownOpen(false);
         setFavoritesDropdownOpen(false);
+        setHelpDropdownOpen(false);
+      } else if (e.key === 'F1') {
+        e.preventDefault();
+        setShowAiChat(prev => !prev);
       }
     };
     const handleOpenAddFav = () => setShowAddFavorite(true);
     const handleOpenRemoveFav = () => setShowRemoveFavorite(true);
+    const handleOpenAiChat = () => setShowAiChat(true);
 
     window.addEventListener('user-profile-updated', handleProfileUpdate as EventListener);
     window.addEventListener('open-add-favorite', handleOpenAddFav);
     window.addEventListener('open-remove-favorite', handleOpenRemoveFav);
+    window.addEventListener('open-ai-chat', handleOpenAiChat);
     document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEsc);
+    document.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('user-profile-updated', handleProfileUpdate as EventListener);
       window.removeEventListener('open-add-favorite', handleOpenAddFav);
       window.removeEventListener('open-remove-favorite', handleOpenRemoveFav);
+      window.removeEventListener('open-ai-chat', handleOpenAiChat);
       document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEsc);
+      document.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
 
@@ -828,7 +843,89 @@ useEffect(() => {
                 }}
               />
             </div>
-            <span className="cursor-default hover:bg-primary/10 px-2 py-0.5 rounded transition-colors text-foreground">Help</span>
+            {/* 6. Help Dropdown */}
+            <div className="relative menubar-dropdown-container">
+              <span
+                onClick={() => {
+                  setHelpDropdownOpen(!helpDropdownOpen);
+                  setMenuDropdownOpen(false);
+                  setFavoritesDropdownOpen(false);
+                  setSystemMenuOpen(false);
+                  playGlobalSound('button_click');
+                }}
+                className={cn(
+                  "cursor-pointer hover:bg-primary/10 px-2 py-0.5 rounded transition-colors inline-flex items-center gap-1.5 text-foreground select-none",
+                  helpDropdownOpen && "bg-primary/15 font-semibold text-primary"
+                )}
+              >
+                Help
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              </span>
+              {helpDropdownOpen && (
+                <div
+                  className="absolute left-0 top-full z-[200] min-w-[220px] bg-card border border-border shadow-lg shadow-black/20 py-1"
+                  style={{ boxShadow: '2px 2px 6px rgba(0,0,0,0.15)' }}
+                >
+                  <button
+                    onClick={() => {
+                      setHelpDropdownOpen(false);
+                      setShowAiChat(true);
+                      playGlobalSound('dialog');
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-left hover:bg-primary hover:text-white transition-colors group"
+                  >
+                    <Bot className="h-4 w-4 text-primary group-hover:text-white shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold flex items-center gap-1.5">
+                        <span>AI Assistant</span>
+                        <span className="text-[9px] bg-primary/20 group-hover:bg-white/20 px-1 rounded text-primary group-hover:text-white font-normal">Live Data</span>
+                      </div>
+                      <div className="text-[10px] text-muted-foreground group-hover:text-white/80 truncate">
+                        Ask about invoices, plants, errors
+                      </div>
+                    </div>
+                  </button>
+                  <div className="border-t border-border/70 my-1" />
+                  <button
+                    onClick={() => {
+                      setHelpDropdownOpen(false);
+                      setShowKeyboardShortcuts(true);
+                      playGlobalSound('button_click');
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-left hover:bg-primary hover:text-white transition-colors group"
+                  >
+                    <Keyboard className="h-3.5 w-3.5 text-muted-foreground group-hover:text-white shrink-0" />
+                    <span className="flex-1 font-medium">Keyboard Shortcuts</span>
+                    <span className="text-[10px] text-muted-foreground group-hover:text-white font-mono">F1</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setHelpDropdownOpen(false);
+                      router.push('/tcode/ZCODE');
+                      playGlobalSound('button_click');
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-left hover:bg-primary hover:text-white transition-colors group"
+                  >
+                    <Terminal className="h-3.5 w-3.5 text-muted-foreground group-hover:text-white shrink-0" />
+                    <span className="flex-1 font-medium">T-Code Directory</span>
+                  </button>
+                  <div className="border-t border-border/70 my-1" />
+                  <button
+                    onClick={() => {
+                      setHelpDropdownOpen(false);
+                      window.dispatchEvent(new CustomEvent('sap-status', {
+                        detail: { text: 'SIKKA LMC - Accounts Management System with AI Assistant v1.0.0', level: 'info' },
+                      }));
+                      playGlobalSound('button_click');
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-left hover:bg-primary hover:text-white transition-colors group"
+                  >
+                    <HelpCircle className="h-3.5 w-3.5 text-muted-foreground group-hover:text-white shrink-0" />
+                    <span className="flex-1 font-medium">About Sikka LMC</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* RIGHT SIDE: Standard Window Controls */}
@@ -1109,6 +1206,31 @@ useEffect(() => {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+
+            {/* Sikka AI Project Help Chat */}
+            <HelpAiChat
+              isOpen={showAiChat}
+              onClose={() => setShowAiChat(false)}
+              currentTcode={currentTcode}
+              userData={userData}
+            />
+
+            {/* Floating AI Help Launcher Button */}
+            {!showAiChat && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAiChat(true);
+                  playGlobalSound('dialog');
+                }}
+                className="fixed bottom-9 right-4 z-40 flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-full shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all text-xs font-semibold border border-white/20 select-none group"
+                title="Open Sikka AI Assistant (Help)"
+              >
+                <Bot className="h-4 w-4 animate-bounce text-white" />
+                <span>AI Help</span>
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              </button>
+            )}
           </>
         )}
 
