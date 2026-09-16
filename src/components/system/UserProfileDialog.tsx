@@ -143,9 +143,13 @@ export default function UserProfileDialog({ open, onOpenChange, userData, onSave
       return;
     }
 
-    // Validate file size (max 2MB)
-    if (file.size > 2 * 1024 * 1024) {
-      setErrors(prev => ({ ...prev, photo: 'File size must be less than 2MB' }));
+    // Validate file size (max 500 KB)
+    if (file.size > 500 * 1024) {
+      const msg = 'Profile photo size must be less than or equal to 500 KB.';
+      setErrors(prev => ({ ...prev, photo: msg }));
+      window.dispatchEvent(new CustomEvent('sap-status', {
+        detail: { text: msg, isError: true },
+      }));
       return;
     }
 
@@ -208,6 +212,8 @@ export default function UserProfileDialog({ open, onOpenChange, userData, onSave
         }).catch(() => {});
 
         onSave(updatedUser);
+
+        window.dispatchEvent(new CustomEvent('user-profile-updated', { detail: updatedUser }));
 
         window.dispatchEvent(new CustomEvent('sap-status', {
           detail: { text: 'Profile updated successfully', level: 'success' },
@@ -273,12 +279,26 @@ export default function UserProfileDialog({ open, onOpenChange, userData, onSave
                   <AlertCircle className="h-3 w-3" /> {errors.photo}
                 </p>
               )}
-              <p className="text-[9px] text-gray-400 mt-1">JPG, PNG, JPEG • Max 2MB</p>
+              <p className="text-[9px] text-gray-400 mt-1">JPG, PNG, JPEG • Max 500 KB</p>
             </div>
           </div>
 
           {/* Read-only Fields */}
           <div className="grid grid-cols-2 gap-4">
+            <div className="sap-selection-row">
+              <label className="sap-label text-[11px] font-bold text-gray-600 flex items-center gap-1">
+                <User className="h-3 w-3" /> Username
+              </label>
+              <div className="sap-input-wrapper">
+                <Input
+                  value={userData?.username || ''}
+                  disabled
+                  readOnly
+                  className="bg-gray-100 text-gray-700 font-semibold cursor-not-allowed h-7 text-[12px]"
+                />
+              </div>
+            </div>
+
             <div className="sap-selection-row">
               <label className="sap-label text-[11px] font-bold text-gray-600 flex items-center gap-1">
                 <Hash className="h-3 w-3" /> Employee ID

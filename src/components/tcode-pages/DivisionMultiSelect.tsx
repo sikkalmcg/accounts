@@ -6,6 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ChevronDown, Check, X, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isAllDivisions } from "@/lib/division-master";
+import { playGlobalSound } from "@/hooks/use-sounds";
 
 export interface DivisionItem {
   id: string;
@@ -92,10 +93,12 @@ export default function DivisionMultiSelect({
   }, [isOpen, updatePosition]);
 
   const handleToggleAll = () => {
+    playGlobalSound("checkbox");
     onChange(["ALL"]);
   };
 
   const handleToggleDivision = (divName: string) => {
+    playGlobalSound("checkbox");
     if (isAll) {
       // Switch from All to just this single division
       onChange([divName]);

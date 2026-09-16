@@ -34,15 +34,66 @@ export default function DB01() {
   const [expanded, setExpanded] = useState<string[]>(['favorites', 'sap-menu', 'm-logistics', 'm-invoice-grp', 'm-finance', 'm-reports']);
   const [userPerms, setUserPerms] = useState<string[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [userId, setUserId] = useState<string>("");
+  const [favorites, setFavorites] = useState<{ id?: string; tcode: string; description: string }[]>([]);
+  const [loadingFavorites, setLoadingFavorites] = useState(true);
+
+  const loadFavorites = async (uid: string) => {
+    if (!uid) return;
+    try {
+      setLoadingFavorites(true);
+      const res = await fetch(`/api/favorites?userId=${encodeURIComponent(uid)}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.favorites)) {
+        setFavorites(data.favorites);
+      }
+    } catch (err) {
+      console.error("Failed to load user favorites:", err);
+    } finally {
+      setLoadingFavorites(false);
+    }
+  };
 
   useEffect(() => {
     const stored = localStorage.getItem("sikka_user");
     if (stored) {
-      const parsed = JSON.parse(stored);
-      setUserPerms(parsed.tcodePermissions || []);
-      setIsAdmin(parsed.role === 'admin' || parsed.username === "ajaysomra");
+      try {
+        const parsed = JSON.parse(stored);
+        setUserPerms(parsed.tcodePermissions || []);
+        setIsAdmin(parsed.role === 'admin' || parsed.username === "ajaysomra");
+        const uid = parsed.username || parsed.id || "";
+        setUserId(uid);
+        if (uid) {
+          loadFavorites(uid);
+        }
+      } catch (e) {
+        console.error("Failed to parse sikka_user:", e);
+      }
     }
   }, []);
+
+  useEffect(() => {
+    const handleFavoritesUpdated = () => {
+      const currentUid = userId || (() => {
+        try {
+          const stored = localStorage.getItem("sikka_user");
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            return parsed.username || parsed.id || "";
+          }
+        } catch (e) {}
+        return "";
+      })();
+      if (currentUid) {
+        loadFavorites(currentUid);
+      }
+    };
+
+    window.addEventListener("favorites-updated", handleFavoritesUpdated);
+    return () => {
+      window.removeEventListener("favorites-updated", handleFavoritesUpdated);
+    };
+  }, [userId]);
 
   const hasAccess = (tcode?: string) => {
     if (isAdmin) return true;
@@ -54,16 +105,21 @@ export default function DB01() {
     setExpanded(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
-  const MenuItem = ({ id, label, icon: Icon, children, tcode }: any) => {
+  const MenuItem = ({ id, label, icon: Icon, children, tcode, hideIfUnauthorized = true }: any) => {
     const isExpanded = expanded.includes(id);
     const hasChildren = !!children;
+    const isAuthorized = hasAccess(tcode);
     
-    if (tcode && !hasAccess(tcode)) return null;
+    if (tcode && !isAuthorized && hideIfUnauthorized) return null;
 
     const handleClick = () => {
       if (hasChildren) {
         toggle(id);
       } else if (tcode) {
+        if (!isAuthorized) {
+          alert(`You do not have authorization to access transaction code: ${tcode}`);
+          return;
+        }
         router.push(`/tcode/${tcode}`);
       }
     };
@@ -71,16 +127,26 @@ export default function DB01() {
     return (
       <div className="select-inherit">
         <div 
-          className="flex items-center gap-1 py-0.5 px-2 hover:bg-primary/10 cursor-pointer group whitespace-nowrap"
+          className={`flex items-center justify-between py-0.5 px-2 cursor-pointer group whitespace-nowrap ${
+            !isAuthorized && tcode ? 'opacity-60 bg-slate-50 hover:bg-slate-100' : 'hover:bg-primary/10'
+          }`}
           onClick={handleClick}
+          title={!isAuthorized && tcode ? `You do not have authorization to access ${tcode}` : undefined}
         >
-          <div className="w-4 flex items-center justify-center">
-            {hasChildren && (isExpanded ? <ChevronDown className="h-3 w-3 text-primary" /> : <ChevronRight className="h-3 w-3 text-primary" />)}
+          <div className="flex items-center gap-1 min-w-0">
+            <div className="w-4 flex items-center justify-center shrink-0">
+              {hasChildren && (isExpanded ? <ChevronDown className="h-3 w-3 text-primary" /> : <ChevronRight className="h-3 w-3 text-primary" />)}
+            </div>
+            {Icon && <Icon className={`h-4 w-4 shrink-0 ${!isAuthorized && tcode ? 'text-muted-foreground' : 'text-primary/80'}`} />}
+            <span className={`text-[13px] truncate ${!isAuthorized && tcode ? 'text-muted-foreground line-through decoration-destructive/50' : 'text-foreground group-hover:text-primary'}`}>
+              {label} {tcode && <span className="text-muted-foreground font-mono text-xs ml-2">[{tcode}]</span>}
+            </span>
           </div>
-          {Icon && <Icon className="h-4 w-4 text-primary/80" />}
-          <span className="text-[13px] text-foreground group-hover:text-primary">
-            {label} {tcode && <span className="text-muted-foreground font-mono text-xs ml-2">[{tcode}]</span>}
-          </span>
+          {!isAuthorized && tcode && (
+            <span className="text-[10px] text-destructive font-semibold px-1 py-0.2 bg-destructive/10 rounded ml-2 shrink-0">
+              Locked
+            </span>
+          )}
         </div>
         {hasChildren && isExpanded && (
           <div className="ml-4 border-l border-gray-200">
@@ -113,9 +179,59 @@ export default function DB01() {
       {/* Left Sidebar - SAP Easy Access Menu */}
       <div className={`db01-sidebar ${!sidebarOpen ? "max-md:hidden" : ""} border-r border-gray-300 overflow-y-auto bg-white p-2 shrink-0 no-scrollbar relative z-20`}>
         <MenuItem id="favorites" label="Favorites" icon={Star}>
-          <MenuItem id="f1" label="Main Dashboard" icon={LayoutDashboard} tcode="DB01" />
-          <MenuItem id="f-vf01" label="Invoicing" icon={FileText} tcode="VF01" />
-          <MenuItem id="f-migo" label="Goods Movement" icon={Truck} tcode="MIGO" />
+          {loadingFavorites && favorites.length === 0 ? (
+            <div className="px-6 py-1 text-xs text-muted-foreground italic">Loading favorites...</div>
+          ) : favorites.length === 0 ? (
+            <div className="px-6 py-1.5 text-xs text-muted-foreground italic flex flex-col gap-1">
+              <span>No favorites added yet.</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.dispatchEvent(new CustomEvent("open-add-favorite"));
+                }}
+                className="text-primary hover:underline not-italic font-medium text-left"
+              >
+                + Add Favorite
+              </button>
+            </div>
+          ) : (
+            <>
+              {favorites.map((fav) => (
+                <MenuItem
+                  key={fav.tcode}
+                  id={`fav-${fav.tcode}`}
+                  label={fav.description || fav.tcode}
+                  icon={Star}
+                  tcode={fav.tcode}
+                  hideIfUnauthorized={false}
+                />
+              ))}
+              <div className="flex items-center gap-2 px-6 py-1.5 border-t border-slate-100 mt-1">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.dispatchEvent(new CustomEvent("open-add-favorite"));
+                  }}
+                  className="text-[11px] text-primary hover:underline font-medium"
+                >
+                  + Add Favorite
+                </button>
+                <span className="text-slate-300">|</span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.dispatchEvent(new CustomEvent("open-remove-favorite"));
+                  }}
+                  className="text-[11px] text-destructive hover:underline font-medium"
+                >
+                  - Remove Favorite
+                </button>
+              </div>
+            </>
+          )}
         </MenuItem>
         
         <MenuItem id="sap-menu" label="Sikka Menu" icon={Folder}>

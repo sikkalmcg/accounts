@@ -2,6 +2,7 @@ import type {Metadata} from 'next';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 import { DatabaseProvider } from "@/database";
+import GlobalSoundProvider from "@/components/system/GlobalSoundProvider";
 
 export const metadata: Metadata = {
   title: 'Sikka LMC - Smart Accounting',
@@ -33,6 +34,7 @@ export default function RootLayout({
       </head>
       <body className="font-body antialiased bg-background text-foreground min-h-screen">
         <DatabaseProvider>
+          <GlobalSoundProvider />
           {children}
           <Toaster />
         </DatabaseProvider>

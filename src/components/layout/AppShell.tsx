@@ -32,7 +32,11 @@ import {
   LayoutList,
   Minus,
   Square,
-  Maximize2
+  Maximize2,
+  User,
+  KeyRound,
+  Star,
+  Plus
 } from "lucide-react";
 
 // System Menu Components
@@ -42,6 +46,8 @@ import ChangePasswordDialog from "@/components/system/ChangePasswordDialog";
 import ThemeSettingsDialog from "@/components/system/ThemeSettingsDialog";
 import SoundSettingsDialog from "@/components/system/SoundSettingsDialog";
 import KeyboardShortcutsDialog from "@/components/system/KeyboardShortcutsDialog";
+import AddFavoriteDialog from "@/components/system/AddFavoriteDialog";
+import RemoveFavoriteDialog from "@/components/system/RemoveFavoriteDialog";
 
 // System Hooks
 import { useSounds, setGlobalSoundPlayer, playGlobalSound } from "@/hooks/use-sounds";
@@ -254,6 +260,13 @@ export default function AppShell({ children }: AppShellProps) {
   const [showThemeSettings, setShowThemeSettings] = useState(false);
   const [showSoundSettings, setShowSoundSettings] = useState(false);
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+
+  // Top Menubar Dropdown States
+  const [menuDropdownOpen, setMenuDropdownOpen] = useState(false);
+  const [favoritesDropdownOpen, setFavoritesDropdownOpen] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showAddFavorite, setShowAddFavorite] = useState(false);
+  const [showRemoveFavorite, setShowRemoveFavorite] = useState(false);
 
   // System Hooks
   const { settings: soundSettings, playSound } = useSounds();
@@ -474,9 +487,51 @@ useEffect(() => {
     return () => window.removeEventListener('sap-status', handleStatus);
   }, [saveInFlight]);
 
+  useEffect(() => {
+    const handleProfileUpdate = (e: any) => {
+      if (e.detail) {
+        setUserData(e.detail);
+      }
+    };
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest?.('.menubar-dropdown-container')) {
+        setMenuDropdownOpen(false);
+        setFavoritesDropdownOpen(false);
+      }
+    };
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMenuDropdownOpen(false);
+        setFavoritesDropdownOpen(false);
+      }
+    };
+    const handleOpenAddFav = () => setShowAddFavorite(true);
+    const handleOpenRemoveFav = () => setShowRemoveFavorite(true);
+
+    window.addEventListener('user-profile-updated', handleProfileUpdate as EventListener);
+    window.addEventListener('open-add-favorite', handleOpenAddFav);
+    window.addEventListener('open-remove-favorite', handleOpenRemoveFav);
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEsc);
+    return () => {
+      window.removeEventListener('user-profile-updated', handleProfileUpdate as EventListener);
+      window.removeEventListener('open-add-favorite', handleOpenAddFav);
+      window.removeEventListener('open-remove-favorite', handleOpenRemoveFav);
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEsc);
+    };
+  }, []);
+
   const handleLogout = () => {
+    setShowLogoutConfirm(true);
+  };
+
+  const handleLogoutConfirm = () => {
     localStorage.removeItem("sikka_user");
-    router.push("/login");
+    setShowLogoutConfirm(false);
+    playGlobalSound("button_click");
+    window.location.replace("/login");
   };
 
   const handleMinimize = () => {
@@ -639,9 +694,117 @@ useEffect(() => {
             <div className="flex items-center gap-1 cursor-default hover:bg-primary/10 px-2 py-0.5 rounded">
               <Monitor className="h-4 w-4 text-primary" />
             </div>
-{["Menu", "Edit", "Favorites", "Extras"].map((item) => (
-              <span key={item} className="cursor-default hover:bg-primary/10 px-2 py-0.5 rounded transition-colors text-foreground">{item}</span>
-            ))}
+            {/* 1. Menu Dropdown */}
+            <div className="relative menubar-dropdown-container">
+              <span
+                onClick={() => {
+                  setMenuDropdownOpen(!menuDropdownOpen);
+                  setFavoritesDropdownOpen(false);
+                  setSystemMenuOpen(false);
+                  playGlobalSound('button_click');
+                }}
+                className={cn(
+                  "cursor-pointer hover:bg-primary/10 px-2 py-0.5 rounded transition-colors inline-block text-foreground select-none",
+                  menuDropdownOpen && "bg-primary/15 font-semibold text-primary"
+                )}
+              >
+                Menu
+              </span>
+              {menuDropdownOpen && (
+                <div
+                  className="absolute left-0 top-full z-[200] min-w-[200px] bg-card border border-border shadow-lg shadow-black/20 py-1"
+                  style={{ boxShadow: '2px 2px 6px rgba(0,0,0,0.15)' }}
+                >
+                  <button
+                    onClick={() => {
+                      setMenuDropdownOpen(false);
+                      setShowUserProfile(true);
+                      playGlobalSound('button_click');
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-1.5 text-[12px] text-left hover:bg-primary hover:text-white transition-colors group"
+                  >
+                    <User className="h-3.5 w-3.5 text-muted-foreground group-hover:text-white" />
+                    <span className="flex-1 font-medium">Profile</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuDropdownOpen(false);
+                      setShowChangePassword(true);
+                      playGlobalSound('button_click');
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-1.5 text-[12px] text-left hover:bg-primary hover:text-white transition-colors group"
+                  >
+                    <KeyRound className="h-3.5 w-3.5 text-muted-foreground group-hover:text-white" />
+                    <span className="flex-1 font-medium">Change Password</span>
+                  </button>
+                  <div className="border-t border-border/70 my-1" />
+                  <button
+                    onClick={() => {
+                      setMenuDropdownOpen(false);
+                      setShowLogoutConfirm(true);
+                      playGlobalSound('button_click');
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-1.5 text-[12px] text-left text-destructive hover:bg-destructive/90 hover:text-white transition-colors group"
+                  >
+                    <LogOut className="h-3.5 w-3.5 text-destructive group-hover:text-white" />
+                    <span className="flex-1 font-medium">Logout</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* 2. Edit */}
+            <span className="cursor-default hover:bg-primary/10 px-2 py-0.5 rounded transition-colors text-foreground">Edit</span>
+
+            {/* 3. Favorites Dropdown */}
+            <div className="relative menubar-dropdown-container">
+              <span
+                onClick={() => {
+                  setFavoritesDropdownOpen(!favoritesDropdownOpen);
+                  setMenuDropdownOpen(false);
+                  setSystemMenuOpen(false);
+                  playGlobalSound('button_click');
+                }}
+                className={cn(
+                  "cursor-pointer hover:bg-primary/10 px-2 py-0.5 rounded transition-colors inline-block text-foreground select-none",
+                  favoritesDropdownOpen && "bg-primary/15 font-semibold text-primary"
+                )}
+              >
+                Favorites
+              </span>
+              {favoritesDropdownOpen && (
+                <div
+                  className="absolute left-0 top-full z-[200] min-w-[200px] bg-card border border-border shadow-lg shadow-black/20 py-1"
+                  style={{ boxShadow: '2px 2px 6px rgba(0,0,0,0.15)' }}
+                >
+                  <button
+                    onClick={() => {
+                      setFavoritesDropdownOpen(false);
+                      setShowAddFavorite(true);
+                      playGlobalSound('button_click');
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-1.5 text-[12px] text-left hover:bg-primary hover:text-white transition-colors group"
+                  >
+                    <Plus className="h-3.5 w-3.5 text-primary group-hover:text-white" />
+                    <span className="flex-1 font-medium">Add Favorite</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setFavoritesDropdownOpen(false);
+                      setShowRemoveFavorite(true);
+                      playGlobalSound('button_click');
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-1.5 text-[12px] text-left hover:bg-destructive/90 hover:text-white text-destructive transition-colors group"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-destructive group-hover:text-white" />
+                    <span className="flex-1 font-medium">Remove Favorite</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* 4. Extras */}
+            <span className="cursor-default hover:bg-primary/10 px-2 py-0.5 rounded transition-colors text-foreground">Extras</span>
             <div className="relative">
               <span 
                 onClick={() => { setSystemMenuOpen(!systemMenuOpen); if (!systemMenuOpen) playGlobalSound('button_click'); }}
@@ -906,6 +1069,46 @@ useEffect(() => {
               onOpenChange={setShowKeyboardShortcuts}
               userData={userData}
             />
+            <AddFavoriteDialog
+              open={showAddFavorite}
+              onOpenChange={setShowAddFavorite}
+              userData={userData}
+            />
+            <RemoveFavoriteDialog
+              open={showRemoveFavorite}
+              onOpenChange={setShowRemoveFavorite}
+              userData={userData}
+            />
+            {/* Logout Confirmation Dialog */}
+            <AlertDialog open={showLogoutConfirm} onOpenChange={setShowLogoutConfirm}>
+              <AlertDialogContent className="max-w-md rounded-sm border-gray-400">
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="text-[14px] font-bold text-gray-800">
+                    Log Off
+                  </AlertDialogTitle>
+                  <AlertDialogDescription className="text-[12px] text-gray-600">
+                    Are you sure you want to logout?
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter className="border-t border-gray-200 pt-2 flex justify-end gap-2">
+                  <AlertDialogCancel
+                    onClick={() => {
+                      setShowLogoutConfirm(false);
+                      playGlobalSound("button_click");
+                    }}
+                    className="h-7 text-[11px] rounded-none border-gray-400"
+                  >
+                    Cancel
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleLogoutConfirm}
+                    className="h-7 text-[11px] rounded-none bg-red-600 hover:bg-red-700 text-white"
+                  >
+                    Logout
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </>
         )}
 

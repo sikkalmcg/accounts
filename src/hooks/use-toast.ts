@@ -7,6 +7,7 @@ import type {
   ToastActionElement,
   ToastProps,
 } from "@/components/ui/toast"
+import { playGlobalSound } from "@/hooks/use-sounds"
 
 const TOAST_LIMIT = 1
 const TOAST_REMOVE_DELAY = 1000000
@@ -163,6 +164,8 @@ function toast({ ...props }: Toast) {
       },
     },
   })
+
+  playGlobalSound(props.variant === "destructive" ? "error" : "success")
 
   return {
     id: id,

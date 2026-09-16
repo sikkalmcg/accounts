@@ -119,8 +119,8 @@ const handleCustomSoundUpload = (soundEvent: SoundEvent, e: React.ChangeEvent<HT
   };
 
   const handlePreview = (event: SoundEvent) => {
-    // Temporarily set the scheme to preview the sound
-    playSound(event);
+    // Preview the sound with currently selected scheme and settings
+    playSound(event, localSettings);
   };
 
   const handleSave = async () => {
@@ -243,6 +243,7 @@ const handleCustomSoundUpload = (soundEvent: SoundEvent, e: React.ChangeEvent<HT
                   <div className="flex items-center gap-2">
                     {/* Preview Button */}
                     <button
+                      data-sound="none"
                       onClick={() => handlePreview(event)}
                       disabled={!localSettings.enabled || localSettings.scheme === 'no_sound'}
                       className="p-1.5 hover:bg-blue-100 rounded text-blue-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"

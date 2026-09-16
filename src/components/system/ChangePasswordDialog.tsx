@@ -79,7 +79,7 @@ export default function ChangePasswordDialog({ open, onOpenChange, userData }: C
     }
 
     if (newPassword !== confirmPassword) {
-      return 'Confirm password must match the new password';
+      return 'New Password and Confirm Password do not match.';
     }
 
     return null;
@@ -98,19 +98,21 @@ export default function ChangePasswordDialog({ open, onOpenChange, userData }: C
     setIsSaving(true);
 
     try {
-      // Verify current password and update
-      const response = await fetch('/api/user-profile', {
-        method: 'PATCH',
+      // Verify current password and update via dedicated endpoint
+      const response = await fetch('/api/change-password', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: userData?.username,
-          password: newPassword, // In production, this should be hashed server-side
+          currentPassword,
+          newPassword,
         }),
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to update password');
+        throw new Error(data.error || 'Failed to change password');
       }
 
       // Audit log
@@ -196,6 +198,18 @@ export default function ChangePasswordDialog({ open, onOpenChange, userData }: C
             )}
 
             <div className="space-y-3">
+              <div className="sap-selection-row">
+                <label className="sap-label text-[11px] font-bold text-gray-600">Username</label>
+                <div className="sap-input-wrapper">
+                  <Input
+                    value={userData?.username || ''}
+                    disabled
+                    readOnly
+                    className="h-7 text-[12px] bg-gray-100 text-gray-700 font-semibold cursor-not-allowed"
+                  />
+                </div>
+              </div>
+
               <div className="sap-selection-row">
                 <label className="sap-label text-[11px] font-bold text-gray-600">Current Password</label>
                 <div className="sap-input-wrapper relative">

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Search, Check, ChevronDown, X, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { playGlobalSound } from "@/hooks/use-sounds";
 
 interface Plant {
   id: string;
@@ -118,6 +119,7 @@ export default function PlantMultiSelect({
   const totalCount = plantList.length;
 
   const togglePlant = (plantId: string) => {
+    playGlobalSound("checkbox");
     if (selected.includes(plantId)) {
       onChange(selected.filter((id) => id !== plantId));
     } else {
@@ -126,12 +128,14 @@ export default function PlantMultiSelect({
   };
 
   const selectAll = () => {
+    playGlobalSound("checkbox");
     const allIds = plantList.map((p) => p.plantId);
     // Merge with already-selected (non-selectable) ids to avoid data loss
     onChange(Array.from(new Set([...selected, ...allIds])));
   };
 
   const clearAll = () => {
+    playGlobalSound("checkbox");
     const removable = new Set(plantList.map((p) => p.plantId));
     onChange(selected.filter((id) => !removable.has(id)));
   };
